@@ -1401,12 +1401,12 @@ function viewMateriasPrimas(){
     <div class="wheat-divider">${icon('box')}<span>Referencia</span></div>
     <div class="panel">
       <h2>${icon('box')} Proveedores y materias primas</h2>
-      <p class="hint">Qué se le compra a cada proveedor (${TARIFARIO_DATA.length} artículos). Usa "Añadir al catálogo" para incorporar un producto al control de stock con su proveedor ya asignado.</p>
+      <p class="hint">Qué se le compra a cada proveedor (${TARIFARIO_DATA.length} artículos). Elige primero el proveedor y luego el producto.</p>
       <div class="filters">
-        <label class="field"><span>Buscar producto</span><input type="text" id="tarifSearch" placeholder="Ej: harina, servilletas, sal..."></label>
-        <label class="field"><span>Proveedor</span><select id="tarifProveedorSel"><option value="">Todos</option>${[...new Set(TARIFARIO_DATA.map(t=>t.proveedor))].filter(Boolean).sort().map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select></label>
+        <label class="field"><span>Proveedor</span><select id="tarifProveedorSel"><option value="" disabled selected>Selecciona un proveedor…</option>${[...new Set(TARIFARIO_DATA.map(t=>t.proveedor))].filter(Boolean).sort().map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select></label>
+        <label class="field"><span>Producto</span><select id="tarifProductoSel" disabled><option value="">Elige primero un proveedor…</option></select></label>
       </div>
-      <div id="tarifario-table"></div>
+      <div id="tarifario-acciones"></div>
     </div>
     <div class="panel">
       <h2>${icon('box')} Fichas de alérgenos de materias primas</h2>
@@ -1439,21 +1439,27 @@ function viewMateriasPrimas(){
     const f = new FormData(e.target);
     await abrirLoteMP(f.get('producto'), f.get('lote'), f.get('fechaApertura'));
   });
-  const runTarifario = ()=>{
-    const q = document.getElementById('tarifSearch').value.trim().toLowerCase();
+  document.getElementById('tarifProveedorSel').addEventListener('change', ()=>{
     const prov = document.getElementById('tarifProveedorSel').value;
-    const filtered = TARIFARIO_DATA.filter(t=> (!prov || t.proveedor===prov) && (!q || t.descripcion.toLowerCase().includes(q)) ).slice(0,300);
-    const rows = filtered.map((t,i)=>`<tr><td>${esc(t.proveedor)}</td><td>${esc(t.descripcion)}</td>
-      <td style="white-space:nowrap;">
-        <button class="btn secondary small" onclick="agregarAlCatalogo('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button>
-        <button class="btn small" onclick="agregarAlPedido('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">Añadir al pedido</button>
-      </td></tr>`);
-    document.getElementById('tarifario-table').innerHTML = table(['Proveedor','Producto',''], rows)
-      + (filtered.length>=300 ? '<p class="hint" style="margin-top:8px;">Mostrando los primeros 300 resultados, afina la búsqueda para ver más.</p>' : '');
-  };
-  document.getElementById('tarifSearch').addEventListener('input', runTarifario);
-  document.getElementById('tarifProveedorSel').addEventListener('change', runTarifario);
-  runTarifario();
+    const productoSel = document.getElementById('tarifProductoSel');
+    document.getElementById('tarifario-acciones').innerHTML = '';
+    if(!prov){ productoSel.innerHTML = '<option value="">Elige primero un proveedor…</option>'; productoSel.disabled = true; return; }
+    const productos = TARIFARIO_DATA.filter(t=>t.proveedor===prov).sort((a,b)=>a.descripcion.localeCompare(b.descripcion));
+    productoSel.disabled = false;
+    productoSel.innerHTML = '<option value="" disabled selected>Selecciona un producto…</option>' + productos.map(t=>`<option value="${esc(t.descripcion)}">${esc(t.descripcion)}</option>`).join('');
+  });
+  document.getElementById('tarifProductoSel').addEventListener('change', ()=>{
+    const prov = document.getElementById('tarifProveedorSel').value;
+    const prod = document.getElementById('tarifProductoSel').value;
+    const acciones = document.getElementById('tarifario-acciones');
+    if(!prod){ acciones.innerHTML = ''; return; }
+    acciones.innerHTML = `<div class="card" style="margin-top:4px;">
+      <div class="card-top"><h3>${esc(prod)}</h3></div>
+      <div class="sub" style="margin-bottom:10px;">Proveedor: ${esc(prov)}</div>
+      <button class="btn secondary small" onclick="agregarAlCatalogo('${esc(prod).replace(/'/g,"\\'")}','${esc(prov).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button>
+      <button class="btn small" onclick="agregarAlPedido('${esc(prod).replace(/'/g,"\\'")}','${esc(prov).replace(/'/g,"\\'")}')">Añadir al pedido</button>
+    </div>`;
+  });
   const runFichas = ()=>{
     const q = document.getElementById('mpFichaSearch').value.trim().toLowerCase();
     const filtered = FICHAS_MP_DATA.filter(f=> !q || f.producto.toLowerCase().includes(q) || f.proveedor.toLowerCase().includes(q) ||
