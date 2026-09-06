@@ -211,9 +211,10 @@ const STORE_KEYS = {
   lotesMP:'records:lotesMP',
   mantenimiento:'records:mantenimiento',
   noconformidades:'records:noconformidades',
+  pedidosManual:'records:pedidosManual',
 };
 let CONFIG = null;
-let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],noconformidades:[]};
+let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],noconformidades:[],pedidosManual:[]};
 
 function defaultConfig(){
   return {
@@ -1443,7 +1444,10 @@ function viewMateriasPrimas(){
     const prov = document.getElementById('tarifProveedorSel').value;
     const filtered = TARIFARIO_DATA.filter(t=> (!prov || t.proveedor===prov) && (!q || t.descripcion.toLowerCase().includes(q)) ).slice(0,300);
     const rows = filtered.map((t,i)=>`<tr><td>${esc(t.proveedor)}</td><td>${esc(t.descripcion)}</td>
-      <td><button class="btn secondary small" onclick="agregarAlCatalogo('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button></td></tr>`);
+      <td style="white-space:nowrap;">
+        <button class="btn secondary small" onclick="agregarAlCatalogo('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button>
+        <button class="btn small" onclick="agregarAlPedido('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">Añadir al pedido</button>
+      </td></tr>`);
     document.getElementById('tarifario-table').innerHTML = table(['Proveedor','Producto',''], rows)
       + (filtered.length>=300 ? '<p class="hint" style="margin-top:8px;">Mostrando los primeros 300 resultados, afina la búsqueda para ver más.</p>' : '');
   };
@@ -1558,34 +1562,61 @@ async function updateTelefonoProveedor(proveedor, telefono){
 
 /* ---- Pedidos pendientes + WhatsApp ---- */
 function renderPedidosPendientes(){
-  const pendientes = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo);
   const el = document.getElementById('pedidos-pendientes');
   if(!el) return;
-  if(pendientes.length===0){ el.innerHTML = '<p class="hint">No hay ningún producto por debajo de su stock mínimo ahora mismo.</p>'; return; }
+  const auto = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo);
+  const manual = DATA.pedidosManual||[];
   const grupos = {};
-  pendientes.forEach(m=>{
+  auto.forEach(m=>{
     const key = m.proveedor && m.proveedor.trim() ? m.proveedor.trim() : 'Sin proveedor asignado';
-    if(!grupos[key]) grupos[key] = [];
-    grupos[key].push(m);
+    if(!grupos[key]) grupos[key] = {auto:[], manual:[]};
+    grupos[key].auto.push(m);
   });
-  el.innerHTML = Object.keys(grupos).map(proveedor=>{
-    const items = grupos[proveedor];
+  manual.forEach(p=>{
+    const key = p.proveedor && p.proveedor.trim() ? p.proveedor.trim() : 'Sin proveedor asignado';
+    if(!grupos[key]) grupos[key] = {auto:[], manual:[]};
+    grupos[key].manual.push(p);
+  });
+  const proveedores = Object.keys(grupos);
+  if(proveedores.length===0){ el.innerHTML = '<p class="hint">No hay ningún producto por debajo de su stock mínimo ni añadido al pedido ahora mismo.</p>'; return; }
+  el.innerHTML = proveedores.map(proveedor=>{
+    const g = grupos[proveedor];
+    const total = g.auto.length + g.manual.length;
     return `<div class="card" style="margin-bottom:10px;">
-      <div class="card-top"><h3>${esc(proveedor)}</h3><span class="badge danger">${items.length} producto${items.length>1?'s':''}</span></div>
+      <div class="card-top"><h3>${esc(proveedor)}</h3><span class="badge danger">${total} producto${total>1?'s':''}</span></div>
       <ul style="margin:6px 0 12px;padding-left:18px;font-size:13px;">
-        ${items.map(m=>`<li>${esc(m.nombre)} — actual: ${m.stockActual} ${esc(m.unidad)} (mínimo ${m.stockMinimo})</li>`).join('')}
+        ${g.auto.map(m=>`<li>${esc(m.nombre)} — actual: ${m.stockActual} ${esc(m.unidad)} (mínimo ${m.stockMinimo})</li>`).join('')}
+        ${g.manual.map(p=>`<li>${esc(p.producto)} <span class="badge ok">añadido</span> <button class="btn danger small" style="margin-left:6px;" onclick="quitarDePedidoManual('${p.id}')">Quitar</button></li>`).join('')}
       </ul>
       <button class="btn small" onclick="enviarPedidoWhatsApp('${esc(proveedor).replace(/'/g,"\\'")}')">Pedir por WhatsApp</button>
     </div>`;
   }).join('');
 }
+async function agregarAlPedido(nombre, proveedor){
+  const key = proveedor && proveedor.trim() ? proveedor.trim() : 'Sin proveedor asignado';
+  if(!DATA.pedidosManual) DATA.pedidosManual = [];
+  const yaEsta = DATA.pedidosManual.find(p=>p.producto.trim().toLowerCase()===nombre.trim().toLowerCase() && (p.proveedor||'')===key);
+  if(yaEsta){ alert(`"${nombre}" ya estaba añadido al pedido de ${key}.`); return; }
+  DATA.pedidosManual.push({id:uid(), producto:nombre, proveedor:key, fecha:todayStr()});
+  await saveModule('pedidosManual');
+  renderPedidosPendientes();
+  alert(`"${nombre}" añadido al próximo pedido de ${key}.`);
+}
+async function quitarDePedidoManual(id){
+  DATA.pedidosManual = (DATA.pedidosManual||[]).filter(p=>p.id!==id);
+  await saveModule('pedidosManual');
+  renderPedidosPendientes();
+}
 function enviarPedidoWhatsApp(proveedor){
-  const items = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo && (m.proveedor&&m.proveedor.trim()?m.proveedor.trim():'Sin proveedor asignado')===proveedor);
+  const auto = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo && (m.proveedor&&m.proveedor.trim()?m.proveedor.trim():'Sin proveedor asignado')===proveedor);
+  const manual = (DATA.pedidosManual||[]).filter(p=>p.proveedor===proveedor);
+  if(auto.length===0 && manual.length===0){ alert('No hay productos pendientes para este proveedor.'); return; }
   const telefono = (CONFIG.telefonosProveedores||{})[proveedor];
   if(!telefono){ alert('Añade el teléfono de WhatsApp de "'+proveedor+'" en la lista de "Teléfonos de proveedores" antes de enviar el pedido.'); return; }
   const digits = telefono.replace(/[^0-9]/g,'');
+  const lineas = [...auto.map(m=>`- ${m.nombre}`), ...manual.map(p=>`- ${p.producto}`)];
   const mensaje = `Hola, os hacemos pedido desde ${CONFIG.empresa.nombre} (${CONFIG.empresa.obrador}):\n`
-    + items.map(m=>`- ${m.nombre}`).join('\n')
+    + lineas.join('\n')
     + '\n¿Podéis confirmarnos disponibilidad y fecha de entrega? Gracias.';
   window.open(`https://wa.me/${digits}?text=${encodeURIComponent(mensaje)}`, '_blank');
 }
