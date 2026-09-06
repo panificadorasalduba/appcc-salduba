@@ -261,7 +261,8 @@ function defaultConfig(){
       {nombre:'Papel siliconado horno', categoria:'Envases', proveedor:'', telefono:'', unidad:'rollos', stockMinimo:1, stockActual:1},
       {nombre:'Papel parafinado bollos-pan', categoria:'Envases', proveedor:'', telefono:'', unidad:'rollos', stockMinimo:1, stockActual:1},
       {nombre:'Spray', categoria:'Envases', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:1}
-    ]
+    ],
+    telefonosProveedores:{}
   };
 }
 
@@ -921,7 +922,7 @@ function viewRecepcion(){
     e.preventDefault();
     const f = new FormData(e.target);
     const rec = {id:uid(), fecha:f.get('fecha'), hora:f.get('hora'), proveedor:f.get('proveedor'), producto:f.get('producto'),
-      lote:f.get('lote'), tempLlegada:f.get('tempLlegada'), estadoEnvase:f.get('estadoEnvase'), caducidad:f.get('caducidad'),
+      lote:f.get('lote'), cantidad:f.get('cantidad'), tempLlegada:f.get('tempLlegada'), estadoEnvase:f.get('estadoEnvase'), caducidad:f.get('caducidad'),
       aceptado:f.get('aceptado')==='on', responsable:f.get('responsable'), observaciones:f.get('observaciones'), fotoId:null};
     DATA.recepcion.unshift(rec);
     await saveModule('recepcion');
@@ -1079,7 +1080,7 @@ async function confirmarRecepcionFoto(){
     try{ await Store.set('foto:'+fotoId, recepcionFotoDataUrl); }catch(e){ console.error(e); fotoId=null; }
   }
   lineasValidas.forEach(l=>{
-    DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, producto:l.producto, lote:l.lote, tempLlegada, estadoEnvase,
+    DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, producto:l.producto, lote:l.lote, cantidad:l.cantidad||'', tempLlegada, estadoEnvase,
       caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId});
   });
   await saveModule('recepcion');
@@ -1107,14 +1108,15 @@ async function verFotoAlbaran(fotoId){
 function renderRecepTable(){
   const rows = DATA.recepcion.map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td>${esc(r.producto)}</td>
-    <td class="mono">${esc(r.lote)||'—'}</td><td class="mono">${r.tempLlegada!==''&&r.tempLlegada!==undefined?r.tempLlegada+'°C':'—'}</td>
+    <td class="mono">${esc(r.lote)||'—'}</td><td class="mono">${r.cantidad?esc(r.cantidad):'—'}</td>
+    <td class="mono">${r.tempLlegada!==''&&r.tempLlegada!==undefined?r.tempLlegada+'°C':'—'}</td>
     <td>${esc(r.estadoEnvase)}</td><td class="mono">${fmtDate(r.caducidad)}</td>
     <td><span class="badge ${r.aceptado?'ok':'danger'}">${r.aceptado?'Aceptado':'Rechazado'}</span></td>
     <td>${esc(r.responsable)}</td>
     <td>${r.fotoId?`<button class="btn secondary small" onclick="verFotoAlbaran('${r.fotoId}')">Ver</button>`:'—'}</td>
     <td><button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button></td>
   </tr>`);
-  document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Producto','Lote','Temp.','Envase','Caduca','Estado','Responsable','Albarán',''], rows);
+  document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Producto','Lote','Cantidad','Temp.','Envase','Caduca','Estado','Responsable','Albarán',''], rows);
 }
 
 /* ================= ALERGENOS ================= */
@@ -1350,10 +1352,17 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Catálogo y stock de materias primas</h2>
-      <p class="hint">Cada vez que se registra una recepción (con foto de albarán o manual) el producto entra aquí solo, sumando la cantidad recibida — si es la primera vez que llega, se crea automáticamente. Al abrir un bote/cubo/saco en "Lotes" se descuenta 1 del stock. También puedes editar stock, proveedor y teléfono (WhatsApp) a mano en cualquier momento.</p>
+      <p class="hint">Cada vez que se registra una recepción (con foto de albarán o manual) el producto entra aquí solo, sumando la cantidad recibida — si es la primera vez que llega, se crea automáticamente. Al abrir un bote/cubo/saco en "Lotes" se descuenta 1 del stock. También puedes editar stock y proveedor a mano en cualquier momento.</p>
       <div id="catalogo-mp-table"></div>
       <button class="btn secondary small" id="add-mp-btn">+ Añadir materia prima</button>
       <button class="btn secondary small" id="autocompletar-proveedores-btn">Autocompletar proveedores según el listado</button>
+      <button class="btn secondary small" id="recalcular-proveedores-btn">Actualizar proveedores desde recepciones</button>
+    </div>
+
+    <div class="panel">
+      <h2>${icon('box')} Teléfonos de proveedores (WhatsApp)</h2>
+      <p class="hint">Un teléfono por proveedor, no por producto — se usa para enviar los pedidos automáticos por WhatsApp cuando algún producto suyo cae por debajo de stock mínimo.</p>
+      <div class="settings-list" id="telefonos-proveedores"></div>
     </div>
 
     <div class="panel">
@@ -1372,7 +1381,12 @@ function viewMateriasPrimas(){
             ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>`<option value="${esc(m.nombre)}">${esc(m.nombre)} (stock: ${m.stockActual} ${esc(m.unidad)})</option>`).join('')}
           </select>
         </label>
-        <label class="field"><span>Lote</span><input type="text" name="lote" required></label>
+        <label class="field"><span>Lote</span>
+          <span style="display:flex;gap:6px;">
+            <input type="text" name="lote" id="loteInputLote" required style="flex:1;">
+            <button class="btn secondary small" type="button" id="mismoLoteBtn" title="Rellena con el mismo número de lote que usasteis la última vez para este producto">Mismo lote (ML)</button>
+          </span>
+        </label>
         <label class="field"><span>Fecha apertura</span><input type="date" name="fechaApertura" id="loteFechaApertura" value="${todayStr()}" required></label>
         <label class="field"><span>Semana</span><input type="text" id="loteSemanaDisplay" value="S${getWeekNumber(todayStr())}" disabled></label>
         <div class="field wide" id="loteInfoProducto"></div>
@@ -1404,18 +1418,21 @@ function viewMateriasPrimas(){
   `;
   renderPedidosPendientes();
   renderCatalogoMP();
+  renderTelefonosProveedores();
   document.getElementById('add-mp-btn').addEventListener('click', async ()=>{
     CONFIG.materiasPrimas.push({nombre:'Nueva materia prima', categoria:'', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
     await saveConfig();
     viewMateriasPrimas();
   });
   document.getElementById('autocompletar-proveedores-btn').addEventListener('click', autocompletarProveedores);
+  document.getElementById('recalcular-proveedores-btn').addEventListener('click', recalcularProveedoresDesdeRecepciones);
   renderLotesAbiertos();
   renderLotesMPTable();
   document.getElementById('loteFechaApertura').addEventListener('change', e=>{
     document.getElementById('loteSemanaDisplay').value = 'S'+getWeekNumber(e.target.value);
   });
   document.getElementById('loteProductoSel').addEventListener('change', mostrarInfoProductoLote);
+  document.getElementById('mismoLoteBtn').addEventListener('click', usarMismoLote);
   document.getElementById('form-lotesmp').addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
@@ -1460,6 +1477,26 @@ async function agregarAlCatalogo(nombre, proveedor){
   renderCatalogoMP();
   renderPedidosPendientes();
 }
+async function recalcularProveedoresDesdeRecepciones(){
+  let n = 0;
+  CONFIG.materiasPrimas.forEach(m=>{
+    const key = m.nombre.trim().toLowerCase();
+    const candidatas = DATA.recepcion.filter(r=>{
+      if(!r.proveedor || !r.proveedor.trim() || !r.producto) return false;
+      const rk = r.producto.trim().toLowerCase();
+      return rk===key || rk.includes(key) || key.includes(rk);
+    }).sort((a,b)=> (b.fecha+(b.hora||'')).localeCompare(a.fecha+(a.hora||'')));
+    if(candidatas.length){
+      const nuevoProveedor = candidatas[0].proveedor.trim();
+      if(m.proveedor!==nuevoProveedor){ m.proveedor = nuevoProveedor; n++; }
+    }
+  });
+  await saveConfig();
+  renderCatalogoMP();
+  renderPedidosPendientes();
+  renderTelefonosProveedores();
+  alert(n>0 ? `Proveedor actualizado en ${n} producto(s) a partir del historial de recepciones.` : 'No se ha encontrado ninguna recepción que coincida con productos del catálogo, o ya estaban todos correctos.');
+}
 async function autocompletarProveedores(){
   let n = 0;
   CONFIG.materiasPrimas.forEach(m=>{
@@ -1471,6 +1508,7 @@ async function autocompletarProveedores(){
   await saveConfig();
   renderCatalogoMP();
   renderPedidosPendientes();
+  renderTelefonosProveedores();
   alert(n>0 ? `Proveedor asignado a ${n} producto(s) del catálogo.` : 'No se ha encontrado ninguna coincidencia nueva en el tarifario.');
 }
 
@@ -1480,25 +1518,42 @@ function renderCatalogoMP(){
     <td><input type="text" value="${esc(m.nombre)}" style="width:170px;" onchange="updateMPField(${i},'nombre',this.value)"></td>
     <td><input type="text" value="${esc(m.categoria)}" style="width:90px;" onchange="updateMPField(${i},'categoria',this.value)"></td>
     <td><input type="text" value="${esc(m.proveedor)}" style="width:110px;" onchange="updateMPField(${i},'proveedor',this.value)" placeholder="Proveedor"></td>
-    <td><input type="text" value="${esc(m.telefono)}" style="width:120px;" onchange="updateMPField(${i},'telefono',this.value)" placeholder="+34 6XX XXX XXX"></td>
     <td><input type="text" value="${esc(m.unidad)}" style="width:70px;" onchange="updateMPField(${i},'unidad',this.value)"></td>
     <td><input type="number" value="${m.stockMinimo}" style="width:55px;" onchange="updateMPField(${i},'stockMinimo',parseFloat(this.value)||0)"></td>
     <td><input type="number" value="${m.stockActual}" style="width:55px;${m.stockActual<=m.stockMinimo?'color:var(--danger);font-weight:700;':''}" onchange="updateMPField(${i},'stockActual',parseFloat(this.value)||0)"></td>
     <td><button class="btn danger small" onclick="removeMP(${i})">Quitar</button></td>
   </tr>`);
-  document.getElementById('catalogo-mp-table').innerHTML = table(['Producto','Categoría','Proveedor','Teléfono WhatsApp','Ud.','Mín.','Actual',''], rows);
+  document.getElementById('catalogo-mp-table').innerHTML = table(['Producto','Categoría','Proveedor','Ud.','Mín.','Actual',''], rows);
 }
 async function updateMPField(i, field, value){
   CONFIG.materiasPrimas[i][field] = value;
   await saveConfig();
   renderPedidosPendientes();
   renderCatalogoMP();
+  if(field==='proveedor') renderTelefonosProveedores();
 }
 async function removeMP(i){
   if(!confirm('¿Quitar esta materia prima del catálogo?')) return;
   CONFIG.materiasPrimas.splice(i,1);
   await saveConfig();
   viewMateriasPrimas();
+}
+function renderTelefonosProveedores(){
+  const el = document.getElementById('telefonos-proveedores');
+  if(!el) return;
+  if(!CONFIG.telefonosProveedores) CONFIG.telefonosProveedores = {};
+  const proveedores = [...new Set(CONFIG.materiasPrimas.map(m=>m.proveedor).filter(p=>p&&p.trim()))].sort();
+  if(proveedores.length===0){ el.innerHTML = '<p class="hint">Todavía no hay ningún proveedor asignado a un producto del catálogo.</p>'; return; }
+  el.innerHTML = proveedores.map(p=>`
+    <div class="settings-row">
+      <input type="text" value="${esc(p)}" disabled style="flex:1;background:#F1EADA;">
+      <input type="text" value="${esc(CONFIG.telefonosProveedores[p]||'')}" placeholder="+34 6XX XXX XXX" style="flex:1;" onchange="updateTelefonoProveedor('${esc(p).replace(/'/g,"\\'")}',this.value)">
+    </div>`).join('');
+}
+async function updateTelefonoProveedor(proveedor, telefono){
+  if(!CONFIG.telefonosProveedores) CONFIG.telefonosProveedores = {};
+  CONFIG.telefonosProveedores[proveedor] = telefono.trim();
+  await saveConfig();
 }
 
 /* ---- Pedidos pendientes + WhatsApp ---- */
@@ -1515,7 +1570,6 @@ function renderPedidosPendientes(){
   });
   el.innerHTML = Object.keys(grupos).map(proveedor=>{
     const items = grupos[proveedor];
-    const telefono = items.find(m=>m.telefono && m.telefono.trim())?.telefono || '';
     return `<div class="card" style="margin-bottom:10px;">
       <div class="card-top"><h3>${esc(proveedor)}</h3><span class="badge danger">${items.length} producto${items.length>1?'s':''}</span></div>
       <ul style="margin:6px 0 12px;padding-left:18px;font-size:13px;">
@@ -1527,8 +1581,8 @@ function renderPedidosPendientes(){
 }
 function enviarPedidoWhatsApp(proveedor){
   const items = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo && (m.proveedor&&m.proveedor.trim()?m.proveedor.trim():'Sin proveedor asignado')===proveedor);
-  const telefono = (items.find(m=>m.telefono && m.telefono.trim())||{}).telefono;
-  if(!telefono){ alert('Añade el teléfono de WhatsApp del comercial de "'+proveedor+'" en el catálogo antes de enviar el pedido.'); return; }
+  const telefono = (CONFIG.telefonosProveedores||{})[proveedor];
+  if(!telefono){ alert('Añade el teléfono de WhatsApp de "'+proveedor+'" en la lista de "Teléfonos de proveedores" antes de enviar el pedido.'); return; }
   const digits = telefono.replace(/[^0-9]/g,'');
   const mensaje = `Hola, os hacemos pedido desde ${CONFIG.empresa.nombre} (${CONFIG.empresa.obrador}):\n`
     + items.map(m=>`- ${m.nombre}`).join('\n')
@@ -1548,19 +1602,50 @@ function getWeekNumber(dateStr){
   const diff = target - firstThursday;
   return 1 + Math.round(diff/(7*24*3600*1000));
 }
+function cantidadRecepcion(r){
+  let cant = parseFloat(String(r.cantidad||'').replace(',','.'));
+  if(isFinite(cant) && cant>0) return cant;
+  const m = /Cantidad:\s*([\d.,]+)/.exec(r.observaciones||'');
+  if(m){ const v = parseFloat(m[1].replace(',','.')); if(isFinite(v)&&v>0) return v; }
+  return 1;
+}
 function loteMasAntiguoDisponible(nombre){
-  const usados = new Set(DATA.lotesMP
+  const key0 = nombre.trim().toLowerCase();
+  const porLote = {};
+  DATA.recepcion
+    .filter(r=>r.producto.trim().toLowerCase()===key0 && r.lote && r.lote.trim())
+    .forEach(r=>{
+      const key = r.lote.trim().toLowerCase();
+      const cant = cantidadRecepcion(r);
+      if(!porLote[key]) porLote[key] = {lote:r.lote, cantidadRecibida:0, fecha:r.fecha, caducidad:r.caducidad, proveedor:r.proveedor};
+      porLote[key].cantidadRecibida += cant;
+      if(r.fecha < porLote[key].fecha){ porLote[key].fecha = r.fecha; porLote[key].caducidad = r.caducidad; }
+    });
+  const abiertosPorLote = {};
+  DATA.lotesMP.filter(r=>r.producto.trim().toLowerCase()===key0).forEach(r=>{
+    const key = r.lote.trim().toLowerCase();
+    abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
+  });
+  const disponibles = Object.keys(porLote)
+    .map(key=>({...porLote[key], abiertos: abiertosPorLote[key]||0}))
+    .filter(l=>l.abiertos < l.cantidadRecibida)
+    .sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  return disponibles.length ? disponibles[0] : null;
+}
+function usarMismoLote(){
+  const nombre = document.getElementById('loteProductoSel').value;
+  const loteInput = document.getElementById('loteInputLote');
+  if(!nombre){ alert('Elige primero un producto.'); return; }
+  const anteriores = DATA.lotesMP
     .filter(r=>r.producto.trim().toLowerCase()===nombre.trim().toLowerCase())
-    .map(r=>r.lote.trim().toLowerCase()));
-  const recibidos = DATA.recepcion
-    .filter(r=>r.producto.trim().toLowerCase()===nombre.trim().toLowerCase() && r.lote && r.lote.trim() && !usados.has(r.lote.trim().toLowerCase()))
-    .sort((a,b)=> (a.fecha+ (a.hora||'')).localeCompare(b.fecha+(b.hora||'')));
-  return recibidos.length ? recibidos[0] : null;
+    .sort((a,b)=> (b.fechaApertura||'').localeCompare(a.fechaApertura||''));
+  if(anteriores.length===0){ alert('Todavía no hay ningún lote anterior registrado para este producto — escribe el número a mano esta primera vez.'); return; }
+  loteInput.value = anteriores[0].lote;
 }
 function mostrarInfoProductoLote(){
   const nombre = document.getElementById('loteProductoSel').value;
   const info = document.getElementById('loteInfoProducto');
-  const loteInput = document.querySelector('#form-lotesmp input[name=lote]');
+  const loteInput = document.getElementById('loteInputLote');
   if(!nombre){ info.innerHTML=''; return; }
   const m = CONFIG.materiasPrimas.find(x=>x.nombre===nombre);
   const abierto = DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===nombre.trim().toLowerCase());
@@ -1571,7 +1656,8 @@ function mostrarInfoProductoLote(){
   const antiguo = loteMasAntiguoDisponible(nombre);
   if(loteInput) loteInput.value = '';
   if(antiguo){
-    html += `<p class="hint" style="margin:4px 0 0;color:var(--ok);">📦 Lote más antiguo recibido (usa este primero — FIFO): <strong>${esc(antiguo.lote)}</strong>, recibido el ${fmtDate(antiguo.fecha)}${antiguo.caducidad?', caduca el '+fmtDate(antiguo.caducidad):''}, proveedor ${esc(antiguo.proveedor)||'—'}.</p>`;
+    const quedan = antiguo.cantidadRecibida - antiguo.abiertos;
+    html += `<p class="hint" style="margin:4px 0 0;color:var(--ok);">📦 Lote más antiguo recibido (usa este primero — FIFO): <strong>${esc(antiguo.lote)}</strong>, recibido el ${fmtDate(antiguo.fecha)}${antiguo.caducidad?', caduca el '+fmtDate(antiguo.caducidad):''}, proveedor ${esc(antiguo.proveedor)||'—'}. Quedan ${quedan} de ${antiguo.cantidadRecibida} unidad(es) por abrir de este lote.</p>`;
     if(loteInput) loteInput.value = antiguo.lote;
   } else {
     html += `<p class="hint" style="margin:4px 0 0;">No hay ninguna recepción registrada con lote para este producto todavía; escribe el lote a mano.</p>`;
@@ -1625,10 +1711,10 @@ async function registrarEntradaStock(nombre, proveedor, cantidadStr){
   const idx = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===nombre.trim().toLowerCase());
   if(idx>=0){
     CONFIG.materiasPrimas[idx].stockActual += cantidad;
-    if(!CONFIG.materiasPrimas[idx].proveedor && proveedor) CONFIG.materiasPrimas[idx].proveedor = proveedor;
+    if(proveedor && proveedor.trim()) CONFIG.materiasPrimas[idx].proveedor = proveedor.trim();
     return CONFIG.materiasPrimas[idx].nombre;
   }
-  CONFIG.materiasPrimas.push({nombre:nombre.trim(), categoria:'', proveedor:proveedor||'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:cantidad});
+  CONFIG.materiasPrimas.push({nombre:nombre.trim(), categoria:'', proveedor:proveedor?proveedor.trim():'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:cantidad});
   return nombre.trim();
 }
 
