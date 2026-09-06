@@ -1,0 +1,2210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APPCC · Panificadora Salduba</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --bg:#F7F1E6;
+    --panel:#FFFFFF;
+    --ink:#2A241D;
+    --ink-soft:#75695A;
+    --wheat:#B9762F;
+    --wheat-dark:#8F5A21;
+    --wheat-tint:#F1E2C8;
+    --ok:#4C7A4A;
+    --ok-tint:#E4EEDE;
+    --warn:#B4841A;
+    --warn-tint:#F6EBCF;
+    --danger:#B0402E;
+    --danger-tint:#F5E1DC;
+    --line:#E6DBC6;
+    --sidebar:#241E18;
+    --sidebar-soft:#B8A990;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Inter',sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.brand,.stamp{font-family:'Bitter',serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  #app{display:flex;min-height:100vh;}
+
+  /* SIDEBAR */
+  .sidebar{
+    width:236px;flex:none;background:var(--sidebar);color:#EFE7D8;
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  }
+  .sidebar-head{padding:22px 20px 16px;border-bottom:1px solid rgba(255,255,255,0.08);position:relative;overflow:hidden;}
+  .wheat-mark{width:26px;height:26px;color:var(--wheat);}
+  .brand{font-size:17px;font-weight:700;margin-top:8px;letter-spacing:0.2px;}
+  .brand small{display:block;font-family:'Inter',sans-serif;font-size:11px;font-weight:500;color:var(--sidebar-soft);letter-spacing:0.6px;text-transform:uppercase;margin-top:3px;}
+  nav.navlist{flex:1;padding:14px 10px;overflow-y:auto;}
+  .navitem{
+    display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;
+    color:#DAD0BC;font-size:13.5px;font-weight:500;cursor:pointer;margin-bottom:2px;
+    border-left:3px solid transparent;transition:background .12s ease;
+  }
+  .navitem svg{width:18px;height:18px;flex:none;opacity:.85;}
+  .navitem:hover{background:rgba(255,255,255,0.06);}
+  .navitem.active{background:rgba(185,118,47,0.18);border-left-color:var(--wheat);color:#fff;}
+  .sidebar-foot{padding:14px 20px 18px;font-size:11px;color:var(--sidebar-soft);border-top:1px solid rgba(255,255,255,0.08);line-height:1.5;}
+
+  /* MAIN */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .topbar{
+    background:var(--panel);border-bottom:1px solid var(--line);
+    padding:18px 30px;display:flex;align-items:baseline;justify-content:space-between;
+    position:sticky;top:0;z-index:5;
+  }
+  .topbar h1{font-size:21px;margin:0;font-weight:600;}
+  .topbar .date{font-size:12.5px;color:var(--ink-soft);}
+  .content{padding:26px 30px 60px;max-width:1180px;}
+  .view{display:none;}
+  .view.active{display:block;}
+
+  /* CARDS / PANELS */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin-bottom:20px;}
+  .panel h2{font-size:15.5px;margin:0 0 14px;font-weight:600;display:flex;align-items:center;gap:8px;}
+  .panel h2 svg{width:17px;height:17px;color:var(--wheat);}
+  .hint{font-size:12px;color:var(--ink-soft);margin:-8px 0 16px;}
+
+  /* FORM */
+  form.record-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;align-items:end;}
+  .field{display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+  .field.wide{grid-column:1 / -1;}
+  .field input,.field select,.field textarea{
+    font-family:'Inter',sans-serif;font-size:13.5px;color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#FDFBF6;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--wheat);outline-offset:0;border-color:var(--wheat);}
+  .field textarea{resize:vertical;min-height:42px;font-family:'Inter',sans-serif;}
+  .field.checkline{flex-direction:row;align-items:center;gap:8px;font-weight:500;}
+  .field.checkline input{width:16px;height:16px;}
+  .checkgroup{display:flex;flex-wrap:wrap;gap:8px 16px;}
+  .checkgroup label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--ink);}
+  .checkgroup input{width:15px;height:15px;}
+  .form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;margin-top:2px;}
+
+  button{font-family:'Inter',sans-serif;cursor:pointer;}
+  .btn{
+    background:var(--wheat);color:#fff;border:none;border-radius:7px;
+    padding:9px 18px;font-size:13px;font-weight:600;letter-spacing:.2px;
+  }
+  .btn:hover{background:var(--wheat-dark);}
+  .btn.secondary{background:transparent;color:var(--wheat-dark);border:1px solid var(--wheat);}
+  .btn.secondary:hover{background:var(--wheat-tint);}
+  .btn.danger{background:transparent;color:var(--danger);border:1px solid var(--danger);}
+  .btn.danger:hover{background:var(--danger-tint);}
+  .btn.small{padding:5px 10px;font-size:11.5px;border-radius:6px;}
+
+  /* TABLE */
+  table{width:100%;border-collapse:collapse;font-size:12.8px;}
+  thead th{
+    text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;
+    color:var(--ink-soft);border-bottom:1px solid var(--line);padding:8px 10px;font-weight:600;
+  }
+  tbody td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
+  tbody tr:hover{background:#FBF6EC;}
+  .table-wrap{overflow-x:auto;}
+  .empty-row td{color:var(--ink-soft);font-style:italic;text-align:center;padding:22px;}
+
+  .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.2px;}
+  .badge.ok{background:var(--ok-tint);color:var(--ok);}
+  .badge.warn{background:var(--warn-tint);color:var(--warn);}
+  .badge.danger{background:var(--danger-tint);color:var(--danger);}
+
+  /* DASHBOARD */
+  .dash-hero{
+    display:flex;justify-content:space-between;align-items:center;gap:24px;
+    background:var(--sidebar);color:#EFE7D8;border-radius:var(--radius);padding:24px 28px;margin-bottom:22px;
+    position:relative;overflow:hidden;
+  }
+  .dash-hero h2{color:#fff;font-size:20px;margin:0 0 6px;}
+  .dash-hero p{margin:0;font-size:13px;color:var(--sidebar-soft);max-width:440px;line-height:1.5;}
+  .stamp{
+    flex:none;width:118px;height:118px;border-radius:50%;
+    border:3px double currentColor;display:flex;align-items:center;justify-content:center;
+    text-align:center;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;
+    transform:rotate(-9deg);line-height:1.3;
+  }
+  .stamp.ok{color:#8CD08A;}
+  .stamp.danger{color:#E79486;}
+
+  .grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:22px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+  .card-top svg{width:19px;height:19px;color:var(--wheat);}
+  .card h3{font-size:13.5px;margin:0;font-weight:600;}
+  .card .metric{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;margin:2px 0 4px;}
+  .card .sub{font-size:11.5px;color:var(--ink-soft);}
+
+  .wheat-divider{display:flex;align-items:center;gap:8px;margin:26px 0 14px;color:var(--wheat);}
+  .wheat-divider svg{width:16px;height:16px;}
+  .wheat-divider span{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--ink-soft);font-weight:600;}
+  .wheat-divider::after{content:"";flex:1;height:1px;background:var(--line);}
+
+  .settings-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+  .settings-row{display:flex;gap:8px;align-items:center;}
+  .settings-row input{flex:1;font-family:'Inter',sans-serif;font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:#FDFBF6;}
+  .settings-row input.small{flex:none;width:80px;}
+
+  .filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:16px;}
+
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;}
+
+  @media(max-width:880px){
+    #app{flex-direction:column;}
+    .sidebar{width:100%;height:auto;position:relative;flex-direction:row;overflow-x:auto;}
+    .sidebar-head{display:none;}
+    nav.navlist{display:flex;padding:8px;}
+    .navitem{white-space:nowrap;border-left:none;border-bottom:3px solid transparent;}
+    .navitem.active{border-left-color:transparent;border-bottom-color:var(--wheat);}
+    .sidebar-foot{display:none;}
+    .content{padding:18px 16px 50px;}
+    .dash-hero{flex-direction:column;align-items:flex-start;}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <svg class="wheat-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 22V4"/><path d="M12 6c-2 0-3.5-1.6-3.5-3.6C10 3 12 4 12 6Z"/><path d="M12 6c2 0 3.5-1.6 3.5-3.6C14 3 12 4 12 6Z"/><path d="M12 10c-2 0-3.5-1.6-3.5-3.6C10 7 12 8 12 10Z"/><path d="M12 10c2 0 3.5-1.6 3.5-3.6C14 7 12 8 12 10Z"/><path d="M12 14c-2 0-3.5-1.6-3.5-3.6C10 11 12 12 12 14Z"/><path d="M12 14c2 0 3.5-1.6 3.5-3.6C14 11 12 12 12 14Z"/></svg>
+      <div class="brand">Salduba<small>Sistema APPCC</small></div>
+    </div>
+    <nav class="navlist" id="navlist"></nav>
+    <div class="sidebar-foot" id="sidebarFoot">Cargando datos de la empresa…</div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1 id="viewTitle">Panel general</h1>
+      <div class="date mono" id="topDate"></div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<script>
+/* ---------- CONFIG & STORAGE ---------- */
+const STORE_KEYS = {
+  config:'config',
+  temperaturas:'records:temperaturas',
+  limpieza:'records:limpieza',
+  agua:'records:agua',
+  recepcion:'records:recepcion',
+  alergenos:'records:alergenos',
+  alergenosTienda:'records:alergenosTienda',
+  aceite:'records:aceite',
+  trazabilidad:'records:trazabilidad',
+  lotesMP:'records:lotesMP',
+  mantenimiento:'records:mantenimiento',
+  noconformidades:'records:noconformidades',
+};
+let CONFIG = null;
+let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],noconformidades:[]};
+
+function defaultConfig(){
+  return {
+    empresa:{
+      nombre:'Panificadora Salduba',
+      obrador:'Obrador Plaza Toros',
+      registroSanitario:'20.27987/MA',
+      direccion:'Plza. Juan de Austria, 1, 29603 Marbella, Málaga'
+    },
+    equipos:[
+      {nombre:'Cámara frío materias primas',min:0,max:5},
+      {nombre:'Congelador pastelería',min:-22,max:-18},
+      {nombre:'Congelador panadería (Luis)',min:-22,max:-18},
+      {nombre:'Arcón congelación nº1',min:-22,max:-18},
+      {nombre:'Arcón congelación nº2',min:-22,max:-18},
+      {nombre:'Arcón congelación nº3',min:-22,max:-18},
+      {nombre:'Arcón congelación nº4',min:-22,max:-18},
+      {nombre:'Arcón congelación nº5',min:-22,max:-18},
+      {nombre:'Arcón congelación nº6',min:-22,max:-18},
+      {nombre:'Cámara refrigeración pan',min:0,max:5},
+      {nombre:'Cámara refrigeración ext.',min:0,max:5},
+      {nombre:'Vitrina / cámara tartas',min:0,max:5}
+    ],
+    zonasLimpieza:[
+      {area:'Carga / Descarga', elementos:['Suelos','Desagües','Cámara de pasteles','Cámara de panadería (Luis)','Pasillo']},
+      {area:'Sala Pastelería', elementos:['Superficies y cámaras','Cámara de conservación','Cámara refrigeración interna','Arcón nº1','Arcón nº2','Arcón nº3','Arcón nº4','Arcón nº5','Arcón nº6']},
+      {area:'Sala Pan', elementos:['Suelos de trabajo','Silos','Amasadoras','Cámara fermentación','Fermentadora','Estanterías','Mesas de trabajo','Puertas / hornos','Freidora']},
+      {area:'Sala Blanca', elementos:['Mesa de trabajo','Moldes y bandejas','Máquinas','Neveras','Batidoras','Utillaje','Campana extractora','Estanterías']},
+      {area:'Zona Almacenaje', elementos:['Suelos','Zona office','Estanterías']}
+    ],
+    tiendas:['Tienda 1','Tienda 2','Tienda 3','Tienda 4','Tienda 5','Tienda 6','Tienda 7'],
+    alergenos:['Gluten','Huevo','Leche y derivados','Frutos de cáscara','Soja','Sésamo','Frutos secos','Cacahuete'],
+    planes:['Agua','Proveedores','Temperaturas','Limpieza','Plagas - DDD','Mantenimiento','Trazabilidad','Alérgenos','Residuos','Otras'],
+    materiasPrimas:[
+      {nombre:'Sal Salinas del Odiel', categoria:'Panadería', proveedor:'', telefono:'', unidad:'sacos', stockMinimo:2, stockActual:2},
+      {nombre:'Bolsas papel tiendas', categoria:'Envases', proveedor:'', telefono:'', unidad:'cajas', stockMinimo:2, stockActual:2},
+      {nombre:'Bolsas plástico tiendas', categoria:'Envases', proveedor:'', telefono:'', unidad:'cajas', stockMinimo:2, stockActual:2},
+      {nombre:'Cápsula magdalena', categoria:'Envases', proveedor:'', telefono:'', unidad:'cajas', stockMinimo:2, stockActual:2},
+      {nombre:'Cápsula pergamino', categoria:'Envases', proveedor:'', telefono:'', unidad:'cajas', stockMinimo:2, stockActual:2},
+      {nombre:'Cartonaje tiendas', categoria:'Envases', proveedor:'', telefono:'', unidad:'paquetes', stockMinimo:2, stockActual:2},
+      {nombre:'Muñecos decor (comunión, novios, etc.)', categoria:'Envases', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:1},
+      {nombre:'Papel absorbente canastas pastel', categoria:'Envases', proveedor:'', telefono:'', unidad:'rollos', stockMinimo:1, stockActual:1},
+      {nombre:'Papel marrón liar rulos', categoria:'Envases', proveedor:'', telefono:'', unidad:'rollos', stockMinimo:1, stockActual:1},
+      {nombre:'Papel marrón en bobina', categoria:'Envases', proveedor:'', telefono:'', unidad:'bobinas', stockMinimo:1, stockActual:1},
+      {nombre:'Papel siliconado horno', categoria:'Envases', proveedor:'', telefono:'', unidad:'rollos', stockMinimo:1, stockActual:1},
+      {nombre:'Papel parafinado bollos-pan', categoria:'Envases', proveedor:'', telefono:'', unidad:'rollos', stockMinimo:1, stockActual:1},
+      {nombre:'Spray', categoria:'Envases', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:1}
+    ]
+  };
+}
+
+/* ---------- ALMACENAMIENTO INDEPENDIENTE (IndexedDB) ---------- */
+const HAS_CLAUDE_STORAGE = (typeof window!=='undefined' && window.storage && typeof window.storage.get==='function');
+const LocalStore = {
+  dbPromise:null,
+  openDB(){
+    if(this.dbPromise) return this.dbPromise;
+    this.dbPromise = new Promise((resolve,reject)=>{
+      const req = indexedDB.open('appcc_salduba_db', 1);
+      req.onupgradeneeded = ()=>{ if(!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv'); };
+      req.onsuccess = ()=>resolve(req.result);
+      req.onerror = ()=>reject(req.error);
+    });
+    return this.dbPromise;
+  },
+  async get(key){
+    try{
+      const db = await this.openDB();
+      return await new Promise((resolve,reject)=>{
+        const tx = db.transaction('kv','readonly');
+        const req = tx.objectStore('kv').get(key);
+        req.onsuccess = ()=>resolve(req.result);
+        req.onerror = ()=>reject(req.error);
+      });
+    }catch(e){ console.error('IndexedDB get error', e); return undefined; }
+  },
+  async set(key, value){
+    try{
+      const db = await this.openDB();
+      await new Promise((resolve,reject)=>{
+        const tx = db.transaction('kv','readwrite');
+        tx.objectStore('kv').put(value, key);
+        tx.oncomplete = ()=>resolve();
+        tx.onerror = ()=>reject(tx.error);
+      });
+      return true;
+    }catch(e){ console.error('IndexedDB set error', e); return false; }
+  },
+  async delete(key){
+    try{
+      const db = await this.openDB();
+      await new Promise((resolve,reject)=>{
+        const tx = db.transaction('kv','readwrite');
+        tx.objectStore('kv').delete(key);
+        tx.oncomplete = ()=>resolve();
+        tx.onerror = ()=>reject(tx.error);
+      });
+    }catch(e){ console.error('IndexedDB delete error', e); }
+  }
+};
+const Store = {
+  async get(key){
+    if(HAS_CLAUDE_STORAGE){
+      try{ const r = await window.storage.get(key, true); return r ? r.value : undefined; }catch(e){ /* cae a local */ }
+    }
+    return await LocalStore.get(key);
+  },
+  async set(key, value){
+    if(HAS_CLAUDE_STORAGE){
+      try{ await window.storage.set(key, value, true); return true; }catch(e){ /* cae a local */ }
+    }
+    return await LocalStore.set(key, value);
+  },
+  async delete(key){
+    if(HAS_CLAUDE_STORAGE){
+      try{ await window.storage.delete(key, true); return; }catch(e){ /* cae a local */ }
+    }
+    await LocalStore.delete(key);
+  }
+};
+function getApiKey(){ try{ return localStorage.getItem('appcc_anthropic_key') || ''; }catch(e){ return ''; } }
+function setApiKey(key){ try{ localStorage.setItem('appcc_anthropic_key', key); }catch(e){ console.error(e); } }
+function clearApiKey(){ try{ localStorage.removeItem('appcc_anthropic_key'); }catch(e){} }
+function getGeminiKey(){ try{ return localStorage.getItem('appcc_gemini_key') || ''; }catch(e){ return ''; } }
+function setGeminiKey(key){ try{ localStorage.setItem('appcc_gemini_key', key); }catch(e){ console.error(e); } }
+function clearGeminiKey(){ try{ localStorage.removeItem('appcc_gemini_key'); }catch(e){} }
+function getAIProvider(){ try{ return localStorage.getItem('appcc_ai_provider') || 'gemini'; }catch(e){ return 'gemini'; } }
+function setAIProvider(p){ try{ localStorage.setItem('appcc_ai_provider', p); }catch(e){ console.error(e); } }
+
+async function loadAll(){
+  try{
+    const c = await Store.get(STORE_KEYS.config);
+    CONFIG = c ? JSON.parse(c) : defaultConfig();
+  }catch(e){ CONFIG = defaultConfig(); }
+  for(const mod of Object.keys(DATA)){
+    try{
+      const r = await Store.get(STORE_KEYS[mod]);
+      DATA[mod] = r ? JSON.parse(r) : (mod==='temperaturas' ? {} : []);
+    }catch(e){ DATA[mod] = (mod==='temperaturas' ? {} : []); }
+  }
+}
+async function saveConfig(){
+  try{ await Store.set(STORE_KEYS.config, JSON.stringify(CONFIG)); }catch(e){ console.error(e); }
+}
+async function saveModule(mod){
+  try{ await Store.set(STORE_KEYS[mod], JSON.stringify(DATA[mod])); }catch(e){ console.error(e); }
+}
+
+/* ---------- COPIA DE SEGURIDAD ---------- */
+function exportarBackup(){
+  const backup = {config:CONFIG, data:DATA, exportadoEl:new Date().toISOString()};
+  const blob = new Blob([JSON.stringify(backup)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'appcc-salduba-backup-'+todayStr()+'.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+function importarBackupFile(file){
+  const reader = new FileReader();
+  reader.onload = async e=>{
+    try{
+      const backup = JSON.parse(e.target.result);
+      if(!backup.config || !backup.data) throw new Error('formato no reconocido');
+      if(!confirm('Esto reemplazará TODOS los datos actuales de la app por los del archivo de respaldo. ¿Continuar?')) return;
+      CONFIG = backup.config;
+      DATA = backup.data;
+      await saveConfig();
+      for(const mod of Object.keys(DATA)) await saveModule(mod);
+      alert('Copia de seguridad restaurada correctamente.');
+      updateSidebarFoot();
+      showView('dashboard');
+    }catch(err){ alert('El archivo no es una copia de seguridad válida de esta app.'); }
+  };
+  reader.readAsText(file);
+}
+
+/* ---------- SINCRONIZACIÓN CON GOOGLE DRIVE ---------- */
+const DRIVE_BACKUP_FILENAME = 'appcc-salduba-backup.json';
+let googleAccessToken = null;
+let googleTokenClient = null;
+function getGoogleClientId(){ try{ return localStorage.getItem('appcc_google_client_id') || ''; }catch(e){ return ''; } }
+function setGoogleClientId(id){ try{ localStorage.setItem('appcc_google_client_id', id); }catch(e){ console.error(e); } }
+function initGoogleTokenClient(){
+  const clientId = getGoogleClientId();
+  if(!clientId || typeof google==='undefined' || !google.accounts) return null;
+  if(googleTokenClient) return googleTokenClient;
+  googleTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: ''
+  });
+  return googleTokenClient;
+}
+function conectarGoogleDrive(){
+  const client = initGoogleTokenClient();
+  const estado = document.getElementById('driveStatus');
+  if(!client){ alert('Añade primero el ID de cliente de Google (OAuth) y guárdalo.'); return; }
+  client.callback = (resp)=>{
+    if(resp.error){ estado.textContent = 'No se pudo conectar: '+resp.error; return; }
+    googleAccessToken = resp.access_token;
+    estado.textContent = 'Conectado a Google Drive ✓';
+  };
+  client.requestAccessToken({prompt:'consent'});
+}
+async function asegurarTokenDrive(){
+  if(googleAccessToken) return googleAccessToken;
+  return new Promise((resolve,reject)=>{
+    const client = initGoogleTokenClient();
+    if(!client){ reject(new Error('Falta configurar el ID de cliente de Google en Ajustes.')); return; }
+    client.callback = (resp)=>{
+      if(resp.error){ reject(new Error(resp.error)); return; }
+      googleAccessToken = resp.access_token;
+      const estado = document.getElementById('driveStatus');
+      if(estado) estado.textContent = 'Conectado a Google Drive ✓';
+      resolve(googleAccessToken);
+    };
+    client.requestAccessToken({prompt:''});
+  });
+}
+async function buscarArchivoDrive(token){
+  const q = encodeURIComponent(`name='${DRIVE_BACKUP_FILENAME}' and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
+    headers:{Authorization:'Bearer '+token}
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data?.error?.message || 'Error al buscar el archivo en Drive');
+  return (data.files && data.files[0]) || null;
+}
+async function subirBackupADrive(){
+  const estado = document.getElementById('driveSyncEstado');
+  estado.textContent = 'Subiendo a Google Drive…';
+  try{
+    const token = await asegurarTokenDrive();
+    const existente = await buscarArchivoDrive(token);
+    const backup = {config:CONFIG, data:DATA, exportadoEl:new Date().toISOString()};
+    const metadata = {name:DRIVE_BACKUP_FILENAME, mimeType:'application/json'};
+    const boundary = 'appcc_boundary_'+uid();
+    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(backup)}\r\n--${boundary}--`;
+    const url = existente
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existente.id}?uploadType=multipart`
+      : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+    const res = await fetch(url, {
+      method: existente ? 'PATCH' : 'POST',
+      headers:{Authorization:'Bearer '+token, 'Content-Type':`multipart/related; boundary=${boundary}`},
+      body
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data?.error?.message || 'Error al subir a Drive');
+    estado.textContent = 'Copia subida a Google Drive correctamente ('+new Date().toLocaleTimeString()+').';
+  }catch(err){
+    console.error(err);
+    estado.textContent = 'Error al subir a Drive: '+err.message;
+  }
+}
+async function descargarBackupDeDrive(){
+  const estado = document.getElementById('driveSyncEstado');
+  estado.textContent = 'Buscando copia en Google Drive…';
+  try{
+    const token = await asegurarTokenDrive();
+    const existente = await buscarArchivoDrive(token);
+    if(!existente){ estado.textContent = 'No hay ninguna copia guardada en Drive todavía. Sube una primero desde otro dispositivo.'; return; }
+    if(!confirm('Esto reemplazará TODOS los datos actuales de esta app por los guardados en Google Drive. ¿Continuar?')){ estado.textContent=''; return; }
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${existente.id}?alt=media`, {headers:{Authorization:'Bearer '+token}});
+    const backup = await res.json();
+    if(!res.ok) throw new Error(backup?.error?.message || 'Error al descargar de Drive');
+    if(!backup.config || !backup.data) throw new Error('El archivo de Drive no tiene el formato esperado');
+    CONFIG = backup.config;
+    DATA = backup.data;
+    await saveConfig();
+    for(const mod of Object.keys(DATA)) await saveModule(mod);
+    estado.textContent = 'Datos restaurados desde Google Drive correctamente.';
+    updateSidebarFoot();
+    showView('dashboard');
+  }catch(err){
+    console.error(err);
+    estado.textContent = 'Error al descargar de Drive: '+err.message;
+  }
+}
+
+
+/* ---------- HELPERS ---------- */
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function nowStr(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d){ if(!d) return '—'; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
+function within(v,min,max){ return v>=min && v<=max; }
+
+/* ---------- ICONS ---------- */
+const ICONS = {
+  dashboard:'<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
+  temp:'<path d="M12 3a2 2 0 0 0-2 2v9.3a4 4 0 1 0 4 0V5a2 2 0 0 0-2-2Z"/><circle cx="12" cy="17" r="1.6"/>',
+  clean:'<path d="M9 3l2 2-6 6-2-2Z"/><path d="M5 11l8 8"/><path d="M13 19c2 1 6 1 7-2-3 1-4-1-4-3"/>',
+  truck:'<rect x="2" y="7" width="12" height="9" rx="1"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="6.5" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>',
+  wheat:'<path d="M12 21V6"/><path d="M12 8c-2 0-3.5-1.5-3.5-3.4C10 4 12 5 12 8Z"/><path d="M12 8c2 0 3.5-1.5 3.5-3.4C14 4 12 5 12 8Z"/><path d="M12 12.5c-2 0-3.5-1.5-3.5-3.4C10 8.5 12 9.5 12 12.5Z"/><path d="M12 12.5c2 0 3.5-1.5 3.5-3.4C14 8.5 12 9.5 12 12.5Z"/>',
+  route:'<circle cx="5" cy="6" r="2.3"/><circle cx="19" cy="18" r="2.3"/><path d="M5 8.3V13a4 4 0 0 0 4 4h6"/>',
+  alert:'<path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.9" fill="currentColor"/>',
+  report:'<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.5 7.5 0 0 0-1.8-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.8 1l-2.3-.9-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.1.8 1.8 1L11 21h4l.3-2.5c.7-.2 1.3-.6 1.8-1l2.3.9 2-3.4-2-1.5Z"/>',
+  water:'<path d="M12 3c-4 5-7 8.5-7 12a7 7 0 0 0 14 0c0-3.5-3-7-7-12Z"/>',
+  oil:'<path d="M12 3c-4 5-7 8.5-7 12a7 7 0 0 0 14 0c0-3.5-3-7-7-12Z"/><path d="M7.5 14.5h9"/>',
+  wrench:'<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.7-.7-2.3Z"/>',
+  book:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v18h5.5a2.5 2.5 0 0 0 2.5-2.5Z"/>',
+  box:'<path d="M3 8l9-5 9 5-9 5-9-5Z"/><path d="M3 8v9l9 5 9-5V8"/><path d="M12 13v9"/>'
+};
+function icon(name,cls){ return `<svg class="${cls||''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`; }
+
+/* ---------- NAV / VIEWS ---------- */
+const VIEWS = [
+  {id:'dashboard', label:'Panel general', icon:'dashboard'},
+  {id:'temperaturas', label:'Temperaturas equipos', icon:'temp'},
+  {id:'limpieza', label:'Limpieza y desinfección', icon:'clean'},
+  {id:'agua', label:'Control de agua', icon:'water'},
+  {id:'recepcion', label:'Recepción de mercancías', icon:'truck'},
+  {id:'alergenos', label:'Alérgenos', icon:'wheat'},
+  {id:'aceite', label:'Control de aceite', icon:'oil'},
+  {id:'trazabilidad', label:'Trazabilidad y reparto', icon:'route'},
+  {id:'materiasprimas', label:'Materias primas', icon:'box'},
+  {id:'mantenimiento', label:'Mantenimiento y plagas', icon:'wrench'},
+  {id:'noconformidades', label:'Incidencias', icon:'alert'},
+  {id:'listeria', label:'Clasificación Listeria', icon:'book'},
+  {id:'informes', label:'Informes', icon:'report'},
+  {id:'ajustes', label:'Ajustes', icon:'gear'},
+];
+
+function renderNav(){
+  const nav = document.getElementById('navlist');
+  nav.innerHTML = VIEWS.map(v=>`<div class="navitem" data-view="${v.id}">${icon(v.icon)}<span>${v.label}</span></div>`).join('');
+  nav.querySelectorAll('.navitem').forEach(el=>{
+    el.addEventListener('click',()=>showView(el.dataset.view));
+  });
+}
+function showView(id){
+  if(typeof camaraStream !== 'undefined' && id!=='recepcion') cerrarCamara();
+  document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active', el.dataset.view===id));
+  document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active', el.id==='view-'+id));
+  document.getElementById('viewTitle').textContent = VIEWS.find(v=>v.id===id).label;
+  RENDERERS[id]();
+}
+
+/* ---------- GENERIC TABLE ---------- */
+function table(headers, rows){
+  if(rows.length===0){
+    return `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+    <tbody><tr class="empty-row"><td colspan="${headers.length}">Todavía no hay registros.</td></tr></tbody></table></div>`;
+  }
+  return `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+async function removeRecord(mod, id, rerender){
+  if(!confirm('¿Eliminar este registro? Esta acción no se puede deshacer.')) return;
+  DATA[mod] = DATA[mod].filter(r=>r.id!==id);
+  await saveModule(mod);
+  rerender();
+  renderDashboard();
+}
+
+/* ================= TEMPERATURAS (rejilla mensual) ================= */
+function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
+function monthKey(y,m){ return y+'-'+String(m).padStart(2,'0'); }
+function getMonthRows(y,m){
+  const key = monthKey(y,m);
+  if(!DATA.temperaturas[key]){
+    DATA.temperaturas[key] = Array.from({length:31},(_,i)=>({day:i+1, valores:{}, responsable:'', incidencia:''}));
+  }
+  // asegurar que existen entradas para equipos añadidos después
+  DATA.temperaturas[key].forEach(row=>{ if(!row.valores) row.valores={}; });
+  return DATA.temperaturas[key];
+}
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+let tempSelMes = new Date().getMonth()+1;
+let tempSelAnio = new Date().getFullYear();
+function viewTemperaturas(){
+  document.getElementById('view-temperaturas').innerHTML = `
+    <div class="panel">
+      <h2>${icon('temp')} Registro de control de temperaturas de equipos</h2>
+      <p class="hint">Una fila por día, igual que la hoja mensual en papel. Las celdas fuera de rango se marcan en rojo automáticamente.</p>
+      <div class="filters">
+        <label class="field"><span>Mes</span><select id="tempMesSel">${MESES.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}</select></label>
+        <label class="field"><span>Año</span><input type="number" id="tempAnioSel" class="small" style="width:100px;" value="${tempSelAnio}"></label>
+        <button class="btn secondary" id="tempCargar">Cargar mes</button>
+        <button class="btn" id="tempGuardar">Guardar cambios del mes</button>
+      </div>
+      <div class="table-wrap" id="temp-grid"></div>
+    </div>
+  `;
+  document.getElementById('tempMesSel').value = tempSelMes;
+  document.getElementById('tempCargar').addEventListener('click', ()=>{
+    tempSelMes = parseInt(document.getElementById('tempMesSel').value,10);
+    tempSelAnio = parseInt(document.getElementById('tempAnioSel').value,10) || new Date().getFullYear();
+    renderTempGrid();
+  });
+  document.getElementById('tempGuardar').addEventListener('click', async ()=>{
+    await saveModule('temperaturas');
+    renderDashboard();
+    alert('Mes guardado correctamente.');
+  });
+  renderTempGrid();
+}
+function renderTempGrid(){
+  const rows = getMonthRows(tempSelAnio, tempSelMes);
+  const nDays = daysInMonth(tempSelAnio, tempSelMes);
+  const equipos = CONFIG.equipos;
+  const head = `<tr><th>Día</th>${equipos.map(e=>`<th>${esc(e.nombre)}</th>`).join('')}<th>Responsable</th><th>Incidencia nº</th></tr>`;
+  const body = rows.slice(0,nDays).map(row=>{
+    const cells = equipos.map(e=>{
+      const v = row.valores[e.nombre];
+      const outOfRange = (v!==undefined && v!=='' && isFinite(v)) ? !within(parseFloat(v), e.min, e.max) : false;
+      return `<td><input type="number" step="0.1" value="${v!==undefined?v:''}" style="width:64px;${outOfRange?'color:var(--danger);font-weight:700;':''}"
+        onchange="updateTempCell(${row.day},'${esc(e.nombre).replace(/'/g,"\\'")}',this.value)"></td>`;
+    }).join('');
+    return `<tr><td class="mono">${row.day}</td>${cells}
+      <td><input type="text" value="${esc(row.responsable)}" style="width:100px;" onchange="updateTempMeta(${row.day},'responsable',this.value)"></td>
+      <td><input type="text" value="${esc(row.incidencia)}" style="width:80px;" onchange="updateTempMeta(${row.day},'incidencia',this.value)"></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('temp-grid').innerHTML = `<table>${head}${body}</table>`;
+}
+function updateTempCell(day, equipo, value){
+  const rows = getMonthRows(tempSelAnio, tempSelMes);
+  const row = rows.find(r=>r.day===day);
+  row.valores[equipo] = value===''?'':parseFloat(value);
+  renderTempGrid();
+}
+function updateTempMeta(day, field, value){
+  const rows = getMonthRows(tempSelAnio, tempSelMes);
+  const row = rows.find(r=>r.day===day);
+  row[field] = value;
+}
+function temperaturasAlertasHoy(){
+  const now = new Date();
+  const rows = getMonthRows(now.getFullYear(), now.getMonth()+1);
+  const row = rows.find(r=>r.day===now.getDate());
+  if(!row) return 0;
+  let n=0;
+  CONFIG.equipos.forEach(e=>{
+    const v = row.valores[e.nombre];
+    if(v!==undefined && v!=='' && isFinite(v) && !within(parseFloat(v), e.min, e.max)) n++;
+  });
+  return n;
+}
+function temperaturasRegistradasHoy(){
+  const now = new Date();
+  const rows = getMonthRows(now.getFullYear(), now.getMonth()+1);
+  const row = rows.find(r=>r.day===now.getDate());
+  if(!row) return 0;
+  return Object.values(row.valores).filter(v=>v!==undefined && v!=='').length;
+}
+
+/* ================= LIMPIEZA ================= */
+function viewLimpieza(){
+  const areaOpts = CONFIG.zonasLimpieza.map(z=>`<option value="${esc(z.area)}">${esc(z.area)}</option>`).join('');
+  document.getElementById('view-limpieza').innerHTML = `
+    <div class="panel">
+      <h2>${icon('clean')} Nuevo registro de limpieza y desinfección</h2>
+      <p class="hint">Sigue la estructura del plan por salas: Carga/Descarga, Sala Pastelería, Sala Pan, Sala Blanca y Zona Almacenaje.</p>
+      <form class="record-form" id="form-limpieza">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Área / sala</span><select name="area" id="areaSelect" required>${areaOpts}</select></label>
+        <label class="field"><span>Elemento</span><select name="elemento" id="elementoSelect" required></select></label>
+        <label class="field"><span>Frecuencia</span><select name="frecuencia"><option>Diario</option><option>Semanal</option><option>Mensual</option><option>Anual</option></select></label>
+        <label class="field checkline"><input type="checkbox" name="realizado" checked><span>Limpieza realizada</span></label>
+        <label class="field"><span>Quién hace la acción</span><input type="text" name="responsable" required></label>
+        <label class="field"><span>Quién supervisa</span><input type="text" name="supervisor"></label>
+        <label class="field wide"><span>Observaciones / incidencia</span><textarea name="observaciones"></textarea></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('clean')} Histórico de limpieza</h2><div id="clean-table"></div></div>
+  `;
+  const setElementos = ()=>{
+    const area = CONFIG.zonasLimpieza.find(z=>z.area===document.getElementById('areaSelect').value);
+    document.getElementById('elementoSelect').innerHTML = area ? area.elementos.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('') : '';
+  };
+  document.getElementById('areaSelect').addEventListener('change', setElementos);
+  setElementos();
+  document.getElementById('form-limpieza').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const rec = {id:uid(), fecha:f.get('fecha'), area:f.get('area'), elemento:f.get('elemento'), frecuencia:f.get('frecuencia'),
+      realizado: f.get('realizado')==='on', responsable:f.get('responsable'), supervisor:f.get('supervisor'), observaciones:f.get('observaciones')};
+    DATA.limpieza.unshift(rec);
+    await saveModule('limpieza');
+    e.target.reset();
+    document.getElementById('form-limpieza').querySelector('input[name=fecha]').value = todayStr();
+    document.getElementById('form-limpieza').querySelector('input[name=realizado]').checked = true;
+    setElementos();
+    renderCleanTable();
+    renderDashboard();
+  });
+  renderCleanTable();
+}
+function renderCleanTable(){
+  const rows = DATA.limpieza.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.area)}</td><td>${esc(r.elemento)}</td><td>${esc(r.frecuencia)}</td>
+    <td><span class="badge ${r.realizado?'ok':'danger'}">${r.realizado?'Sí':'No'}</span></td>
+    <td>${esc(r.responsable)}</td><td>${esc(r.supervisor)||'—'}</td><td>${esc(r.observaciones)||'—'}</td>
+    <td><button class="btn danger small" onclick="removeRecord('limpieza','${r.id}',renderCleanTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('clean-table').innerHTML = table(['Fecha','Área','Elemento','Frecuencia','Realizado','Quién hace','Supervisor','Obs.',''], rows);
+}
+
+/* ================= AGUA ================= */
+function viewAgua(){
+  document.getElementById('view-agua').innerHTML = `
+    <div class="panel">
+      <h2>${icon('water')} Nuevo control de agua</h2>
+      <p class="hint">Control semanal por colorimetría. Valor objetivo de cloro: 0,2 mg/l. Proveedor de red: Hidralia.</p>
+      <form class="record-form" id="form-agua">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Cloro medido (mg/l)</span><input type="number" step="0.01" name="cloro" placeholder="0,2" required></label>
+        <label class="field checkline"><input type="checkbox" name="organolepticos" checked><span>Olor, color, sabor y turbidez normales</span></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
+        <label class="field wide"><span>Observaciones</span><textarea name="observaciones"></textarea></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('water')} Histórico de control de agua</h2><div id="agua-table"></div></div>
+  `;
+  document.getElementById('form-agua').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const cloro = parseFloat(f.get('cloro'));
+    const rec = {id:uid(), fecha:f.get('fecha'), cloro, organolepticos:f.get('organolepticos')==='on',
+      estado: (cloro>=0.1 && cloro<=0.5) ? 'OK' : 'REVISAR',
+      responsable:f.get('responsable'), observaciones:f.get('observaciones')};
+    DATA.agua.unshift(rec);
+    await saveModule('agua');
+    e.target.reset();
+    document.getElementById('form-agua').querySelector('input[name=fecha]').value = todayStr();
+    document.getElementById('form-agua').querySelector('input[name=organolepticos]').checked = true;
+    renderAguaTable();
+    renderDashboard();
+  });
+  renderAguaTable();
+}
+function renderAguaTable(){
+  const rows = DATA.agua.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.cloro} mg/l</td>
+    <td><span class="badge ${r.organolepticos?'ok':'danger'}">${r.organolepticos?'Normales':'Anómalos'}</span></td>
+    <td><span class="badge ${r.estado==='OK'?'ok':'danger'}">${r.estado}</span></td>
+    <td>${esc(r.responsable)}</td><td>${esc(r.observaciones)||'—'}</td>
+    <td><button class="btn danger small" onclick="removeRecord('agua','${r.id}',renderAguaTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('agua-table').innerHTML = table(['Fecha','Cloro','Organolépticos','Estado','Responsable','Obs.',''], rows);
+}
+
+/* ================= ACEITE DE FRITURA ================= */
+function viewAceite(){
+  document.getElementById('view-aceite').innerHTML = `
+    <div class="panel">
+      <h2>${icon('oil')} Nuevo control de aceite de fritura</h2>
+      <p class="hint">Rellenar cada vez que se use la freidora. Si los compuestos polares superan el 24%, hay que cambiar el aceite.</p>
+      <form class="record-form" id="form-aceite">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field checkline"><input type="checkbox" name="aceiteNuevo"><span>Aceite nuevo</span></label>
+        <label class="field"><span>Producto frito</span><input type="text" name="producto" placeholder="Ej: susos, pestiños"></label>
+        <label class="field"><span>Temperatura fritura (°C)</span><input type="number" name="temperatura" placeholder="180"></label>
+        <label class="field"><span>Compuestos polares (%)</span><input type="number" step="0.1" name="polares" placeholder="&lt;24"></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
+        <label class="field wide"><span>Observaciones</span><textarea name="observaciones"></textarea></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('oil')} Histórico de aceite</h2><div id="aceite-table"></div></div>
+  `;
+  document.getElementById('form-aceite').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const polares = parseFloat(f.get('polares'));
+    const rec = {id:uid(), fecha:f.get('fecha'), aceiteNuevo:f.get('aceiteNuevo')==='on', producto:f.get('producto'),
+      temperatura:f.get('temperatura'), polares: isFinite(polares)?polares:'',
+      estado: isFinite(polares) ? (polares>24?'CAMBIAR':'OK') : 'OK',
+      responsable:f.get('responsable'), observaciones:f.get('observaciones')};
+    DATA.aceite.unshift(rec);
+    await saveModule('aceite');
+    e.target.reset();
+    document.getElementById('form-aceite').querySelector('input[name=fecha]').value = todayStr();
+    renderAceiteTable();
+    renderDashboard();
+  });
+  renderAceiteTable();
+}
+function renderAceiteTable(){
+  const rows = DATA.aceite.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td>${r.aceiteNuevo?'Sí':'No'}</td><td>${esc(r.producto)||'—'}</td>
+    <td class="mono">${r.temperatura?r.temperatura+'°C':'—'}</td><td class="mono">${r.polares!==''?r.polares+'%':'—'}</td>
+    <td><span class="badge ${r.estado==='OK'?'ok':'danger'}">${r.estado}</span></td>
+    <td>${esc(r.responsable)}</td>
+    <td><button class="btn danger small" onclick="removeRecord('aceite','${r.id}',renderAceiteTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('aceite-table').innerHTML = table(['Fecha','Aceite nuevo','Producto','Temp.','Polares','Estado','Responsable',''], rows);
+}
+
+/* ================= MANTENIMIENTO Y PLAGAS ================= */
+function viewMantenimiento(){
+  document.getElementById('view-mantenimiento').innerHTML = `
+    <div class="panel">
+      <h2>${icon('wrench')} Nuevo parte de mantenimiento o visita DDD</h2>
+      <form class="record-form" id="form-mant">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Tipo</span><select name="tipo"><option>Mantenimiento</option><option>Plagas - DDD</option></select></label>
+        <label class="field"><span>Empresa externa</span><input type="text" name="empresa"></label>
+        <label class="field wide"><span>Descripción</span><textarea name="descripcion" required></textarea></label>
+        <label class="field checkline"><input type="checkbox" name="resuelto"><span>Resuelto</span></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('wrench')} Histórico de mantenimiento y plagas</h2><div id="mant-table"></div></div>
+  `;
+  document.getElementById('form-mant').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const rec = {id:uid(), fecha:f.get('fecha'), tipo:f.get('tipo'), empresa:f.get('empresa'), descripcion:f.get('descripcion'),
+      resuelto:f.get('resuelto')==='on', responsable:f.get('responsable')};
+    DATA.mantenimiento.unshift(rec);
+    await saveModule('mantenimiento');
+    viewMantenimiento();
+    renderDashboard();
+  });
+  renderMantTable();
+}
+function renderMantTable(){
+  const rows = DATA.mantenimiento.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.tipo)}</td><td>${esc(r.empresa)||'—'}</td><td>${esc(r.descripcion)}</td>
+    <td><span class="badge ${r.resuelto?'ok':'warn'}">${r.resuelto?'Resuelto':'Pendiente'}</span></td>
+    <td>${esc(r.responsable)}</td>
+    <td><button class="btn danger small" onclick="removeRecord('mantenimiento','${r.id}',renderMantTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('mant-table').innerHTML = table(['Fecha','Tipo','Empresa','Descripción','Estado','Responsable',''], rows);
+}
+
+/* ================= RECEPCION ================= */
+let recepcionExtraidas = [];
+let recepcionFotoDataUrl = null;
+let camaraStream = null;
+async function abrirCamara(){
+  const estado = document.getElementById('albaranEstado');
+  try{
+    camaraStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+    const video = document.getElementById('albaranVideo');
+    video.srcObject = camaraStream;
+    document.getElementById('albaranCamWrap').style.display = 'block';
+    estado.textContent = 'Encuadra el albarán y pulsa "Capturar foto".';
+  }catch(err){
+    console.error(err);
+    estado.textContent = 'Este navegador no permite abrir la cámara aquí. Usa "Subir foto": en el móvil también abre la cámara directamente.';
+  }
+}
+function cerrarCamara(){
+  if(camaraStream){ camaraStream.getTracks().forEach(t=>t.stop()); camaraStream = null; }
+  const wrap = document.getElementById('albaranCamWrap');
+  if(wrap) wrap.style.display = 'none';
+}
+function capturarFotoCamara(){
+  const video = document.getElementById('albaranVideo');
+  if(!video.videoWidth){ return; }
+  const maxWidth = 1100;
+  const scale = Math.min(1, maxWidth/video.videoWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(video.videoWidth*scale);
+  canvas.height = Math.round(video.videoHeight*scale);
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  recepcionFotoDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+  document.getElementById('albaranPreview').innerHTML = `<img src="${recepcionFotoDataUrl}" style="max-width:220px;border-radius:8px;border:1px solid var(--line);">`;
+  document.getElementById('albaranExtraerBtn').disabled = false;
+  document.getElementById('albaranEstado').textContent = 'Foto capturada. Pulsa "Extraer datos con IA".';
+  cerrarCamara();
+}
+function compressImage(file, maxWidth, quality){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = e=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const scale = Math.min(1, maxWidth/img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width*scale);
+        canvas.height = Math.round(img.height*scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = ()=>reject(new Error('No se pudo leer la imagen'));
+      img.src = e.target.result;
+    };
+    reader.onerror = ()=>reject(new Error('No se pudo leer el archivo'));
+    reader.readAsDataURL(file);
+  });
+}
+function viewRecepcion(){
+  document.getElementById('view-recepcion').innerHTML = `
+    <div class="panel">
+      <h2>${icon('truck')} Escanear albarán</h2>
+      <p class="hint">Haz una foto del albarán al recepcionar la mercancía. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
+      <div class="filters">
+        <label class="field"><span>Subir foto</span><input type="file" id="albaranFile" accept="image/*" capture="environment"></label>
+        <button class="btn secondary" id="albaranCamBtn" type="button">📷 Abrir cámara</button>
+        <button class="btn secondary" id="albaranExtraerBtn" disabled>Extraer datos con IA</button>
+      </div>
+      <div id="albaranCamWrap" style="display:none;margin-bottom:12px;">
+        <video id="albaranVideo" autoplay playsinline style="width:100%;max-width:360px;border-radius:10px;background:#000;display:block;margin-bottom:8px;"></video>
+        <button class="btn" type="button" id="albaranCapturarBtn">Capturar foto</button>
+        <button class="btn secondary" type="button" id="albaranCerrarCamBtn">Cancelar</button>
+      </div>
+      <div id="albaranPreview" style="margin-bottom:10px;"></div>
+      <p id="albaranEstado" class="hint" style="margin-bottom:14px;"></p>
+      <div class="record-form" style="margin-bottom:14px;">
+        <label class="field"><span>Proveedor</span><input type="text" id="albaranProveedor"></label>
+        <label class="field"><span>Fecha</span><input type="date" id="albaranFecha" value="${todayStr()}"></label>
+        <label class="field"><span>Hora</span><input type="time" id="albaranHora" value="${nowStr()}"></label>
+        <label class="field"><span>Temperatura llegada (°C)</span><input type="number" step="0.1" id="albaranTemp"></label>
+        <label class="field"><span>Estado del envase</span><select id="albaranEnvase"><option>Correcto</option><option>Dañado</option></select></label>
+        <label class="field"><span>Responsable</span><input type="text" id="albaranResponsable" placeholder="Quién recepciona"></label>
+      </div>
+      <p class="hint" style="margin-bottom:6px;">Productos detectados (edítalos si algo no se ha leído bien):</p>
+      <div id="lineasExtraidas" class="settings-list"></div>
+      <div class="form-actions"><button class="btn" id="albaranConfirmarBtn">Guardar recepción</button></div>
+    </div>
+    <div class="panel">
+      <h2>${icon('truck')} Añadir manualmente</h2>
+      <form class="record-form" id="form-recepcion">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Hora</span><input type="time" name="hora" value="${nowStr()}" required></label>
+        <label class="field"><span>Proveedor</span><input type="text" name="proveedor" required></label>
+        <label class="field"><span>Producto</span><input type="text" name="producto" required></label>
+        <label class="field"><span>Cantidad</span><input type="number" step="0.01" name="cantidad" value="1"></label>
+        <label class="field"><span>Lote proveedor</span><input type="text" name="lote"></label>
+        <label class="field"><span>Temperatura llegada (°C)</span><input type="number" step="0.1" name="tempLlegada"></label>
+        <label class="field"><span>Estado del envase</span><select name="estadoEnvase"><option>Correcto</option><option>Dañado</option></select></label>
+        <label class="field"><span>Caducidad</span><input type="date" name="caducidad"></label>
+        <label class="field checkline"><input type="checkbox" name="aceptado" checked><span>Mercancía aceptada</span></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
+        <label class="field wide"><span>Observaciones</span><textarea name="observaciones"></textarea></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('truck')} Histórico de recepciones</h2><div id="recep-table"></div></div>
+  `;
+  recepcionExtraidas = []; recepcionFotoDataUrl = null;
+  renderLineasExtraidas();
+  document.getElementById('albaranFile').addEventListener('change', async e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    document.getElementById('albaranEstado').textContent = 'Procesando foto…';
+    try{
+      recepcionFotoDataUrl = await compressImage(file, 1100, 0.72);
+      document.getElementById('albaranPreview').innerHTML = `<img src="${recepcionFotoDataUrl}" style="max-width:220px;border-radius:8px;border:1px solid var(--line);">`;
+      document.getElementById('albaranExtraerBtn').disabled = false;
+      document.getElementById('albaranEstado').textContent = 'Foto lista. Pulsa "Extraer datos con IA".';
+    }catch(err){
+      document.getElementById('albaranEstado').textContent = 'No se ha podido procesar la foto.';
+    }
+  });
+  document.getElementById('albaranCamBtn').addEventListener('click', abrirCamara);
+  document.getElementById('albaranCapturarBtn').addEventListener('click', capturarFotoCamara);
+  document.getElementById('albaranCerrarCamBtn').addEventListener('click', cerrarCamara);
+  document.getElementById('albaranExtraerBtn').addEventListener('click', extraerAlbaran);
+  document.getElementById('albaranConfirmarBtn').addEventListener('click', confirmarRecepcionFoto);
+  document.getElementById('form-recepcion').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const rec = {id:uid(), fecha:f.get('fecha'), hora:f.get('hora'), proveedor:f.get('proveedor'), producto:f.get('producto'),
+      lote:f.get('lote'), tempLlegada:f.get('tempLlegada'), estadoEnvase:f.get('estadoEnvase'), caducidad:f.get('caducidad'),
+      aceptado:f.get('aceptado')==='on', responsable:f.get('responsable'), observaciones:f.get('observaciones'), fotoId:null};
+    DATA.recepcion.unshift(rec);
+    await saveModule('recepcion');
+    if(rec.aceptado){
+      await registrarEntradaStock(rec.producto, rec.proveedor, f.get('cantidad'));
+      await saveConfig();
+    }
+    e.target.reset();
+    document.getElementById('form-recepcion').querySelector('input[name=fecha]').value = todayStr();
+    document.getElementById('form-recepcion').querySelector('input[name=hora]').value = nowStr();
+    document.getElementById('form-recepcion').querySelector('input[name=aceptado]').checked = true;
+    document.getElementById('form-recepcion').querySelector('input[name=cantidad]').value = 1;
+    renderRecepTable();
+    renderDashboard();
+  });
+  renderRecepTable();
+}
+const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
+
+async function llamarClaudeSinClave(base64){
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify({
+      model:'claude-sonnet-4-6', max_tokens:1000,
+      messages:[{role:'user', content:[
+        {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
+        {type:'text', text:PROMPT_ALBARAN}
+      ]}]
+    })
+  });
+  let data;
+  try{ data = await response.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+response.status+')'); }
+  if(!response.ok) throw new Error(data?.error?.message || ('HTTP '+response.status));
+  const textBlock = (data.content||[]).find(b=>b.type==='text');
+  if(!textBlock || !textBlock.text) throw new Error('La IA no ha devuelto texto legible.');
+  return textBlock.text;
+}
+async function llamarClaudeConClave(base64, apiKey){
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{'content-type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body: JSON.stringify({
+      model:'claude-sonnet-4-6', max_tokens:1000,
+      messages:[{role:'user', content:[
+        {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
+        {type:'text', text:PROMPT_ALBARAN}
+      ]}]
+    })
+  });
+  let data;
+  try{ data = await response.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+response.status+')'); }
+  if(!response.ok){
+    let msg = data?.error?.message || ('HTTP '+response.status);
+    if(response.status===401) msg += ' — revisa que la clave de Anthropic en Ajustes sea correcta';
+    throw new Error(msg);
+  }
+  const textBlock = (data.content||[]).find(b=>b.type==='text');
+  if(!textBlock || !textBlock.text) throw new Error('La IA no ha devuelto texto legible.');
+  return textBlock.text;
+}
+async function llamarGemini(base64, apiKey){
+  const modelo = 'gemini-3.6-flash';
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+    method:'POST',
+    headers:{'content-type':'application/json','x-goog-api-key':apiKey},
+    body: JSON.stringify({
+      contents:[{parts:[
+        {inline_data:{mime_type:'image/jpeg', data:base64}},
+        {text:PROMPT_ALBARAN}
+      ]}]
+    })
+  });
+  let data;
+  try{ data = await response.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+response.status+')'); }
+  if(!response.ok){
+    let msg = data?.error?.message || ('HTTP '+response.status);
+    if(response.status===400 || response.status===403) msg += ' — revisa que la clave de Gemini en Ajustes sea correcta y tenga la API de Gemini habilitada';
+    throw new Error(msg);
+  }
+  const text = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || '';
+  if(!text) throw new Error('La IA no ha devuelto texto legible.');
+  return text;
+}
+async function extraerAlbaran(){
+  if(!recepcionFotoDataUrl) return;
+  const btn = document.getElementById('albaranExtraerBtn');
+  const estado = document.getElementById('albaranEstado');
+  btn.disabled = true; btn.textContent = 'Leyendo albarán…';
+  estado.textContent = 'Leyendo el albarán, un momento…';
+  let textoRespuesta = '';
+  try{
+    const base64 = recepcionFotoDataUrl.split(',')[1];
+    if(HAS_CLAUDE_STORAGE){
+      textoRespuesta = await llamarClaudeSinClave(base64);
+    } else {
+      const provider = getAIProvider();
+      if(provider==='gemini'){
+        const key = getGeminiKey();
+        if(!key) throw new Error('Falta configurar la clave de API de Gemini en Ajustes → Configuración de IA');
+        textoRespuesta = await llamarGemini(base64, key);
+      } else {
+        const key = getApiKey();
+        if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
+        textoRespuesta = await llamarClaudeConClave(base64, key);
+      }
+    }
+    textoRespuesta = textoRespuesta.trim();
+    let clean = textoRespuesta.replace(/```json|```/g,'').trim();
+    const first = clean.indexOf('{');
+    const last = clean.lastIndexOf('}');
+    if(first>=0 && last>first) clean = clean.slice(first, last+1);
+    let parsed;
+    try{ parsed = JSON.parse(clean); }
+    catch(jsonErr){ throw new Error('No se pudo interpretar la respuesta como datos ("'+textoRespuesta.slice(0,140)+'"...)'); }
+    recepcionExtraidas = (parsed.lineas||[]).map(l=>({producto:l.producto||'', lote:l.lote||'', cantidad:l.cantidad||'', caducidad:l.caducidad||''}));
+    if(recepcionExtraidas.length===0) recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''});
+    document.getElementById('albaranProveedor').value = parsed.proveedor||'';
+    if(parsed.fecha) document.getElementById('albaranFecha').value = parsed.fecha;
+    renderLineasExtraidas();
+    estado.textContent = recepcionExtraidas.some(l=>l.producto) ? 'Datos leídos. Revisa y corrige cualquier campo antes de guardar.' : 'No se detectó ningún producto claro en la foto. Añádelos manualmente abajo.';
+  }catch(err){
+    console.error(err);
+    estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
+    if(recepcionExtraidas.length===0){ recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''}); renderLineasExtraidas(); }
+  }finally{
+    btn.disabled = false; btn.textContent = 'Extraer datos con IA';
+  }
+}
+function renderLineasExtraidas(){
+  const el = document.getElementById('lineasExtraidas');
+  if(!el) return;
+  el.innerHTML = recepcionExtraidas.map((l,i)=>`
+    <div class="settings-row">
+      <input type="text" placeholder="Producto" value="${esc(l.producto)}" onchange="recepcionExtraidas[${i}].producto=this.value" style="flex:2;">
+      <input type="text" placeholder="Lote" value="${esc(l.lote)}" onchange="recepcionExtraidas[${i}].lote=this.value" style="max-width:130px;">
+      <input type="text" placeholder="Cantidad" value="${esc(l.cantidad)}" onchange="recepcionExtraidas[${i}].cantidad=this.value" style="max-width:100px;">
+      <input type="date" value="${esc(l.caducidad)}" onchange="recepcionExtraidas[${i}].caducidad=this.value" style="max-width:150px;">
+      <button class="btn danger small" onclick="recepcionExtraidas.splice(${i},1);renderLineasExtraidas();">Quitar</button>
+    </div>`).join('') + `<button class="btn secondary small" style="margin-top:6px;" onclick="recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''});renderLineasExtraidas();">+ Añadir línea</button>`;
+}
+async function confirmarRecepcionFoto(){
+  const lineasValidas = recepcionExtraidas.filter(l=>l.producto && l.producto.trim());
+  if(lineasValidas.length===0){ alert('Añade al menos un producto con nombre antes de guardar.'); return; }
+  const responsable = document.getElementById('albaranResponsable').value.trim();
+  if(!responsable){ alert('Indica quién recepciona la mercancía.'); return; }
+  const proveedor = document.getElementById('albaranProveedor').value;
+  const fecha = document.getElementById('albaranFecha').value || todayStr();
+  const hora = document.getElementById('albaranHora').value || nowStr();
+  const tempLlegada = document.getElementById('albaranTemp').value;
+  const estadoEnvase = document.getElementById('albaranEnvase').value;
+  let fotoId = null;
+  if(recepcionFotoDataUrl){
+    fotoId = uid();
+    try{ await Store.set('foto:'+fotoId, recepcionFotoDataUrl); }catch(e){ console.error(e); fotoId=null; }
+  }
+  lineasValidas.forEach(l=>{
+    DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, producto:l.producto, lote:l.lote, tempLlegada, estadoEnvase,
+      caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId});
+  });
+  await saveModule('recepcion');
+  const actualizados = [];
+  for(const l of lineasValidas){
+    const nombre = await registrarEntradaStock(l.producto, proveedor, l.cantidad);
+    if(nombre) actualizados.push(nombre);
+  }
+  await saveConfig();
+  viewRecepcion();
+  renderDashboard();
+  if(actualizados.length){ alert('Stock actualizado en Materias primas para: '+actualizados.join(', ')); }
+}
+async function verFotoAlbaran(fotoId){
+  try{
+    const dataUrl = await Store.get('foto:'+fotoId);
+    if(!dataUrl){ alert('La foto no está disponible.'); return; }
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,16,12,0.82);display:flex;align-items:center;justify-content:center;z-index:999;cursor:zoom-out;padding:20px;';
+    overlay.innerHTML = `<img src="${dataUrl}" style="max-width:92vw;max-height:92vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">`;
+    overlay.addEventListener('click', ()=>overlay.remove());
+    document.body.appendChild(overlay);
+  }catch(e){ alert('No se pudo cargar la foto.'); }
+}
+function renderRecepTable(){
+  const rows = DATA.recepcion.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td>${esc(r.producto)}</td>
+    <td class="mono">${esc(r.lote)||'—'}</td><td class="mono">${r.tempLlegada!==''&&r.tempLlegada!==undefined?r.tempLlegada+'°C':'—'}</td>
+    <td>${esc(r.estadoEnvase)}</td><td class="mono">${fmtDate(r.caducidad)}</td>
+    <td><span class="badge ${r.aceptado?'ok':'danger'}">${r.aceptado?'Aceptado':'Rechazado'}</span></td>
+    <td>${esc(r.responsable)}</td>
+    <td>${r.fotoId?`<button class="btn secondary small" onclick="verFotoAlbaran('${r.fotoId}')">Ver</button>`:'—'}</td>
+    <td><button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Producto','Lote','Temp.','Envase','Caduca','Estado','Responsable','Albarán',''], rows);
+}
+
+/* ================= ALERGENOS ================= */
+function viewAlergenos(){
+  const opts = CONFIG.alergenos.map(a=>{
+    const isGluten = a.toLowerCase()==='gluten';
+    return `<label><input type="checkbox" name="alergeno" value="${esc(a)}" ${isGluten?'checked disabled':''}>${esc(a)}${isGluten?' (siempre presente)':''}</label>`;
+  }).join('');
+  document.getElementById('view-alergenos').innerHTML = `
+    <div class="panel">
+      <h2>${icon('wheat')} Nuevo registro de alérgenos por lote</h2>
+      <p class="hint">Este obrador elabora únicamente productos con gluten, por lo que el gluten se marca siempre como presente. Añade el resto de alérgenos que apliquen a la receta.</p>
+      <form class="record-form" id="form-alergenos">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Lote de producción</span><input type="text" name="lote" required></label>
+        <label class="field"><span>Producto</span><input type="text" name="producto" required></label>
+        <label class="field wide"><span>Alérgenos presentes</span><div class="checkgroup">${opts}</div></label>
+        <label class="field checkline"><input type="checkbox" name="etiquetado" checked><span>Etiquetado verificado</span></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
+        <label class="field wide"><span>Observaciones</span><textarea name="observaciones"></textarea></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('wheat')} Histórico de alérgenos por lote</h2><div id="alerg-table"></div></div>
+
+    <div class="wheat-divider">${icon('wheat')}<span>Atención en tienda</span></div>
+    <div class="panel">
+      <h2>${icon('wheat')} Alergia o intolerancia comunicada por un cliente</h2>
+      <p class="hint">Registra cada vez que un cliente comunique una alergia/intolerancia en cualquiera de las tiendas, para dejar constancia de cómo se gestionó.</p>
+      <form class="record-form" id="form-alergenos-tienda">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Tienda</span><select name="tienda">${CONFIG.tiendas.map(t=>`<option>${esc(t)}</option>`).join('')}</select></label>
+        <label class="field"><span>Alergia / intolerancia comunicada</span><input type="text" name="alergiaComunicada" placeholder="Ej: frutos secos" required></label>
+        <label class="field"><span>Producto solicitado</span><input type="text" name="producto"></label>
+        <label class="field checkline"><input type="checkbox" name="cambioContaminacion"><span>Requirió cambio por contaminación cruzada</span></label>
+        <label class="field checkline"><input type="checkbox" name="limpiezaAparato"><span>Se realizó limpieza de utillaje / aparato</span></label>
+        <label class="field"><span>Quién atendió</span><input type="text" name="responsable" required></label>
+        <label class="field"><span>Resultado de la venta</span><select name="resultado"><option>Venta correcta</option><option>Incidencia</option></select></label>
+        <label class="field"><span>Supervisor</span><input type="text" name="supervisor"></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('wheat')} Histórico de alergias comunicadas en tienda</h2><div id="alerg-tienda-table"></div></div>
+
+    <div class="panel" style="background:#FBF6EC;">
+      <h2>${icon('wheat')} Recordatorio: información al personal de tiendas</h2>
+      <p class="hint">Puntos firmados por el equipo de tienda (Reg. San. ${esc(CONFIG.empresa.registroSanitario)}).</p>
+      <ol style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.9;color:var(--ink);">
+        <li>Puntualidad al empezar el turno de trabajo.</li>
+        <li>Es obligatorio fichar a la entrada y a la salida de turno.</li>
+        <li>Obligación de velar por los productos: colocar los pasteles en la vitrina refrigerada nada más ser recepcionados, anotarlos en la hoja/agenda de control del turno, y conservar en refrigeración todos los rellenos de crema pastelera y nata (especialmente en verano).</li>
+        <li>Limpiar las bandejas de pasteles para retirar restos de chocolate u otros productos; si no da tiempo en el turno de mañana, hacerlo en el de tarde. Al obrador deben llegar siempre limpias.</li>
+        <li>Sacudir las bandejas de pan.</li>
+        <li>Seguir el control de limpieza y temperatura de cámaras.</li>
+        <li>Controlar la previsión de pastelería y panadería.</li>
+        <li>Cuidar el aspecto higiénico del manipulador, especialmente las manos (uñas cortas).</li>
+      </ol>
+    </div>
+  `;
+  document.getElementById('form-alergenos').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const form = e.target;
+    const checked = Array.from(form.querySelectorAll('input[name=alergeno]')).filter(c=>c.checked).map(c=>c.value);
+    const f = new FormData(form);
+    const rec = {id:uid(), fecha:f.get('fecha'), lote:f.get('lote'), producto:f.get('producto'), alergenos:checked,
+      etiquetado:f.get('etiquetado')==='on', responsable:f.get('responsable'), observaciones:f.get('observaciones')};
+    DATA.alergenos.unshift(rec);
+    await saveModule('alergenos');
+    viewAlergenos();
+    renderDashboard();
+  });
+  document.getElementById('form-alergenos-tienda').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const rec = {id:uid(), fecha:f.get('fecha'), tienda:f.get('tienda'), alergiaComunicada:f.get('alergiaComunicada'),
+      producto:f.get('producto'), cambioContaminacion:f.get('cambioContaminacion')==='on', limpiezaAparato:f.get('limpiezaAparato')==='on',
+      responsable:f.get('responsable'), resultado:f.get('resultado'), supervisor:f.get('supervisor')};
+    DATA.alergenosTienda.unshift(rec);
+    await saveModule('alergenosTienda');
+    viewAlergenos();
+    renderDashboard();
+  });
+  renderAlergTable();
+  renderAlergTiendaTable();
+}
+function renderAlergTable(){
+  const rows = DATA.alergenos.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${esc(r.lote)}</td><td>${esc(r.producto)}</td>
+    <td>${r.alergenos.map(esc).join(', ')}</td>
+    <td><span class="badge ${r.etiquetado?'ok':'danger'}">${r.etiquetado?'Verificado':'Pendiente'}</span></td>
+    <td>${esc(r.responsable)}</td>
+    <td><button class="btn danger small" onclick="removeRecord('alergenos','${r.id}',renderAlergTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('alerg-table').innerHTML = table(['Fecha','Lote','Producto','Alérgenos','Etiquetado','Responsable',''], rows);
+}
+function renderAlergTiendaTable(){
+  const rows = DATA.alergenosTienda.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.alergiaComunicada)}</td><td>${esc(r.producto)||'—'}</td>
+    <td>${r.cambioContaminacion?'Sí':'No'}</td><td>${r.limpiezaAparato?'Sí':'No'}</td>
+    <td><span class="badge ${r.resultado==='Venta correcta'?'ok':'danger'}">${esc(r.resultado)}</span></td>
+    <td>${esc(r.responsable)}</td><td>${esc(r.supervisor)||'—'}</td>
+    <td><button class="btn danger small" onclick="removeRecord('alergenosTienda','${r.id}',renderAlergTiendaTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('alerg-tienda-table').innerHTML = table(['Fecha','Tienda','Alergia comunicada','Producto','Cambio cruzada','Limpieza','Resultado','Atendió','Supervisor',''], rows);
+}
+
+/* ================= TRAZABILIDAD ================= */
+function viewTrazabilidad(){
+  const tiendaOpts = CONFIG.tiendas.map(t=>`<label><input type="checkbox" name="tienda" value="${esc(t)}">${esc(t)}</label>`).join('');
+  document.getElementById('view-trazabilidad').innerHTML = `
+    <div class="panel">
+      <h2>${icon('route')} Nuevo lote producido / reparto</h2>
+      <form class="record-form" id="form-trazabilidad">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Lote de producción</span><input type="text" name="lote" required></label>
+        <label class="field"><span>Producto</span><input type="text" name="producto" required></label>
+        <label class="field"><span>Cantidad</span><input type="number" step="0.1" name="cantidad" required></label>
+        <label class="field"><span>Unidad</span><select name="unidad"><option value="kg">kg</option><option value="uds">unidades</option></select></label>
+        <label class="field wide"><span>Materias primas / lotes utilizados</span><textarea name="materiasPrimas" placeholder="Ej: Harina T-55 lote 2201, Levadura lote 88"></textarea></label>
+        <label class="field wide"><span>Tiendas de destino</span><div class="checkgroup">${tiendaOpts}</div></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('route')} Histórico de trazabilidad</h2><div id="traza-table"></div></div>
+  `;
+  document.getElementById('form-trazabilidad').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const form = e.target;
+    const tiendas = Array.from(form.querySelectorAll('input[name=tienda]')).filter(c=>c.checked).map(c=>c.value);
+    const f = new FormData(form);
+    const rec = {id:uid(), fecha:f.get('fecha'), lote:f.get('lote'), producto:f.get('producto'), cantidad:f.get('cantidad'),
+      unidad:f.get('unidad'), materiasPrimas:f.get('materiasPrimas'), tiendas, responsable:f.get('responsable')};
+    DATA.trazabilidad.unshift(rec);
+    await saveModule('trazabilidad');
+    viewTrazabilidad();
+    renderDashboard();
+  });
+  renderTrazaTable();
+}
+function renderTrazaTable(){
+  const rows = DATA.trazabilidad.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${esc(r.lote)}</td><td>${esc(r.producto)}</td>
+    <td class="mono">${r.cantidad} ${esc(r.unidad)}</td><td>${esc(r.materiasPrimas)||'—'}</td>
+    <td>${r.tiendas.length?r.tiendas.map(esc).join(', '):'—'}</td><td>${esc(r.responsable)}</td>
+    <td><button class="btn danger small" onclick="removeRecord('trazabilidad','${r.id}',renderTrazaTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('traza-table').innerHTML = table(['Fecha','Lote','Producto','Cantidad','Materias primas','Tiendas destino','Responsable',''], rows);
+}
+
+/* ================= NO CONFORMIDADES ================= */
+function viewNoConformidades(){
+  const planOpts = CONFIG.planes.map(p=>`<option>${esc(p)}</option>`).join('');
+  document.getElementById('view-noconformidades').innerHTML = `
+    <div class="panel">
+      <h2>${icon('alert')} Nueva incidencia</h2>
+      <p class="hint">Registro común a todos los planes de prerrequisitos. Al cerrarse, deja constancia de la vigilancia realizada.</p>
+      <form class="record-form" id="form-nc">
+        <label class="field"><span>Fecha de apertura</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Plan afectado</span><select name="plan">${planOpts}</select></label>
+        <label class="field"><span>Quién registra</span><input type="text" name="responsable" required></label>
+        <label class="field wide"><span>Descripción de la incidencia</span><textarea name="descripcion" required></textarea></label>
+        <label class="field wide"><span>Acción correctora</span><textarea name="accionCorrectiva"></textarea></label>
+        <label class="field"><span>Estado</span><select name="estado"><option>Abierta</option><option>Cerrada</option></select></label>
+        <label class="field"><span>Fecha de cierre</span><input type="date" name="fechaCierre"></label>
+        <label class="field checkline"><input type="checkbox" name="vigilanciaOk"><span>Vigilancia posterior OK</span></label>
+        <label class="field"><span>Supervisión</span><input type="text" name="supervisor"></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
+      </form>
+    </div>
+    <div class="panel"><h2>${icon('alert')} Histórico de incidencias</h2><div id="nc-table"></div></div>
+  `;
+  document.getElementById('form-nc').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const rec = {id:uid(), fecha:f.get('fecha'), plan:f.get('plan'), descripcion:f.get('descripcion'),
+      accionCorrectiva:f.get('accionCorrectiva'), responsable:f.get('responsable'), estado:f.get('estado'),
+      fechaCierre:f.get('fechaCierre'), vigilanciaOk:f.get('vigilanciaOk')==='on', supervisor:f.get('supervisor')};
+    DATA.noconformidades.unshift(rec);
+    await saveModule('noconformidades');
+    viewNoConformidades();
+    renderDashboard();
+  });
+  renderNCTable();
+}
+async function toggleNC(id){
+  const rec = DATA.noconformidades.find(r=>r.id===id);
+  rec.estado = rec.estado==='Abierta' ? 'Cerrada' : 'Abierta';
+  if(rec.estado==='Cerrada' && !rec.fechaCierre) rec.fechaCierre = todayStr();
+  await saveModule('noconformidades');
+  renderNCTable();
+  renderDashboard();
+}
+function renderNCTable(){
+  const rows = DATA.noconformidades.map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.plan)}</td><td>${esc(r.descripcion)}</td>
+    <td>${esc(r.accionCorrectiva)||'—'}</td>
+    <td><span class="badge ${r.estado==='Cerrada'?'ok':'warn'}">${r.estado}</span></td>
+    <td class="mono">${r.fechaCierre?fmtDate(r.fechaCierre):'—'}</td>
+    <td>${esc(r.responsable)}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn secondary small" onclick="toggleNC('${r.id}')">${r.estado==='Abierta'?'Marcar cerrada':'Reabrir'}</button>
+      <button class="btn danger small" onclick="removeRecord('noconformidades','${r.id}',renderNCTable)">Borrar</button>
+    </td>
+  </tr>`);
+  document.getElementById('nc-table').innerHTML = table(['Fecha','Plan','Descripción','Acción correctora','Estado','Cierre','Responsable',''], rows);
+}
+
+/* ================= MATERIAS PRIMAS (lotes + fichas de alérgenos) ================= */
+const FICHAS_MP_DATA = [
+  {producto:'Pasta Crema Galleta', proveedor:'Martin Braun / Cresco', uso:'Heladería y pastelería', contiene:['Huevo','Leche'], trazas:[]},
+  {producto:'Caribe Latte Nocciola (Leche-Avellana)', proveedor:'Master Martini', uso:'Relleno para pastelería', contiene:['Leche','Frutos secos (avellana)'], trazas:['Soja']},
+  {producto:'Gamma Panoleci E/25', proveedor:'Zeelandia', uso:'Mejorante panario', contiene:['Gluten (trigo, centeno, cebada)','Soja'], trazas:[]},
+  {producto:'Crema Horno Blanca (Recipe 50H)', proveedor:'Indipan', uso:'Relleno / cobertura horneable', contiene:['Leche (lactosa)','Frutos secos (avellana)'], trazas:['Soja','Cacahuete','Frutos secos']},
+  {producto:'Mella Muffin', proveedor:'Ireks', uso:'Mix para muffins y cakes', contiene:['Gluten (trigo)','Leche'], trazas:[]},
+  {producto:'Panilife Chia Quinoa E/15', proveedor:'Zeelandia', uso:'Preparado para pan con chía y quinoa', contiene:['Gluten (trigo, centeno)'], trazas:[]},
+  {producto:'Fiesta Maíz 50%', proveedor:'Zeelandia', uso:'Preparado para pan de maíz', contiene:['Gluten (trigo)','Sésamo'], trazas:['Centeno','Cebada','Avena','Espelta','Huevo','Soja','Leche','Altramuz']},
+  {producto:'ESP Amore Liquid Centeno', proveedor:'Zeelandia', uso:'Masa madre líquida de centeno', contiene:['Gluten (centeno, cebada)'], trazas:[]},
+  {producto:'Fruit Filling Raspberry 1070.51', proveedor:'Aldia', uso:'Relleno de frambuesa', contiene:[], trazas:[]},
+  {producto:'Fruit Filling Mango 1061.01', proveedor:'Aldia', uso:'Relleno de mango', contiene:[], trazas:[]},
+  {producto:'Chocolatier Delicecover Dark', proveedor:'Zeelandia', uso:'Cobertura de cacao para tartas', contiene:['Soja','Leche','Frutos secos (avellana)'], trazas:[]},
+  {producto:'Sandwich Paste E/12', proveedor:'Zeelandia', uso:'Preparado en pasta para pan de molde', contiene:['Soja','Gluten (trazas, enzima de trigo)'], trazas:[]},
+];
+const TARIFARIO_DATA = [{"proveedor": "CANTÓN", "descripcion": "ACEITE GIRASOL 25 L"}, {"proveedor": "CANTÓN", "descripcion": "ACEITE GIRASOL 5L"}, {"proveedor": "CANTÓN", "descripcion": "ACEITE OLIVA INTENSO 1L"}, {"proveedor": "CANTÓN", "descripcion": "ACEITE OLIVA VIRGEN EXTRA 1L"}, {"proveedor": "CANTÓN", "descripcion": "ACEITE ORUJO 5L"}, {"proveedor": "CANTÓN", "descripcion": "AMONIACO"}, {"proveedor": "CANTÓN", "descripcion": "BALLETA CRISTALES 5UD"}, {"proveedor": "CANTÓN", "descripcion": "BAYETA MICROFIBRA 12 UD"}, {"proveedor": "CANTÓN", "descripcion": "BOBINA CELULOSA IND EXTRA"}, {"proveedor": "CANTÓN", "descripcion": "BOLSA BASURA 85X105"}, {"proveedor": "CANTÓN", "descripcion": "BOLSA BASURA 90X115"}, {"proveedor": "CANTÓN", "descripcion": "BOLSA BASURA AUTOCIERRE"}, {"proveedor": "CANTÓN", "descripcion": "CEPILLO BARRER"}, {"proveedor": "CANTÓN", "descripcion": "DESENGRASANTE IND 5L"}, {"proveedor": "CANTÓN", "descripcion": "ESTROPAJO VERDE CON ESPONJA R/14"}, {"proveedor": "CANTÓN", "descripcion": "FILM TRANSPARENTE IND A/30"}, {"proveedor": "CANTÓN", "descripcion": "FREGASUELOS 5L"}, {"proveedor": "CANTÓN", "descripcion": "GUANTES NITRILO NEGRO"}, {"proveedor": "CANTÓN", "descripcion": "GUANTES VINILO"}, {"proveedor": "CANTÓN", "descripcion": "LATA ACEITE ALTO RENDIMIENTO 25L FRIMAS"}, {"proveedor": "CANTÓN", "descripcion": "LAVAVAJILLAS MANUAL 5L"}, {"proveedor": "CANTÓN", "descripcion": "LEJIA ALIMENTARIA"}, {"proveedor": "CANTÓN", "descripcion": "LEJÍA AMARILLA"}, {"proveedor": "CANTÓN", "descripcion": "LIMPIADOR BAÑO MR PROPER 5L"}, {"proveedor": "CANTÓN", "descripcion": "LIMPIADOR WC 1L"}, {"proveedor": "CANTÓN", "descripcion": "LIQUIDO LIMPIACRISTALES"}, {"proveedor": "CANTÓN", "descripcion": "MANGO ALUMINIO 1,4M"}, {"proveedor": "CANTÓN", "descripcion": "PALETINAS CAFÉ MADERA 1000 UDS"}, {"proveedor": "CANTÓN", "descripcion": "PAPEL HIGIENICO 2 CAPAS 12 ROLLOS"}, {"proveedor": "CANTÓN", "descripcion": "PAPEL LMINADO27X38 (CHARCUTERIA)"}, {"proveedor": "CANTÓN", "descripcion": "RECAMBIO FREGONA TIRAS"}, {"proveedor": "CANTÓN", "descripcion": "RECOGEDOR C/PALO Y REGLETA EXTRA"}, {"proveedor": "CANTÓN", "descripcion": "ROLLO SECAMANOS EXTRA"}, {"proveedor": "CANTÓN", "descripcion": "ROLLO TERMICO 80X80"}, {"proveedor": "CANTÓN", "descripcion": "ROLLO TERMICO DTAFONO 57X35"}, {"proveedor": "CANTÓN", "descripcion": "SERVILLETAS 30X30"}, {"proveedor": "CANTÓN", "descripcion": "TAPAS VASO CAFÉ"}, {"proveedor": "CANTÓN", "descripcion": "VASO CAFÉ 8 ONZAS"}, {"proveedor": "CARAMBUCO", "descripcion": "AZUCAR SOBRE 1000 UDS CARAMBUCO"}, {"proveedor": "CARAMBUCO", "descripcion": "CAFE DESCAFEINADO ARAGUARI GRANO 1KG"}, {"proveedor": "CARAMBUCO", "descripcion": "CAFÉ GRAN SELECCIÓN ORO 1KG"}, {"proveedor": "CARAMBUCO", "descripcion": "EDULCORANTE GRANULADO CARAMBUCO 250 UDS"}, {"proveedor": "COHEPA", "descripcion": "ACE. ALTO OLEICO DONFRIT LUXE 25 l"}, {"proveedor": "COHEPA", "descripcion": "AJONJOLI BOTE 900 g.(SESAMO DORADO)"}, {"proveedor": "COHEPA", "descripcion": "ALMENDRA LAMINADA"}, {"proveedor": "COHEPA", "descripcion": "ALMENDRA LAMINADA 15 X 1 Kg"}, {"proveedor": "COHEPA", "descripcion": "AMBAR HOJALDRE"}, {"proveedor": "COHEPA", "descripcion": "AZUCAR ANTIHUMEDAD"}, {"proveedor": "COHEPA", "descripcion": "AZUCAR ANTIHUMEDAD 1X10 KG PREMIUM COHEPA"}, {"proveedor": "COHEPA", "descripcion": "AZUCAR BLANQ CRISTALCO 1 X 25 KG"}, {"proveedor": "COHEPA", "descripcion": "AZUCAR BLANQ. AZUCARERA 1 X 25 KG"}, {"proveedor": "COHEPA", "descripcion": "AZUCAR GLASS 1 X 10 KG"}, {"proveedor": "COHEPA", "descripcion": "AZUCAR PERLADO 1 X 10 KG"}, {"proveedor": "COHEPA", "descripcion": "BOBINA KRAT 40cm.-18 KG"}, {"proveedor": "COHEPA", "descripcion": "CABELLO ANGEL FAMA 1 X 27 KG"}, {"proveedor": "COHEPA", "descripcion": "CANELA EN RAMA PTE/1 K"}, {"proveedor": "COHEPA", "descripcion": "CANELA MOLIDA COHEPA B/1K"}, {"proveedor": "COHEPA", "descripcion": "CARACOLAS PASAS MTQ. C/60"}, {"proveedor": "COHEPA", "descripcion": "CARIBE CRO/HOJ NH C/12 KG"}, {"proveedor": "COHEPA", "descripcion": "CHOCOL CREMA HORNO 1 X 20 KG ESM"}, {"proveedor": "COHEPA", "descripcion": "CHOCOLATE HORNO CHOCOVIC"}, {"proveedor": "COHEPA", "descripcion": "CHOCOLATE HORNO CHOCOVIC CUBO 1 X 20 KG"}, {"proveedor": "COHEPA", "descripcion": "COB BLANCA NAPAL 1 X 10 K"}, {"proveedor": "COHEPA", "descripcion": "COB NEGRA CARACAS 66% 2 x 5 K"}, {"proveedor": "COHEPA", "descripcion": "COB. BLANCA NAPAL 2 X 5 KG"}, {"proveedor": "COHEPA", "descripcion": "COBERT. C/LECHE CEYLON 2 X 5 KG"}, {"proveedor": "COHEPA", "descripcion": "COBERT.NEGRA VEGET P200 20 KG"}, {"proveedor": "COHEPA", "descripcion": "COCO INDONESIO Bls/5 Kg"}, {"proveedor": "COHEPA", "descripcion": "CONFRTUTTI FRAMBUESA 2 X 3 KG"}, {"proveedor": "COHEPA", "descripcion": "CONFRTUTTI FRESA 2 X 3 KG"}, {"proveedor": "COHEPA", "descripcion": "CREMA CRUNCH BLACK COOKIES 2 x 3 Kg"}, {"proveedor": "COHEPA", "descripcion": "CREMA CRUNCH SPECULOOS 2 X 3 KG"}, {"proveedor": "COHEPA", "descripcion": "CREMA PISTACHO CHOCO 2 X 5 KG ESM"}, {"proveedor": "COHEPA", "descripcion": "CREMA PISTACHO CRUNCHY 2 x 3 KG"}, {"proveedor": "COHEPA", "descripcion": "CROISS. BAKE UP 80 GRS MTQ 70 UDES"}, {"proveedor": "COHEPA", "descripcion": "CROISS. MARG BAKE UP 80 GRS 70 UDES"}, {"proveedor": "COHEPA", "descripcion": "CROISSANT BAKE UP MARG 40 Gr C"}, {"proveedor": "COHEPA", "descripcion": "DELICIAS CHOCOLATE, C/5 - 278un"}, {"proveedor": "COHEPA", "descripcion": "DELICIAS SALADAS VARIADAS C/6"}, {"proveedor": "COHEPA", "descripcion": "DEXTROSA 1 X 25 KG"}, {"proveedor": "COHEPA", "descripcion": "DULCE DE LECHE REPOSTERO 7 Kg"}, {"proveedor": "COHEPA", "descripcion": "FIDEOS COLORES COHEPA, 14 x1 K"}, {"proveedor": "COHEPA", "descripcion": "FIDEOS SUC.CHOCOL.COHEPA 14X1 K"}, {"proveedor": "COHEPA", "descripcion": "FLOR OBLEA"}, {"proveedor": "COHEPA", "descripcion": "FONDANT 8 Kg UNIFINE"}, {"proveedor": "COHEPA", "descripcion": "FRUTGEL ARCONSA 2 X 7 KG"}, {"proveedor": "COHEPA", "descripcion": "HARINA DE ALMENDRA"}, {"proveedor": "COHEPA", "descripcion": "HARINA DE ALMENDRA 15x1 K"}, {"proveedor": "COHEPA", "descripcion": "IMPULSOR BOESON FERPO B CUBO 5 K"}, {"proveedor": "COHEPA", "descripcion": "MANTEQ BQ.CREMA VILLE.10 X 1 K"}, {"proveedor": "COHEPA", "descripcion": "MANTEQUILLA (precio variable)"}, {"proveedor": "COHEPA", "descripcion": "MATALAHUGA BOTE 650G ANIS EN GRANO"}, {"proveedor": "COHEPA", "descripcion": "MATALAHUGA/ANIS GRANO B 3 K"}, {"proveedor": "COHEPA", "descripcion": "MIEL FLORES, CB/22 Kg"}, {"proveedor": "COHEPA", "descripcion": "MIEL FUENTE SOL CB/7K"}, {"proveedor": "COHEPA", "descripcion": "MINI CARACOLA PASAS 150 x 30 GRS"}, {"proveedor": "COHEPA", "descripcion": "MINI CROISS.25g MTQ.BAKE 200 UDES"}, {"proveedor": "COHEPA", "descripcion": "NATA FEIRACO P/1 Ltr"}, {"proveedor": "COHEPA", "descripcion": "NATA MAGIK P/1 L"}, {"proveedor": "COHEPA", "descripcion": "NUEZ CHINA CUARTOS"}, {"proveedor": "COHEPA", "descripcion": "NUEZ CHINA MITAD"}, {"proveedor": "COHEPA", "descripcion": "NUEZ MITAD EXTRA LIGHT 12 X 1"}, {"proveedor": "COHEPA", "descripcion": "NUEZ MOND 80% MITAD"}, {"proveedor": "COHEPA", "descripcion": "NUEZ MOND 80% MITAD 12 X 1 KG"}, {"proveedor": "COHEPA", "descripcion": "PA-10-FR PASTA AR.FRESA 4 X 1 K"}, {"proveedor": "COHEPA", "descripcion": "PA-10-NA PASTA AR.NARANJA 4 X 1 KG"}, {"proveedor": "COHEPA", "descripcion": "PA-11-CF PASTA AR.CAFE 4 X 1 K"}, {"proveedor": "COHEPA", "descripcion": "PA-11-LI PASTA AR.LIMON 4 X 1 K"}, {"proveedor": "COHEPA", "descripcion": "PAILLETE FEUILLETINE"}, {"proveedor": "COHEPA", "descripcion": "PAPEL COCION 60 X 40 500 UDES"}, {"proveedor": "COHEPA", "descripcion": "PAPEL SILIC.MULTIBAKE"}, {"proveedor": "COHEPA", "descripcion": "PASTA CREMA GALLETA, 2 x 3 KG ARC"}, {"proveedor": "COHEPA", "descripcion": "PASTA TIRAMISU TRAD 2X3,5 Kg"}, {"proveedor": "COHEPA", "descripcion": "PRALINE AVELL 60% 2 X 5 ESMU"}, {"proveedor": "COHEPA", "descripcion": "QUESO CREMA"}, {"proveedor": "COHEPA", "descripcion": "RELLENO DE BATATAS 4 x 5,6 KG"}, {"proveedor": "COHEPA", "descripcion": "RESMA KRAT 40X60 PAQ./10KG"}, {"proveedor": "COHEPA", "descripcion": "SUPERCREM FRESA 2 X 7 KG"}, {"proveedor": "COHEPA", "descripcion": "SUPERCREM PLATANO 2 X 7 KG"}, {"proveedor": "COHEPA", "descripcion": "TURRON REFINADO 64% 1x5 K"}, {"proveedor": "COHEPA", "descripcion": "TURRON REFINADO 64% CB/10K.-LA"}, {"proveedor": "COHEPA", "descripcion": "VIRUTA BLANCA"}, {"proveedor": "COHEPA", "descripcion": "VIRUTA NEGRA"}, {"proveedor": "COHEPA", "descripcion": "YEMA CONFITADA 1 x 7 K"}, {"proveedor": "DILSA", "descripcion": "CHOPPED CARCHELEJO"}, {"proveedor": "DILSA", "descripcion": "CHOPPED LATA"}, {"proveedor": "DILSA", "descripcion": "LOMO ADOBADO"}, {"proveedor": "DILSA", "descripcion": "MORTADELA SICILIANA"}, {"proveedor": "DILSA", "descripcion": "MORTADELA SICILIANA CON ACEITUNAS"}, {"proveedor": "DILSA", "descripcion": "PAVO CARCHELEJO"}, {"proveedor": "DILSA", "descripcion": "PAVO CON ACEITUNAS"}, {"proveedor": "DILSA", "descripcion": "SALCHICHON CAMPERO"}, {"proveedor": "DILSA", "descripcion": "SALCHICHON EXTRA"}, {"proveedor": "EUROPASTRY", "descripcion": "Barra Cantabrica (21u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Barra con Sarraceno BIO SH 12u"}, {"proveedor": "EUROPASTRY", "descripcion": "Big berlina sucré (27u) MB"}, {"proveedor": "EUROPASTRY", "descripcion": "Big dots"}, {"proveedor": "EUROPASTRY", "descripcion": "Big dots negrito"}, {"proveedor": "EUROPASTRY", "descripcion": "Bu¦uelos Viento Listos (1,5kg)"}, {"proveedor": "EUROPASTRY", "descripcion": "Cookie Pck White Choc Rasp 90u"}, {"proveedor": "EUROPASTRY", "descripcion": "Cookie Puck Double Choc (90u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Crois.Curvo Cereal Sophie 38u"}, {"proveedor": "EUROPASTRY", "descripcion": "Croissant (125u) MANTEQUILLA"}, {"proveedor": "EUROPASTRY", "descripcion": "Croissant Caprice Sem.y Cer55u"}, {"proveedor": "EUROPASTRY", "descripcion": "Croissant Sophie 2pointage 50u MANTEQUILLA"}, {"proveedor": "EUROPASTRY", "descripcion": "Dots"}, {"proveedor": "EUROPASTRY", "descripcion": "Dots Cookie & White (36u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Dots Lotus (36u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Dots negrito"}, {"proveedor": "EUROPASTRY", "descripcion": "Empanadilla Atún 200g 30u"}, {"proveedor": "EUROPASTRY", "descripcion": "Ensaimada Selección 80U"}, {"proveedor": "EUROPASTRY", "descripcion": "Fricheeseburger 55u"}, {"proveedor": "EUROPASTRY", "descripcion": "Gourmet Gran Reserva (80u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Mini Chic Negrit(5kg)MB RA MB"}, {"proveedor": "EUROPASTRY", "descripcion": "Minidots classic"}, {"proveedor": "EUROPASTRY", "descripcion": "Minidots negrito"}, {"proveedor": "EUROPASTRY", "descripcion": "Napolitana Cacao Levanten"}, {"proveedor": "EUROPASTRY", "descripcion": "Palmerita (5kg) MB"}, {"proveedor": "EUROPASTRY", "descripcion": "Palmerita de cereales (7,2 kg)"}, {"proveedor": "EUROPASTRY", "descripcion": "Pan Molde Blanco Reb (6u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Pan molde brioche reb.(10u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Placa Hojaldre 60x40 (16 u.)"}, {"proveedor": "EUROPASTRY", "descripcion": "Placa Hojaldre Mant.100%(15u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Snecken Caprice (40u)"}, {"proveedor": "EUROPASTRY", "descripcion": "Super Napolitana Bombón(72u)MB"}, {"proveedor": "EUROPASTRY", "descripcion": "Trenza Midi Lykke 24u"}, {"proveedor": "HERMANOS BARBANCHO", "descripcion": "CHORIZO VELA"}, {"proveedor": "HERMANOS BARBANCHO", "descripcion": "JAMON COCIDO"}, {"proveedor": "HERMANOS BARBANCHO", "descripcion": "JAMON SERRANO"}, {"proveedor": "HERMANOS BARBANCHO", "descripcion": "PECHUGA PAVO"}, {"proveedor": "HERMANOS BARBANCHO", "descripcion": "QUESO MEZCLA MADURADO"}, {"proveedor": "HERMANOS BARBANCHO", "descripcion": "SALAMI EXTRA"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON DORADO N10 100 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON DORADO N11 50 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON DORADO N12 50 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON DORADO N13 50 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON DORADO N15 25 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON DORADO N7 100 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON N2 100UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BANDEJA CARTON N4 100UDS"}, {"proveedor": "MALCOPAN", "descripcion": "BOLSA SAQUILLO 105/60X85 (CAJA 600UDS)"}, {"proveedor": "MALCOPAN", "descripcion": "BOLSA TRANSPARENTE 28X62 2KG"}, {"proveedor": "MALCOPAN", "descripcion": "CAKE FRESH TOP 15KG"}, {"proveedor": "MALCOPAN", "descripcion": "CHOCOLATIER PISTACHO CUBO 6KG"}, {"proveedor": "MALCOPAN", "descripcion": "COPOS DE AVENA 25KG"}, {"proveedor": "MALCOPAN", "descripcion": "FIESTA DE MAIZ 50% 15KG"}, {"proveedor": "MALCOPAN", "descripcion": "FRITADA HORTALIZA LATA"}, {"proveedor": "MALCOPAN", "descripcion": "MINUTA SUPREMA 25KG"}, {"proveedor": "MALCOPAN", "descripcion": "PANILIFE ESPELTA 100% 15KG"}, {"proveedor": "MALCOPAN", "descripcion": "PIPAS DE GIRASOL 25KG"}, {"proveedor": "MALCOPAN", "descripcion": "PROKORN 25KG"}, {"proveedor": "MALCOPAN", "descripcion": "SEMILLA DE LINAZA 25 KG"}, {"proveedor": "MALCOPAN", "descripcion": "SESAMO DORADO"}, {"proveedor": "MALCOPAN", "descripcion": "TIRAS CARTON 52 CM (CAJA 10KG)"}, {"proveedor": "MALCOPAN", "descripcion": "TIRAS CARTON 75 CM (CAJA 10KG)"}, {"proveedor": "MALCOPAN", "descripcion": "VELA ? 12 UDS"}, {"proveedor": "MALCOPAN", "descripcion": "VIRUTA BLANCA (CAJA 2,5KG)"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "ACEITE ALTO OLEICO 10L"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "AJONJOLI 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "ALMENDRA FILETES 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "ALMIDON MAIZ 25kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "ATUN 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "AZUCAR ANTIHUMEDAD 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "AZUCAR GLASS 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "AZUCAR PERLADO 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON DORADO N10 100 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON DORADO N11 50 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON DORADO N12 50 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON DORADO N13 50 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON DORADO N7 100 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON N2 100 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BANDEJA CARTON N4 100 UDS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BICARBONATO 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "BOBINA KRAT 40cm"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CABELLO ANGEL 20kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CACAO POLVO 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CANELA EN RAMA"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CANELA MOLIDA 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CAPSULAS MAGDALENAS"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CHOCOLATE HORNO 20kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CLARAVAL 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COBERTURA BLANCA 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COBERTURA BLANCA Caja 20kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COBERTURA LECHE 2x5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COBERTURA NEGRA 20kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COBERTURA NEGRA 66% 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COCO RALLADO 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COLOR ROJO 125cc"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COLORANTE PASTA ROJO, 118 g"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "COMPOUND MOKA, 1 L"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CREMA LOTUS 8kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CREMA OREO 3kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CREMA PISTACHO 6kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CREMA QUESO 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "CROISSANT 70gr 96 uds"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "DELICIA ARTISAN CREMA EN FRÍO 15kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "DESMOLDANTE SPRAY DUBOR"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "DULCE LECHE 6.5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "ESCAMAS NEGRAS 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "FIDEOS CHOCOLATE 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "FIDEOS COLORES 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "FRITADA HORTALIZA LATA 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "GELATINA 13.5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "GELATINA FRIO 7kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "GRANUM ESPELTA AVENA 15kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "HARINA ALMENDRA 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "HUEVO LIQUIDO 6L"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "IMPULSOR 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "IMPULSOR POWER TURBO 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "KINDER NUPPY 6kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "LEVADURA 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MANTEQUILLA 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MATALAUVA ANIS GRANO"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MERMELCREM FRESA, Cu-6,5 kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MIEL 22kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MIEL 5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MINIBOLAS CEREAL 2.5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "MUFFINO MAGIC 15KG"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "NATA ASTURIANA 6L"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "NATA HULALA 10L"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "NATA MIX DECOR UP"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "NUECES 10kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "PAPEL COCCION 60x40"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "PASTA LIMON 1kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "QUESO CREMA NATURAL 26%, Cu-5 kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "RELLENO BATATA 20kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "RELLENO FRESA 6.5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "RELLENO PLATANO 6.5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "SAL 25kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "SOUFLESSE PISTACHO 3kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "TIRAS CARTON 52 cm"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "TIRAS CARTON 75 cm"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "TURRON 64% 11kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "VIRUTA BLANCA 2.5kg"}, {"proveedor": "MATERIAS PRIMAS PARIENTE", "descripcion": "YEMA BLANDA 7kg"}, {"proveedor": "NOVASERVICE", "descripcion": "ALBUMINA CLARAVAL 1KG"}, {"proveedor": "NOVASERVICE", "descripcion": "ALMENDRA FILETES b/1 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "ALMENDRA HARINA 1 kg."}, {"proveedor": "NOVASERVICE", "descripcion": "ALMIDON MAIZ (MERITENA 100G) 25KG"}, {"proveedor": "NOVASERVICE", "descripcion": "ALMIDON MAIZ ALMEX s./ 25 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "ATUN 1kg"}, {"proveedor": "NOVASERVICE", "descripcion": "AZUCAR 25KG"}, {"proveedor": "NOVASERVICE", "descripcion": "AZUCAR ANTIHUMEDAD"}, {"proveedor": "NOVASERVICE", "descripcion": "AZUCAR GLACE INDIPAN s/ 10 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "BICARBONATO SODICO 1KG"}, {"proveedor": "NOVASERVICE", "descripcion": "BOLAS CEREAL SURTIDAS 2.5 KG"}, {"proveedor": "NOVASERVICE", "descripcion": "CANELA PURA MOLIDA b./ 1 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "CAPSULAS MAGDALENAS 8-PERGAMINO"}, {"proveedor": "NOVASERVICE", "descripcion": "COCO CEYLAN RALLADO s/5 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "COLOR LIQUIDO ROJO VIVO 200 cc"}, {"proveedor": "NOVASERVICE", "descripcion": "CREMA CRUJIENTE GALLETA OREO 3,5"}, {"proveedor": "NOVASERVICE", "descripcion": "CREMA DE QUESO 10KG"}, {"proveedor": "NOVASERVICE", "descripcion": "CREMA SPECULOOS INDIPAN c/ 5 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "CREMA YEMA DE HUEVO INDIPAN 7 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "DESMOLDEANTE DEMAX SPRAY 600ML"}, {"proveedor": "NOVASERVICE", "descripcion": "DEXTROSA MONOHIDRATO 5/25 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "ENVASE ALUMINIO TARTALETA ENDAL 1070"}, {"proveedor": "NOVASERVICE", "descripcion": "FIDEOGUSTELA CHOCOLATE NEGRO DULCISTAR"}, {"proveedor": "NOVASERVICE", "descripcion": "FRIGEL GELATINA NEUTRA"}, {"proveedor": "NOVASERVICE", "descripcion": "GELATINA CALIENTE DALLAN 25KG"}, {"proveedor": "NOVASERVICE", "descripcion": "HUEVO ENTERO PASTEURIZADO 10L"}, {"proveedor": "NOVASERVICE", "descripcion": "LEVADURA caj/ 10 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "LUXKINDE 13KG"}, {"proveedor": "NOVASERVICE", "descripcion": "MB CONFRUTTIFRAMBUESA BRAUN c/3kg"}, {"proveedor": "NOVASERVICE", "descripcion": "MB SUPERCREMFRESA ARCONSA c/7 kg"}, {"proveedor": "NOVASERVICE", "descripcion": "MIEL 25KG"}, {"proveedor": "NOVASERVICE", "descripcion": "MIEL 5KG"}, {"proveedor": "NOVASERVICE", "descripcion": "NATA ASTURIANA UHT MG 1X6 L"}, {"proveedor": "NOVASERVICE", "descripcion": "NKO PRO CREMA RELLENO BLANCA 6kg"}, {"proveedor": "NOVASERVICE", "descripcion": "NUECES CHINA CUARTOS LIGHT-AMBAR CAJA10KG"}, {"proveedor": "NOVASERVICE", "descripcion": "NUECES MITAD 1KG"}, {"proveedor": "NOVASERVICE", "descripcion": "OBLEA LAMINA 20X30 A4 75 UDS"}, {"proveedor": "NOVASERVICE", "descripcion": "PAILLETE CAJA3 KG"}, {"proveedor": "NOVASERVICE", "descripcion": "PAPEL CONFITERO 40X60 20 KG"}, {"proveedor": "NOVASERVICE", "descripcion": "PAPEL KRAFF DE 40 CMS. ( PREC-bobina) 18K"}, {"proveedor": "NOVASERVICE", "descripcion": "PAPEL PARAFINADO 28X30 (BOLLOS) IMPRESO 2 KG"}, {"proveedor": "NOVASERVICE", "descripcion": "PASTA AROMA LIMON SILVER"}, {"proveedor": "NOVASERVICE", "descripcion": "PASTA CREMA GALLETA BISCOTTO 3 KG"}, {"proveedor": "NOVASERVICE", "descripcion": "PASTELERO DULCE DE LECHE 7KG"}, {"proveedor": "NOVASERVICE", "descripcion": "QUESO CREMA ENTREPINARES 5KG"}, {"proveedor": "NOVASERVICE", "descripcion": "SAL SALINAS DE ODIEL T1 SECA 25KG"}, {"proveedor": "PANAMAR", "descripcion": "CRO MULTICEREAL MANTQ FERM 80G (80 UD)"}, {"proveedor": "PANAMAR", "descripcion": "CROISSANT ARTESANO 90G 64UDS"}, {"proveedor": "PANAMAR", "descripcion": "CROISSANT RECTO SUPREME MANTQ FERM 70G"}, {"proveedor": "PANAMAR", "descripcion": "EMPANADA HOJALDRE ESPINACAS Y QUESO 120G"}, {"proveedor": "PANAMAR", "descripcion": "EMPANADA HOJALDRE POLLO Y BECHAMEL 225G"}, {"proveedor": "PANAMAR", "descripcion": "EMPANADILLA SELECTA DE PISTO 125G"}, {"proveedor": "PANAMAR", "descripcion": "EMPANADILLA SELECTA TOMATE ATUN 125G"}, {"proveedor": "PANAMAR", "descripcion": "LAMINAS DE HOJALDRE 900G (58*37,5)"}, {"proveedor": "PANAMAR", "descripcion": "MAXI HOOPS AZUCARADO 70G"}, {"proveedor": "PANAMAR", "descripcion": "MAXI HOOPS BOMBON 80G"}, {"proveedor": "PANAMAR", "descripcion": "MAXI HOOPS GLASEADOS 70G"}, {"proveedor": "PANAMAR", "descripcion": "MINI NAPOLITANA CHOCOLATE 20G"}, {"proveedor": "PANAMAR", "descripcion": "MINI NAPOLITANAS SURTIDAS 15G"}, {"proveedor": "PANAMAR", "descripcion": "NAPOLITANA CHOCOLATE 115G"}, {"proveedor": "PANAMAR", "descripcion": "NAPOLITANA MIXTA FERM. 140G"}, {"proveedor": "PANAMAR", "descripcion": "PALMERITA 20G"}, {"proveedor": "PANAMAR", "descripcion": "PALMERITA MULTICEREALES MANTEQUILLA 30G"}, {"proveedor": "PANAMAR", "descripcion": "PICK&GO KEBAB 100G"}, {"proveedor": "PANAMAR", "descripcion": "PICK&GO POLLO THAI 100G"}, {"proveedor": "PANAMAR", "descripcion": "PICK&GO TERNERA SUAVE 100G"}, {"proveedor": "PANAMAR", "descripcion": "PICK&GO TEX MEX 100G"}, {"proveedor": "PANAMAR", "descripcion": "PICK&GO YORK Y QUESO 100G"}, {"proveedor": "PASTEL MALAGA", "descripcion": "ABANICOS CHOCOLECHE"}, {"proveedor": "PASTEL MALAGA", "descripcion": "BARQUILLO MULTIFLOR"}, {"proveedor": "PASTEL MALAGA", "descripcion": "BIZCOCHO NARANJA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "BORRACHUELO RELL. CHOCO. M/BAÑO 2"}, {"proveedor": "PASTEL MALAGA", "descripcion": "BORRACHUELOS 2.5KG AZUCAR CUENCA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "BORRACHUELOS BATATA AZUCAR 2Kg"}, {"proveedor": "PASTEL MALAGA", "descripcion": "BORRACHUELOS CAB. MIEL 2 KG CUENCA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "CACAHUETE FRITO"}, {"proveedor": "PASTEL MALAGA", "descripcion": "CAFÉ FRIO LATE CAPUCCINO"}, {"proveedor": "PASTEL MALAGA", "descripcion": "CAÑA CHOCO SIN AZUCAR"}, {"proveedor": "PASTEL MALAGA", "descripcion": "COCKTAIL EXTRA 85G"}, {"proveedor": "PASTEL MALAGA", "descripcion": "CORTADILLOS HOJA 2,5KG"}, {"proveedor": "PASTEL MALAGA", "descripcion": "DELICIA DE COCO"}, {"proveedor": "PASTEL MALAGA", "descripcion": "GALLETAS BAÑADAS MINI"}, {"proveedor": "PASTEL MALAGA", "descripcion": "GALLETAS SURTIDAS 30UDS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "IBERITOS SURTIDOS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "KINDER BUENO 30 UDS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "KINDER JOY 36 UDS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "LAZOS BLANCOS PIRAMD"}, {"proveedor": "PASTEL MALAGA", "descripcion": "LAZOS CEBRA PIRAMIDE"}, {"proveedor": "PASTEL MALAGA", "descripcion": "LOCAS 1,3KG"}, {"proveedor": "PASTEL MALAGA", "descripcion": "MIX GOLOSINAS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "PALMERAS GLASEADAS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "PESTIÑO AZUCAR 1.5 KG CUENCA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "PESTIÑOS MIEL 2 KG CUENCA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "PIPAS PELADAS"}, {"proveedor": "PASTEL MALAGA", "descripcion": "ROLLOS DE NARANJA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "ROSCO FRITO 2KG"}, {"proveedor": "PASTEL MALAGA", "descripcion": "ROSCO FRITO 2kg CUENCA"}, {"proveedor": "PASTEL MALAGA", "descripcion": "ROSCOS DE VINO 5KG"}, {"proveedor": "PASTEL MALAGA", "descripcion": "TORTA DE ACEITE"}, {"proveedor": "PASTEL MALAGA", "descripcion": "TRIANGULOS RELL CABEL"}, {"proveedor": "PURATOS", "descripcion": "Almendra laminada 1kg"}, {"proveedor": "PURATOS", "descripcion": "Brillo Facil Cubo 25Kg"}, {"proveedor": "PURATOS", "descripcion": "Brillo Frío 1kg"}, {"proveedor": "PURATOS", "descripcion": "Cacao 100% 1Kg"}, {"proveedor": "PURATOS", "descripcion": "Cover Dark U2 Caja 20Kg"}, {"proveedor": "PURATOS", "descripcion": "Cover Fluid White Caja 10Kg"}, {"proveedor": "PURATOS", "descripcion": "Cremy 4X4 Saco 14Kg"}, {"proveedor": "PURATOS", "descripcion": "Crocanti cacahuete 1kg"}, {"proveedor": "PURATOS", "descripcion": "Filocrem Nutty 100F SG Cubo 25 Kg-RSPO"}, {"proveedor": "PURATOS", "descripcion": "Goal Direct Plus Saco 25Kg"}, {"proveedor": "PURATOS", "descripcion": "Harina de almendra 1kg"}, {"proveedor": "PURATOS", "descripcion": "Miroir Glassage Choco Noir cubo 5kg"}, {"proveedor": "PURATOS", "descripcion": "Mix Vegetal Spagna Caja 12x1L"}, {"proveedor": "PURATOS", "descripcion": "O-Tentic Ancien Caja 1x10Kg EP"}, {"proveedor": "PURATOS", "descripcion": "P aroma fresa"}, {"proveedor": "PURATOS", "descripcion": "P aroma limon"}, {"proveedor": "PURATOS", "descripcion": "P aroma moka"}, {"proveedor": "PURATOS", "descripcion": "P aroma naranja"}, {"proveedor": "PURATOS", "descripcion": "Soft'R Bolleria Avant Saco 25Kg"}, {"proveedor": "PURATOS", "descripcion": "Supercrem Nutty White SG Cubo 14Kg-RSPO Segregated"}, {"proveedor": "PURATOS", "descripcion": "Whippak CAR 12x1L"}, {"proveedor": "SAN LORENZO", "descripcion": "EXTRA 25 Kg, Harina panificable de trigo 270-300W"}, {"proveedor": "SAN LORENZO", "descripcion": "GRAN FUERZA (GF) 25 Kg, Harina panificable de trigo +350W"}, {"proveedor": "SAN LORENZO", "descripcion": "HARINA DE TRIGO SARRACENO ECO"}, {"proveedor": "SAN LORENZO", "descripcion": "HARINA INTEGRAL DE ESPELTA"}, {"proveedor": "SAN LORENZO", "descripcion": "INTEGRAL (IN) 25 Kg, Harina panificable de trigo"}, {"proveedor": "SAN LORENZO", "descripcion": "RECIA 25 Kg, Harina panificable de trigo duro"}, {"proveedor": "SOLANO", "descripcion": "AGUA FONT NATURA 1,5L"}, {"proveedor": "SOLANO", "descripcion": "AGUA FONT NATURA PEQ 0,5L PACK 6"}, {"proveedor": "SOLANO", "descripcion": "Aceite Cápica Orujo 5L"}, {"proveedor": "SOLANO", "descripcion": "Aceite Girasol 20L"}, {"proveedor": "SOLANO", "descripcion": "Aceite Girasol 25L"}, {"proveedor": "SOLANO", "descripcion": "Aceite Girasol 5L"}, {"proveedor": "SOLANO", "descripcion": "Aceite Girasol Adecio 60% 5L"}, {"proveedor": "SOLANO", "descripcion": "BATIDO CACAO PULEVA 200ML P-6"}, {"proveedor": "SOLANO", "descripcion": "BATIDO FRESA PULEVA 200ML P-6"}, {"proveedor": "SOLANO", "descripcion": "BIOFRUTAS TROPICAL P-3"}, {"proveedor": "SOLANO", "descripcion": "Bolsa 85x100 normales fina"}, {"proveedor": "SOLANO", "descripcion": "Bolsa 85x105 más gruesas"}, {"proveedor": "SOLANO", "descripcion": "Bolsa 90x115"}, {"proveedor": "SOLANO", "descripcion": "CAFÉ FRIO CAPUCCINO"}, {"proveedor": "SOLANO", "descripcion": "CAFÉ FRIO DESCAFEINADO"}, {"proveedor": "SOLANO", "descripcion": "CAFÉ FRIO ESPRESSO"}, {"proveedor": "SOLANO", "descripcion": "CAFÉ FRIO MACCHIATTO"}, {"proveedor": "SOLANO", "descripcion": "CERVEZA CRUZCAMPO 1L"}, {"proveedor": "SOLANO", "descripcion": "CERVEZA CRUZCAMPO 24 LATAS"}, {"proveedor": "SOLANO", "descripcion": "CERVEZA VICTORIA LATAS"}, {"proveedor": "SOLANO", "descripcion": "COCA COLA 2L"}, {"proveedor": "SOLANO", "descripcion": "COCA COLA ZERO 2L"}, {"proveedor": "SOLANO", "descripcion": "Cepillo barrer"}, {"proveedor": "SOLANO", "descripcion": "Desengrasante 5L ZOZOYA"}, {"proveedor": "SOLANO", "descripcion": "Desengrasante Milagrito 5L"}, {"proveedor": "SOLANO", "descripcion": "Fregasuelo cítrico 5L"}, {"proveedor": "SOLANO", "descripcion": "LECHE PULEVA ENTERA 1L"}, {"proveedor": "SOLANO", "descripcion": "LECHE PULEVA SEMI 1L"}, {"proveedor": "SOLANO", "descripcion": "LECHE SOLAR ENTERA 1L"}, {"proveedor": "SOLANO", "descripcion": "Lavavajillas Conc. Terymor 5L"}, {"proveedor": "SOLANO", "descripcion": "Lavavajillas Fairy 5L"}, {"proveedor": "SOLANO", "descripcion": "Lavavajillas Todo Uso 5L"}, {"proveedor": "SOLANO", "descripcion": "Lejía Mercasur 5L"}, {"proveedor": "SOLANO", "descripcion": "Limpiador desinfectante Bacter 5L"}, {"proveedor": "SOLANO", "descripcion": "Patio Puma P12"}, {"proveedor": "SOLANO", "descripcion": "RED BULL"}, {"proveedor": "SOLANO", "descripcion": "REFRESCO SUNNY 330ML"}, {"proveedor": "SOLANO", "descripcion": "ZUMO MELOCOTON P-3 200ML"}, {"proveedor": "SOLANO", "descripcion": "ZUMO PIÑA P-3 200ML"}];
+
+function viewMateriasPrimas(){
+  document.getElementById('view-materiasprimas').innerHTML = `
+    <div class="panel" id="panel-pedidos">
+      <h2>${icon('truck')} Pedidos pendientes</h2>
+      <p class="hint">Se genera solo cuando el stock actual de un producto cae igual o por debajo del stock mínimo. Agrupado por proveedor para enviarlo directo por WhatsApp al comercial.</p>
+      <div id="pedidos-pendientes"></div>
+    </div>
+
+    <div class="panel">
+      <h2>${icon('box')} Catálogo y stock de materias primas</h2>
+      <p class="hint">Cada vez que se registra una recepción (con foto de albarán o manual) el producto entra aquí solo, sumando la cantidad recibida — si es la primera vez que llega, se crea automáticamente. Al abrir un bote/cubo/saco en "Lotes" se descuenta 1 del stock. También puedes editar stock, proveedor y teléfono (WhatsApp) a mano en cualquier momento.</p>
+      <div id="catalogo-mp-table"></div>
+      <button class="btn secondary small" id="add-mp-btn">+ Añadir materia prima</button>
+      <button class="btn secondary small" id="autocompletar-proveedores-btn">Autocompletar proveedores según el listado</button>
+    </div>
+
+    <div class="panel">
+      <h2>${icon('box')} Lotes abiertos actualmente</h2>
+      <p class="hint">Un bote/cubo/saco abierto y todavía en uso. Ciérralo el día que se termine.</p>
+      <div id="lotes-abiertos-table"></div>
+    </div>
+
+    <div class="panel">
+      <h2>${icon('box')} Abrir nuevo lote</h2>
+      <p class="hint">Elige el producto de la lista (solo aparecen los que tienen stock disponible). Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
+      <form class="record-form" id="form-lotesmp">
+        <label class="field wide"><span>Producto</span>
+          <select name="producto" id="loteProductoSel" required>
+            <option value="" disabled selected>Selecciona un producto…</option>
+            ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>`<option value="${esc(m.nombre)}">${esc(m.nombre)} (stock: ${m.stockActual} ${esc(m.unidad)})</option>`).join('')}
+          </select>
+        </label>
+        <label class="field"><span>Lote</span><input type="text" name="lote" required></label>
+        <label class="field"><span>Fecha apertura</span><input type="date" name="fechaApertura" id="loteFechaApertura" value="${todayStr()}" required></label>
+        <label class="field"><span>Semana</span><input type="text" id="loteSemanaDisplay" value="S${getWeekNumber(todayStr())}" disabled></label>
+        <div class="field wide" id="loteInfoProducto"></div>
+        <div class="form-actions"><button class="btn" type="submit">Abrir lote</button></div>
+      </form>
+      ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).length===0 ? '<p class="hint">No hay ningún producto con stock disponible ahora mismo. Registra una recepción primero.</p>' : ''}
+    </div>
+
+    <div class="panel"><h2>${icon('box')} Histórico completo de lotes</h2><div id="lotesmp-table"></div></div>
+
+    <div class="wheat-divider">${icon('box')}<span>Referencia</span></div>
+    <div class="panel">
+      <h2>${icon('box')} Proveedores y materias primas</h2>
+      <p class="hint">Qué se le compra a cada proveedor (${TARIFARIO_DATA.length} artículos). Usa "Añadir al catálogo" para incorporar un producto al control de stock con su proveedor ya asignado.</p>
+      <div class="filters">
+        <label class="field"><span>Buscar producto</span><input type="text" id="tarifSearch" placeholder="Ej: harina, servilletas, sal..."></label>
+        <label class="field"><span>Proveedor</span><select id="tarifProveedorSel"><option value="">Todos</option>${[...new Set(TARIFARIO_DATA.map(t=>t.proveedor))].filter(Boolean).sort().map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select></label>
+      </div>
+      <div id="tarifario-table"></div>
+    </div>
+    <div class="panel">
+      <h2>${icon('box')} Fichas de alérgenos de materias primas</h2>
+      <p class="hint">Resumen de las fichas técnicas de proveedores, para consultar rápido qué alérgenos declara cada ingrediente antes de usarlo.</p>
+      <div class="filters">
+        <label class="field"><span>Buscar</span><input type="text" id="mpFichaSearch" placeholder="Ej: gluten, avellana, Zeelandia..."></label>
+      </div>
+      <div id="fichasmp-table"></div>
+    </div>
+  `;
+  renderPedidosPendientes();
+  renderCatalogoMP();
+  document.getElementById('add-mp-btn').addEventListener('click', async ()=>{
+    CONFIG.materiasPrimas.push({nombre:'Nueva materia prima', categoria:'', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
+    await saveConfig();
+    viewMateriasPrimas();
+  });
+  document.getElementById('autocompletar-proveedores-btn').addEventListener('click', autocompletarProveedores);
+  renderLotesAbiertos();
+  renderLotesMPTable();
+  document.getElementById('loteFechaApertura').addEventListener('change', e=>{
+    document.getElementById('loteSemanaDisplay').value = 'S'+getWeekNumber(e.target.value);
+  });
+  document.getElementById('loteProductoSel').addEventListener('change', mostrarInfoProductoLote);
+  document.getElementById('form-lotesmp').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    await abrirLoteMP(f.get('producto'), f.get('lote'), f.get('fechaApertura'));
+  });
+  const runTarifario = ()=>{
+    const q = document.getElementById('tarifSearch').value.trim().toLowerCase();
+    const prov = document.getElementById('tarifProveedorSel').value;
+    const filtered = TARIFARIO_DATA.filter(t=> (!prov || t.proveedor===prov) && (!q || t.descripcion.toLowerCase().includes(q)) ).slice(0,300);
+    const rows = filtered.map((t,i)=>`<tr><td>${esc(t.proveedor)}</td><td>${esc(t.descripcion)}</td>
+      <td><button class="btn secondary small" onclick="agregarAlCatalogo('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button></td></tr>`);
+    document.getElementById('tarifario-table').innerHTML = table(['Proveedor','Producto',''], rows)
+      + (filtered.length>=300 ? '<p class="hint" style="margin-top:8px;">Mostrando los primeros 300 resultados, afina la búsqueda para ver más.</p>' : '');
+  };
+  document.getElementById('tarifSearch').addEventListener('input', runTarifario);
+  document.getElementById('tarifProveedorSel').addEventListener('change', runTarifario);
+  runTarifario();
+  const runFichas = ()=>{
+    const q = document.getElementById('mpFichaSearch').value.trim().toLowerCase();
+    const filtered = FICHAS_MP_DATA.filter(f=> !q || f.producto.toLowerCase().includes(q) || f.proveedor.toLowerCase().includes(q) ||
+      f.contiene.join(' ').toLowerCase().includes(q) || f.trazas.join(' ').toLowerCase().includes(q));
+    const rows = filtered.map(f=>`<tr>
+      <td>${esc(f.producto)}</td><td>${esc(f.proveedor)}</td><td>${esc(f.uso)}</td>
+      <td>${f.contiene.length?f.contiene.map(esc).join(', '):'—'}</td>
+      <td>${f.trazas.length?f.trazas.map(esc).join(', '):'—'}</td>
+    </tr>`);
+    document.getElementById('fichasmp-table').innerHTML = table(['Producto','Proveedor','Uso','Contiene','Posibles trazas'], rows);
+  };
+  document.getElementById('mpFichaSearch').addEventListener('input', runFichas);
+  runFichas();
+}
+async function agregarAlCatalogo(nombre, proveedor){
+  const existe = CONFIG.materiasPrimas.find(m=>m.nombre.trim().toLowerCase()===nombre.trim().toLowerCase());
+  if(existe){
+    existe.proveedor = proveedor;
+    alert(`"${nombre}" ya estaba en el catálogo. Proveedor actualizado a ${proveedor}.`);
+  } else {
+    CONFIG.materiasPrimas.push({nombre, categoria:'', proveedor, telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
+    alert(`"${nombre}" añadido al catálogo con proveedor ${proveedor}. Ajusta stock mínimo/actual y teléfono cuando puedas.`);
+  }
+  await saveConfig();
+  renderCatalogoMP();
+  renderPedidosPendientes();
+}
+async function autocompletarProveedores(){
+  let n = 0;
+  CONFIG.materiasPrimas.forEach(m=>{
+    if(m.proveedor && m.proveedor.trim()) return;
+    const match = TARIFARIO_DATA.find(t=>t.descripcion.trim().toLowerCase()===m.nombre.trim().toLowerCase())
+      || TARIFARIO_DATA.find(t=>t.descripcion.toLowerCase().includes(m.nombre.trim().toLowerCase()) && m.nombre.trim().length>4);
+    if(match){ m.proveedor = match.proveedor; n++; }
+  });
+  await saveConfig();
+  renderCatalogoMP();
+  renderPedidosPendientes();
+  alert(n>0 ? `Proveedor asignado a ${n} producto(s) del catálogo.` : 'No se ha encontrado ninguna coincidencia nueva en el tarifario.');
+}
+
+/* ---- Catálogo y stock ---- */
+function renderCatalogoMP(){
+  const rows = CONFIG.materiasPrimas.map((m,i)=>`<tr>
+    <td><input type="text" value="${esc(m.nombre)}" style="width:170px;" onchange="updateMPField(${i},'nombre',this.value)"></td>
+    <td><input type="text" value="${esc(m.categoria)}" style="width:90px;" onchange="updateMPField(${i},'categoria',this.value)"></td>
+    <td><input type="text" value="${esc(m.proveedor)}" style="width:110px;" onchange="updateMPField(${i},'proveedor',this.value)" placeholder="Proveedor"></td>
+    <td><input type="text" value="${esc(m.telefono)}" style="width:120px;" onchange="updateMPField(${i},'telefono',this.value)" placeholder="+34 6XX XXX XXX"></td>
+    <td><input type="text" value="${esc(m.unidad)}" style="width:70px;" onchange="updateMPField(${i},'unidad',this.value)"></td>
+    <td><input type="number" value="${m.stockMinimo}" style="width:55px;" onchange="updateMPField(${i},'stockMinimo',parseFloat(this.value)||0)"></td>
+    <td><input type="number" value="${m.stockActual}" style="width:55px;${m.stockActual<=m.stockMinimo?'color:var(--danger);font-weight:700;':''}" onchange="updateMPField(${i},'stockActual',parseFloat(this.value)||0)"></td>
+    <td><button class="btn danger small" onclick="removeMP(${i})">Quitar</button></td>
+  </tr>`);
+  document.getElementById('catalogo-mp-table').innerHTML = table(['Producto','Categoría','Proveedor','Teléfono WhatsApp','Ud.','Mín.','Actual',''], rows);
+}
+async function updateMPField(i, field, value){
+  CONFIG.materiasPrimas[i][field] = value;
+  await saveConfig();
+  renderPedidosPendientes();
+  renderCatalogoMP();
+}
+async function removeMP(i){
+  if(!confirm('¿Quitar esta materia prima del catálogo?')) return;
+  CONFIG.materiasPrimas.splice(i,1);
+  await saveConfig();
+  viewMateriasPrimas();
+}
+
+/* ---- Pedidos pendientes + WhatsApp ---- */
+function renderPedidosPendientes(){
+  const pendientes = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo);
+  const el = document.getElementById('pedidos-pendientes');
+  if(!el) return;
+  if(pendientes.length===0){ el.innerHTML = '<p class="hint">No hay ningún producto por debajo de su stock mínimo ahora mismo.</p>'; return; }
+  const grupos = {};
+  pendientes.forEach(m=>{
+    const key = m.proveedor && m.proveedor.trim() ? m.proveedor.trim() : 'Sin proveedor asignado';
+    if(!grupos[key]) grupos[key] = [];
+    grupos[key].push(m);
+  });
+  el.innerHTML = Object.keys(grupos).map(proveedor=>{
+    const items = grupos[proveedor];
+    const telefono = items.find(m=>m.telefono && m.telefono.trim())?.telefono || '';
+    return `<div class="card" style="margin-bottom:10px;">
+      <div class="card-top"><h3>${esc(proveedor)}</h3><span class="badge danger">${items.length} producto${items.length>1?'s':''}</span></div>
+      <ul style="margin:6px 0 12px;padding-left:18px;font-size:13px;">
+        ${items.map(m=>`<li>${esc(m.nombre)} — actual: ${m.stockActual} ${esc(m.unidad)} (mínimo ${m.stockMinimo})</li>`).join('')}
+      </ul>
+      <button class="btn small" onclick="enviarPedidoWhatsApp('${esc(proveedor).replace(/'/g,"\\'")}')">Pedir por WhatsApp</button>
+    </div>`;
+  }).join('');
+}
+function enviarPedidoWhatsApp(proveedor){
+  const items = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo && (m.proveedor&&m.proveedor.trim()?m.proveedor.trim():'Sin proveedor asignado')===proveedor);
+  const telefono = (items.find(m=>m.telefono && m.telefono.trim())||{}).telefono;
+  if(!telefono){ alert('Añade el teléfono de WhatsApp del comercial de "'+proveedor+'" en el catálogo antes de enviar el pedido.'); return; }
+  const digits = telefono.replace(/[^0-9]/g,'');
+  const mensaje = `Hola, os hacemos pedido desde ${CONFIG.empresa.nombre} (${CONFIG.empresa.obrador}):\n`
+    + items.map(m=>`- ${m.nombre}`).join('\n')
+    + '\n¿Podéis confirmarnos disponibilidad y fecha de entrega? Gracias.';
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(mensaje)}`, '_blank');
+}
+
+/* ---- Lotes: abrir / cerrar ---- */
+function getWeekNumber(dateStr){
+  if(!dateStr) return '';
+  const d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d)) return '';
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay()+6)%7;
+  target.setDate(target.getDate()-dayNr+3);
+  const firstThursday = new Date(target.getFullYear(),0,4);
+  const diff = target - firstThursday;
+  return 1 + Math.round(diff/(7*24*3600*1000));
+}
+function loteMasAntiguoDisponible(nombre){
+  const usados = new Set(DATA.lotesMP
+    .filter(r=>r.producto.trim().toLowerCase()===nombre.trim().toLowerCase())
+    .map(r=>r.lote.trim().toLowerCase()));
+  const recibidos = DATA.recepcion
+    .filter(r=>r.producto.trim().toLowerCase()===nombre.trim().toLowerCase() && r.lote && r.lote.trim() && !usados.has(r.lote.trim().toLowerCase()))
+    .sort((a,b)=> (a.fecha+ (a.hora||'')).localeCompare(b.fecha+(b.hora||'')));
+  return recibidos.length ? recibidos[0] : null;
+}
+function mostrarInfoProductoLote(){
+  const nombre = document.getElementById('loteProductoSel').value;
+  const info = document.getElementById('loteInfoProducto');
+  const loteInput = document.querySelector('#form-lotesmp input[name=lote]');
+  if(!nombre){ info.innerHTML=''; return; }
+  const m = CONFIG.materiasPrimas.find(x=>x.nombre===nombre);
+  const abierto = DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===nombre.trim().toLowerCase());
+  let html = `<p class="hint" style="margin:0;">Stock disponible: <strong>${m?m.stockActual:'—'} ${m?esc(m.unidad):''}</strong>${m&&m.proveedor?' · Proveedor: '+esc(m.proveedor):''}</p>`;
+  if(abierto){
+    html += `<p class="hint" style="margin:4px 0 0;color:var(--warn);">⚠ Ya hay un lote abierto: <strong>${esc(abierto.lote)}</strong> (desde ${fmtDate(abierto.fechaApertura)}). Se te pedirá cerrarlo al abrir el nuevo.</p>`;
+  }
+  const antiguo = loteMasAntiguoDisponible(nombre);
+  if(loteInput) loteInput.value = '';
+  if(antiguo){
+    html += `<p class="hint" style="margin:4px 0 0;color:var(--ok);">📦 Lote más antiguo recibido (usa este primero — FIFO): <strong>${esc(antiguo.lote)}</strong>, recibido el ${fmtDate(antiguo.fecha)}${antiguo.caducidad?', caduca el '+fmtDate(antiguo.caducidad):''}, proveedor ${esc(antiguo.proveedor)||'—'}.</p>`;
+    if(loteInput) loteInput.value = antiguo.lote;
+  } else {
+    html += `<p class="hint" style="margin:4px 0 0;">No hay ninguna recepción registrada con lote para este producto todavía; escribe el lote a mano.</p>`;
+  }
+  info.innerHTML = html;
+}
+async function abrirLoteMP(producto, lote, fechaApertura){
+  const abierto = DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===producto.trim().toLowerCase());
+  if(abierto){
+    if(confirm(`Ya hay un lote abierto para "${producto}" (lote ${abierto.lote}). ¿Cerrarlo hoy y abrir el nuevo?`)){
+      abierto.fechaCierre = todayStr();
+    } else {
+      return;
+    }
+  }
+  DATA.lotesMP.unshift({id:uid(), producto, lote, fechaApertura, fechaCierre:'', semana:getWeekNumber(fechaApertura)});
+  await saveModule('lotesMP');
+  const idx = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
+  if(idx>=0){ CONFIG.materiasPrimas[idx].stockActual = Math.max(0, CONFIG.materiasPrimas[idx].stockActual - 1); await saveConfig(); }
+  viewMateriasPrimas();
+  renderDashboard();
+}
+async function cerrarLoteMP(id){
+  const rec = DATA.lotesMP.find(r=>r.id===id);
+  if(!rec) return;
+  rec.fechaCierre = todayStr();
+  await saveModule('lotesMP');
+  renderLotesAbiertos();
+  renderLotesMPTable();
+}
+function renderLotesAbiertos(){
+  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre);
+  const rows = abiertos.map(r=>`<tr>
+    <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td><td class="mono">${fmtDate(r.fechaApertura)}</td>
+    <td><button class="btn secondary small" onclick="cerrarLoteMP('${r.id}')">Cerrar lote (hoy)</button></td>
+  </tr>`);
+  document.getElementById('lotes-abiertos-table').innerHTML = table(['Producto','Lote','Semana','F. apertura',''], rows);
+}
+function renderLotesMPTable(){
+  const rows = DATA.lotesMP.map(r=>`<tr>
+    <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td>
+    <td class="mono">${fmtDate(r.fechaApertura)}</td><td class="mono">${r.fechaCierre?fmtDate(r.fechaCierre):'—'}</td>
+    <td><button class="btn danger small" onclick="removeRecord('lotesMP','${r.id}',()=>{renderLotesMPTable();renderLotesAbiertos();})">Borrar</button></td>
+  </tr>`);
+  document.getElementById('lotesmp-table').innerHTML = table(['Producto','Lote','Semana','F. apertura','F. cierre',''], rows);
+}
+async function registrarEntradaStock(nombre, proveedor, cantidadStr){
+  if(!nombre || !nombre.trim()) return null;
+  let cantidad = parseFloat(String(cantidadStr).replace(',','.'));
+  if(!isFinite(cantidad) || cantidad<=0) cantidad = 1;
+  const idx = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===nombre.trim().toLowerCase());
+  if(idx>=0){
+    CONFIG.materiasPrimas[idx].stockActual += cantidad;
+    if(!CONFIG.materiasPrimas[idx].proveedor && proveedor) CONFIG.materiasPrimas[idx].proveedor = proveedor;
+    return CONFIG.materiasPrimas[idx].nombre;
+  }
+  CONFIG.materiasPrimas.push({nombre:nombre.trim(), categoria:'', proveedor:proveedor||'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:cantidad});
+  return nombre.trim();
+}
+
+/* ================= CLASIFICACIÓN LISTERIA (referencia) ================= */
+const LISTERIA_DATA = [
+  // Lista A - Bollería
+  ['A','B','Bizcocho clásico','ALC Nota 7 (No detectado/25g)'],
+  ['A','B','Bomba de chocolate','Vida útil <5 días'],
+  ['A','B','Bomba de crema','Vida útil <5 días'],
+  ['A','B','Buena mujer (hojaldre con manzana)','ALC Nota 7 (No detectado/25g)'],
+  ['A','C','Caña de chocolate','ALC Nota 7 (No detectado/25g)'],
+  ['A','C','Caña de crema pastelera','ALC Nota 7 (No detectado/25g)'],
+  ['A','C','Croissant','Vida útil <5 días'],
+  ['A','D','Donut clásico','Vida útil <5 días'],
+  ['A','D','Donut chocolate','Vida útil <5 días'],
+  ['A','L','Lazo de crema pastelera','ALC Nota 7 (No detectado/25g)'],
+  ['A','M','Magdalenas','Vida útil <5 días'],
+  ['A','M','Magdalenas con chocolate','Vida útil <5 días'],
+  ['A','N','Napolitana de chocolate','Vida útil <5 días'],
+  ['A','P','Palmera','Vida útil <5 días'],
+  ['A','P','Palmera de Ferrero','Vida útil <5 días'],
+  ['A','P','Palmera de chocolate','Vida útil <5 días'],
+  ['A','P','Palmera Nutella','Vida útil <5 días'],
+  ['A','P','Palmera Kinder','Vida útil <5 días'],
+  ['A','P','Palmera chocolate blanco','Vida útil <5 días'],
+  ['A','P','Palmera yema y fondant','Vida útil <5 días'],
+  ['A','T','Triángulo de crema','Vida útil <5 días'],
+  ['A','T','Triángulo de Nutella','Vida útil <5 días'],
+  ['A','T','Triángulo de nata y Nutella','Vida útil <5 días'],
+  ['A','X','Xuxo de crema pastelera','Vida útil <5 días'],
+  // Lista B - Repostería
+  ['B','B','Bizcocho plancha','Vida útil <5 días'],
+  ['B','B','Bizcocho plancha chocolate','Vida útil <5 días'],
+  ['B','B','Brownie','ALC Nota 7 (No detectado/25g)'],
+  ['B','C','Cono de nata','Vida útil <5 días'],
+  ['B','C','Croissant de almendra','ALC Nota 7 (No detectado/25g)'],
+  ['B','E','Eclair chocolate','ALC Nota 7 (No detectado/25g)'],
+  ['B','E','Eclair crema','ALC Nota 7 (No detectado/25g)'],
+  ['B','G','Galletas (espelta y espelta+choco)','No necesario controlar Listeria (Nota 4)'],
+  ['B','M','Milhojas de crema de chocolate y trufa','ALC Nota 7 (No detectado/25g)'],
+  ['B','M','Milhojas de crema diplo y yema','ALC Nota 7 (No detectado/25g)'],
+  ['B','M','Milhojas de crema','ALC Nota 7 (No detectado/25g)'],
+  ['B','M','Milhojas de merengue','ALC Nota 7 (No detectado/25g)'],
+  ['B','M','Milhojas de nata-crema','ALC Nota 7 (No detectado/25g)'],
+  ['B','M','Milhojas de nata','ALC Nota 7 (No detectado/25g)'],
+  ['B','P','Pastel de galleta','ALC Nota 7 (No detectado/25g)'],
+  ['B','P','Pastel de zanahoria, queso y nueces','ALC Nota 7 (No detectado/25g)'],
+  ['B','P','Pío de coco','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) chocolate','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) fresa','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','San Marco (pastel) dulce de leche','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) de galleta','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) de Kinder','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) de Kit-Kat','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) de nata','ALC Nota 7 (No detectado/25g)'],
+  ['B','S','Sanmarco (pastel) de nata/trufa y yema tostada','ALC Nota 7 (No detectado/25g)'],
+  ['B','T','Tarta de almendras','ALC Nota 7 (No detectado/25g)'],
+  ['B','T','Tarta de queso y mermelada de frambuesa','ALC Nota 7 (No detectado/25g)'],
+  ['B','T','Tarta de manzana','Vida útil <5 días'],
+  ['B','T','Tartaleta de frutas','ALC Nota 7 (No detectado/25g)'],
+  ['B','SIN AZÚCAR','Sanmarco (pastel) de nata/trufa sin azúcar','ALC Nota 7 (No detectado/25g)'],
+  ['B','TARTAS','Tartas vitrina','ALC Nota 7 (No detectado/25g)'],
+  ['B','TARTAS','Tartas encargo','Vida útil <5 días'],
+];
+function viewListeria(){
+  document.getElementById('view-listeria').innerHTML = `
+    <div class="panel">
+      <h2>${icon('book')} Categorización según peligro de Listeria monocytogenes</h2>
+      <p class="hint">Referencia extraída del laboratorio homologado. Lista A = Bollería · Lista B = Repostería. Consulta rápida por producto para saber qué criterio aplica antes de etiquetar o ampliar vida útil.</p>
+      <div class="filters">
+        <label class="field"><span>Buscar producto</span><input type="text" id="listeriaSearch" placeholder="Ej: milhojas, croissant..."></label>
+        <label class="field"><span>Lista</span><select id="listeriaLista"><option value="">Todas</option><option value="A">A · Bollería</option><option value="B">B · Repostería</option></select></label>
+      </div>
+      <div id="listeria-table"></div>
+    </div>
+  `;
+  const run = ()=>{
+    const q = document.getElementById('listeriaSearch').value.trim().toLowerCase();
+    const lista = document.getElementById('listeriaLista').value;
+    const filtered = LISTERIA_DATA.filter(([l,g,p])=> (!lista||l===lista) && (!q||p.toLowerCase().includes(q)) );
+    const rows = filtered.map(([l,g,p,c])=>`<tr><td>${l}</td><td>${esc(g)}</td><td>${esc(p)}</td><td>${esc(c)}</td></tr>`);
+    document.getElementById('listeria-table').innerHTML = table(['Lista','Grupo','Producto','Criterio aplicado'], rows);
+  };
+  document.getElementById('listeriaSearch').addEventListener('input', run);
+  document.getElementById('listeriaLista').addEventListener('change', run);
+  run();
+}
+
+/* ================= INFORMES ================= */
+const MODULE_META = {
+  limpieza:{label:'Limpieza', headers:['Fecha','Área','Elemento','Frecuencia','Realizado','Responsable','Supervisor','Obs.'],
+    row:r=>[fmtDate(r.fecha),r.area,r.elemento,r.frecuencia,r.realizado?'Sí':'No',r.responsable,r.supervisor||'',r.observaciones||'']},
+  agua:{label:'Control de agua', headers:['Fecha','Cloro (mg/l)','Organolépticos','Estado','Responsable','Obs.'],
+    row:r=>[fmtDate(r.fecha),r.cloro,r.organolepticos?'Normales':'Anómalos',r.estado,r.responsable,r.observaciones||'']},
+  recepcion:{label:'Recepción', headers:['Fecha','Hora','Proveedor','Producto','Lote','Temp.','Envase','Caduca','Estado','Responsable'],
+    row:r=>[fmtDate(r.fecha),r.hora,r.proveedor,r.producto,r.lote,r.tempLlegada,r.estadoEnvase,fmtDate(r.caducidad),r.aceptado?'Aceptado':'Rechazado',r.responsable]},
+  alergenos:{label:'Alérgenos por lote', headers:['Fecha','Lote','Producto','Alérgenos','Etiquetado','Responsable'],
+    row:r=>[fmtDate(r.fecha),r.lote,r.producto,r.alergenos.join(' / '),r.etiquetado?'Verificado':'Pendiente',r.responsable]},
+  alergenosTienda:{label:'Alérgenos en tienda', headers:['Fecha','Tienda','Alergia comunicada','Producto','Cambio cruzada','Limpieza','Resultado','Atendió','Supervisor'],
+    row:r=>[fmtDate(r.fecha),r.tienda,r.alergiaComunicada,r.producto||'',r.cambioContaminacion?'Sí':'No',r.limpiezaAparato?'Sí':'No',r.resultado,r.responsable,r.supervisor||'']},
+  aceite:{label:'Control de aceite', headers:['Fecha','Aceite nuevo','Producto','Temp.','Polares','Estado','Responsable'],
+    row:r=>[fmtDate(r.fecha),r.aceiteNuevo?'Sí':'No',r.producto||'',r.temperatura||'',r.polares,r.estado,r.responsable]},
+  trazabilidad:{label:'Trazabilidad', headers:['Fecha','Lote','Producto','Cantidad','Materias primas','Tiendas','Responsable'],
+    row:r=>[fmtDate(r.fecha),r.lote,r.producto,r.cantidad+' '+r.unidad,r.materiasPrimas,r.tiendas.join(' / '),r.responsable]},
+  lotesMP:{label:'Lotes de materias primas', headers:['Producto','Lote','Semana','Fecha apertura','Fecha cierre'],
+    row:r=>[r.producto,r.lote,'S'+(r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)),fmtDate(r.fechaApertura),r.fechaCierre?fmtDate(r.fechaCierre):'']},
+  mantenimiento:{label:'Mantenimiento y plagas', headers:['Fecha','Tipo','Empresa','Descripción','Estado','Responsable'],
+    row:r=>[fmtDate(r.fecha),r.tipo,r.empresa||'',r.descripcion,r.resuelto?'Resuelto':'Pendiente',r.responsable]},
+  noconformidades:{label:'Incidencias', headers:['Fecha','Plan','Descripción','Acción correctora','Estado','Cierre','Responsable'],
+    row:r=>[fmtDate(r.fecha),r.plan,r.descripcion,r.accionCorrectiva,r.estado,r.fechaCierre?fmtDate(r.fechaCierre):'',r.responsable]},
+};
+function flattenTemperaturas(desde, hasta){
+  const out = [];
+  Object.keys(DATA.temperaturas).sort().forEach(key=>{
+    const [y,m] = key.split('-').map(Number);
+    DATA.temperaturas[key].forEach(row=>{
+      const fecha = key+'-'+String(row.day).padStart(2,'0');
+      if(desde && fecha<desde) return;
+      if(hasta && fecha>hasta) return;
+      CONFIG.equipos.forEach(e=>{
+        const v = row.valores[e.nombre];
+        if(v===undefined || v==='') return;
+        const estado = within(parseFloat(v), e.min, e.max) ? 'OK' : 'ALERTA';
+        out.push({fecha, equipo:e.nombre, valor:v, estado, responsable:row.responsable, incidencia:row.incidencia});
+      });
+    });
+  });
+  return out;
+}
+function viewInformes(){
+  const opts = '<option value="temperaturas">Temperaturas</option>' + Object.keys(MODULE_META).map(k=>`<option value="${k}">${MODULE_META[k].label}</option>`).join('');
+  document.getElementById('view-informes').innerHTML = `
+    <div class="panel">
+      <h2>${icon('report')} Consultar registros</h2>
+      <div class="filters">
+        <label class="field"><span>Módulo</span><select id="informeModulo">${opts}</select></label>
+        <label class="field"><span>Desde</span><input type="date" id="informeDesde"></label>
+        <label class="field"><span>Hasta</span><input type="date" id="informeHasta" value="${todayStr()}"></label>
+        <button class="btn" id="informeFiltrar">Filtrar</button>
+        <button class="btn secondary" id="informeCSV">Descargar CSV</button>
+      </div>
+      <div id="informe-table"></div>
+    </div>
+  `;
+  const tempMeta = {label:'Temperaturas', headers:['Fecha','Equipo','Valor (°C)','Estado','Responsable','Incidencia'],
+    row:r=>[fmtDate(r.fecha),r.equipo,r.valor,r.estado,r.responsable,r.incidencia||'']};
+  const run = ()=>{
+    const mod = document.getElementById('informeModulo').value;
+    const desde = document.getElementById('informeDesde').value;
+    const hasta = document.getElementById('informeHasta').value;
+    const meta = mod==='temperaturas' ? tempMeta : MODULE_META[mod];
+    const filtered = mod==='temperaturas' ? flattenTemperaturas(desde,hasta) : DATA[mod].filter(r=> (!desde || r.fecha>=desde) && (!hasta || r.fecha<=hasta) );
+    const rows = filtered.map(r=>`<tr>${meta.row(r).map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`);
+    document.getElementById('informe-table').innerHTML = table(meta.headers, rows);
+    document.getElementById('informeCSV').onclick = ()=>downloadCSV(meta, filtered, mod);
+  };
+  document.getElementById('informeFiltrar').addEventListener('click', run);
+  run();
+}
+function downloadCSV(meta, rows, mod){
+  const lines = [meta.headers.join(';')];
+  rows.forEach(r=> lines.push(meta.row(r).map(v=>String(v??'').replace(/;/g,',')).join(';')));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `appcc-${mod}-${todayStr()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ================= AJUSTES ================= */
+function viewAjustes(){
+  document.getElementById('view-ajustes').innerHTML = `
+    <div class="panel">
+      <h2>${icon('gear')} Datos de la empresa</h2>
+      <p class="hint">Modo actual: <strong>${HAS_CLAUDE_STORAGE ? 'Vista dentro de Claude.ai' : 'Aplicación independiente (datos guardados en este dispositivo)'}</strong></p>
+      <div class="settings-list">
+        <div class="settings-row"><input type="text" value="${esc(CONFIG.empresa.nombre)}" onchange="CONFIG.empresa.nombre=this.value" placeholder="Nombre de la empresa"></div>
+        <div class="settings-row"><input type="text" value="${esc(CONFIG.empresa.obrador)}" onchange="CONFIG.empresa.obrador=this.value" placeholder="Nombre del obrador"></div>
+        <div class="settings-row"><input type="text" value="${esc(CONFIG.empresa.registroSanitario)}" onchange="CONFIG.empresa.registroSanitario=this.value" placeholder="Registro sanitario"></div>
+        <div class="settings-row"><input type="text" value="${esc(CONFIG.empresa.direccion)}" onchange="CONFIG.empresa.direccion=this.value" placeholder="Dirección"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Configuración de IA (lectura de albaranes)</h2>
+      <p class="hint">${HAS_CLAUDE_STORAGE
+        ? 'Estás usando la app dentro de Claude.ai: la lectura de albaranes ya funciona sin necesidad de ninguna clave.'
+        : 'La app funciona de forma independiente, por lo que necesita una clave de API propia para leer albaranes con IA. <strong>Google Gemini tiene un nivel gratuito</strong> (varios cientos de lecturas al día sin coste) — es la opción recomendada si no quieres pagar nada. Anthropic (Claude) requiere cargar saldo desde el primer uso. La clave se guarda solo en este dispositivo/navegador; cualquiera con acceso físico a la tablet podría llegar a verla, así que no la compartas.'}</p>
+      ${!HAS_CLAUDE_STORAGE ? `
+      <div class="filters">
+        <label class="field"><span>Proveedor de IA a usar</span>
+          <select id="aiProviderSel">
+            <option value="gemini">Google Gemini (gratis)</option>
+            <option value="anthropic">Anthropic / Claude (de pago)</option>
+          </select>
+        </label>
+      </div>
+      <div id="geminiKeyBlock" style="margin-bottom:16px;">
+        <p class="hint" style="margin-bottom:6px;">Consigue tu clave gratis en <strong>aistudio.google.com/apikey</strong> (inicia sesión con una cuenta de Google y pulsa "Create API key").</p>
+        <div class="filters">
+          <label class="field"><span>Clave de API de Gemini</span><input type="password" id="geminiKeyInput" value="${esc(getGeminiKey())}" placeholder="AIza..." style="min-width:280px;"></label>
+          <button class="btn secondary small" id="toggleGeminiKeyBtn" type="button">Mostrar/ocultar</button>
+          <button class="btn small" id="saveGeminiKeyBtn" type="button">Guardar clave</button>
+          <button class="btn danger small" id="clearGeminiKeyBtn" type="button">Quitar clave</button>
+        </div>
+        <p class="hint" id="geminiKeyStatus">${getGeminiKey() ? 'Clave configurada ✓' : 'Todavía no hay ninguna clave configurada.'}</p>
+      </div>
+      <div id="anthropicKeyBlock">
+        <p class="hint" style="margin-bottom:6px;">Consíguela en <strong>console.anthropic.com</strong> → API Keys (requiere cargar saldo mínimo en la cuenta).</p>
+        <div class="filters">
+          <label class="field"><span>Clave de API de Anthropic</span><input type="password" id="apiKeyInput" value="${esc(getApiKey())}" placeholder="sk-ant-..." style="min-width:280px;"></label>
+          <button class="btn secondary small" id="toggleApiKeyBtn" type="button">Mostrar/ocultar</button>
+          <button class="btn small" id="saveApiKeyBtn" type="button">Guardar clave</button>
+          <button class="btn danger small" id="clearApiKeyBtn" type="button">Quitar clave</button>
+        </div>
+        <p class="hint" id="apiKeyStatus">${getApiKey() ? 'Clave configurada ✓' : 'Todavía no hay ninguna clave configurada.'}</p>
+      </div>
+      ` : ''}
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Equipos de temperatura</h2>
+      <div class="settings-list" id="cfg-equipos"></div>
+      <button class="btn secondary small" id="add-equipo">+ Añadir equipo</button>
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Áreas y elementos de limpieza</h2>
+      <p class="hint">Estructura por salas, tal y como aparece en vuestro plan de limpieza y desinfección.</p>
+      <div id="cfg-zonas"></div>
+      <button class="btn secondary small" id="add-area">+ Añadir área</button>
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Tiendas</h2>
+      <p class="hint">Renombra cada una de las 7 tiendas para que coincidan con tus puntos de venta reales.</p>
+      <div class="settings-list" id="cfg-tiendas"></div>
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Alérgenos controlados</h2>
+      <div class="settings-list" id="cfg-alergenos"></div>
+      <button class="btn secondary small" id="add-alergeno">+ Añadir alérgeno</button>
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Planes para incidencias</h2>
+      <div class="settings-list" id="cfg-planes"></div>
+      <button class="btn secondary small" id="add-plan">+ Añadir plan</button>
+    </div>
+    <div class="panel">
+      <h2>${icon('gear')} Guardar cambios</h2>
+      <button class="btn" id="save-cfg">Guardar ajustes</button>
+    </div>
+    <div class="panel">
+      <h2>${icon('box')} Copia de seguridad</h2>
+      <p class="hint">${HAS_CLAUDE_STORAGE ? 'Aunque los datos ya se comparten desde Claude.ai, es buena idea guardar una copia de vez en cuando.' : 'Como los datos viven solo en esta tablet, descarga una copia periódicamente (por ejemplo, cada semana) para no perder el histórico si se resetea el dispositivo o se borra el navegador.'}</p>
+      <div class="filters">
+        <button class="btn secondary small" id="export-backup-btn" type="button">Descargar copia de seguridad</button>
+        <label class="field"><span>Restaurar desde archivo</span><input type="file" id="import-backup-file" accept=".json"></label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>${icon('box')} Sincronización con Google Drive</h2>
+      <p class="hint">Para ver los mismos datos desde varios ordenadores/tablets, sube y descarga aquí una copia guardada en tu Google Drive. <strong>Solo funciona si esta app está alojada en una dirección web real (https://...), no si la abres como archivo local.</strong> Requiere un "ID de cliente" de Google configurado para esa dirección — pide instrucciones si aún no lo tienes.</p>
+      <div class="filters">
+        <label class="field"><span>ID de cliente de Google (OAuth)</span><input type="text" id="googleClientIdInput" value="${esc(getGoogleClientId())}" placeholder="xxxxx.apps.googleusercontent.com" style="min-width:320px;"></label>
+        <button class="btn small" id="saveGoogleClientIdBtn" type="button">Guardar ID</button>
+      </div>
+      <div class="filters">
+        <button class="btn secondary small" id="connectDriveBtn" type="button">Conectar con Google Drive</button>
+        <button class="btn small" id="uploadDriveBtn" type="button">Subir copia a Drive</button>
+        <button class="btn small" id="downloadDriveBtn" type="button">Descargar copia de Drive</button>
+      </div>
+      <p class="hint" id="driveStatus">Todavía no conectado.</p>
+      <p class="hint" id="driveSyncEstado"></p>
+    </div>
+    <div class="panel">
+      <h2>${icon('alert')} Zona de riesgo</h2>
+      <p class="hint">Elimina todos los registros guardados de todos los módulos. Los ajustes (empresa, equipos, zonas, tiendas, alérgenos, planes) no se ven afectados.</p>
+      <button class="btn danger" id="reset-data">Vaciar todos los registros</button>
+    </div>
+  `;
+  renderEquiposCfg(); renderZonasCfg(); renderTiendasCfg(); renderAlergenosCfg(); renderPlanesCfg();
+  document.getElementById('add-equipo').addEventListener('click',()=>{ CONFIG.equipos.push({nombre:'Nuevo equipo',min:0,max:4}); renderEquiposCfg(); });
+  document.getElementById('add-area').addEventListener('click',()=>{ CONFIG.zonasLimpieza.push({area:'Nueva área',elementos:['Nuevo elemento']}); renderZonasCfg(); });
+  document.getElementById('add-alergeno').addEventListener('click',()=>{ CONFIG.alergenos.push('Nuevo alérgeno'); renderAlergenosCfg(); });
+  document.getElementById('add-plan').addEventListener('click',()=>{ CONFIG.planes.push('Nuevo plan'); renderPlanesCfg(); });
+  document.getElementById('save-cfg').addEventListener('click', async ()=>{
+    await saveConfig();
+    updateSidebarFoot();
+    alert('Ajustes guardados correctamente.');
+  });
+  if(!HAS_CLAUDE_STORAGE){
+    const providerSel = document.getElementById('aiProviderSel');
+    providerSel.value = getAIProvider();
+    const syncBlocks = ()=>{
+      document.getElementById('geminiKeyBlock').style.display = providerSel.value==='gemini' ? 'block' : 'none';
+      document.getElementById('anthropicKeyBlock').style.display = providerSel.value==='anthropic' ? 'block' : 'none';
+    };
+    syncBlocks();
+    providerSel.addEventListener('change', ()=>{ setAIProvider(providerSel.value); syncBlocks(); });
+    document.getElementById('toggleApiKeyBtn').addEventListener('click', ()=>{
+      const inp = document.getElementById('apiKeyInput');
+      inp.type = inp.type==='password' ? 'text' : 'password';
+    });
+    document.getElementById('saveApiKeyBtn').addEventListener('click', ()=>{
+      setApiKey(document.getElementById('apiKeyInput').value.trim());
+      document.getElementById('apiKeyStatus').textContent = getApiKey() ? 'Clave configurada ✓' : 'Todavía no hay ninguna clave configurada.';
+      alert('Clave guardada en este dispositivo.');
+    });
+    document.getElementById('clearApiKeyBtn').addEventListener('click', ()=>{
+      if(!confirm('¿Quitar la clave de Anthropic guardada en este dispositivo?')) return;
+      clearApiKey();
+      document.getElementById('apiKeyInput').value = '';
+      document.getElementById('apiKeyStatus').textContent = 'Todavía no hay ninguna clave configurada.';
+    });
+    document.getElementById('toggleGeminiKeyBtn').addEventListener('click', ()=>{
+      const inp = document.getElementById('geminiKeyInput');
+      inp.type = inp.type==='password' ? 'text' : 'password';
+    });
+    document.getElementById('saveGeminiKeyBtn').addEventListener('click', ()=>{
+      setGeminiKey(document.getElementById('geminiKeyInput').value.trim());
+      document.getElementById('geminiKeyStatus').textContent = getGeminiKey() ? 'Clave configurada ✓' : 'Todavía no hay ninguna clave configurada.';
+      alert('Clave guardada en este dispositivo.');
+    });
+    document.getElementById('clearGeminiKeyBtn').addEventListener('click', ()=>{
+      if(!confirm('¿Quitar la clave de Gemini guardada en este dispositivo?')) return;
+      clearGeminiKey();
+      document.getElementById('geminiKeyInput').value = '';
+      document.getElementById('geminiKeyStatus').textContent = 'Todavía no hay ninguna clave configurada.';
+    });
+  }
+  document.getElementById('export-backup-btn').addEventListener('click', exportarBackup);
+  document.getElementById('saveGoogleClientIdBtn').addEventListener('click', ()=>{
+    setGoogleClientId(document.getElementById('googleClientIdInput').value.trim());
+    googleTokenClient = null; googleAccessToken = null;
+    alert('ID de cliente guardado. Pulsa "Conectar con Google Drive" para iniciar sesión.');
+  });
+  document.getElementById('connectDriveBtn').addEventListener('click', conectarGoogleDrive);
+  document.getElementById('uploadDriveBtn').addEventListener('click', subirBackupADrive);
+  document.getElementById('downloadDriveBtn').addEventListener('click', descargarBackupDeDrive);
+  document.getElementById('import-backup-file').addEventListener('change', e=>{
+    const file = e.target.files[0];
+    if(file) importarBackupFile(file);
+  });
+  document.getElementById('reset-data').addEventListener('click', async ()=>{
+    if(!confirm('Esto eliminará TODOS los registros de todos los módulos. ¿Continuar?')) return;
+    for(const mod of Object.keys(DATA)){ DATA[mod]= (mod==='temperaturas'?{}:[]); await saveModule(mod); }
+    alert('Registros eliminados.');
+    renderDashboard();
+  });
+}
+function renderEquiposCfg(){
+  document.getElementById('cfg-equipos').innerHTML = CONFIG.equipos.map((e,i)=>`
+    <div class="settings-row">
+      <input type="text" value="${esc(e.nombre)}" onchange="CONFIG.equipos[${i}].nombre=this.value">
+      <input type="number" class="small" value="${e.min}" onchange="CONFIG.equipos[${i}].min=parseFloat(this.value)" title="Mínimo">
+      <input type="number" class="small" value="${e.max}" onchange="CONFIG.equipos[${i}].max=parseFloat(this.value)" title="Máximo">
+      <button class="btn danger small" onclick="CONFIG.equipos.splice(${i},1);renderEquiposCfg();">Quitar</button>
+    </div>`).join('');
+}
+function renderZonasCfg(){
+  document.getElementById('cfg-zonas').innerHTML = CONFIG.zonasLimpieza.map((z,ai)=>`
+    <div class="panel" style="background:#FBF6EC;margin-bottom:12px;padding:14px 16px;">
+      <div class="settings-row" style="margin-bottom:10px;">
+        <input type="text" value="${esc(z.area)}" onchange="CONFIG.zonasLimpieza[${ai}].area=this.value" style="font-weight:700;">
+        <button class="btn danger small" onclick="CONFIG.zonasLimpieza.splice(${ai},1);renderZonasCfg();">Quitar área</button>
+      </div>
+      <div class="settings-list">
+        ${z.elementos.map((el,ei)=>`
+          <div class="settings-row">
+            <input type="text" value="${esc(el)}" onchange="CONFIG.zonasLimpieza[${ai}].elementos[${ei}]=this.value">
+            <button class="btn danger small" onclick="CONFIG.zonasLimpieza[${ai}].elementos.splice(${ei},1);renderZonasCfg();">Quitar</button>
+          </div>`).join('')}
+      </div>
+      <button class="btn secondary small" onclick="CONFIG.zonasLimpieza[${ai}].elementos.push('Nuevo elemento');renderZonasCfg();">+ Añadir elemento</button>
+    </div>`).join('');
+}
+function renderPlanesCfg(){
+  document.getElementById('cfg-planes').innerHTML = CONFIG.planes.map((p,i)=>`
+    <div class="settings-row">
+      <input type="text" value="${esc(p)}" onchange="CONFIG.planes[${i}]=this.value">
+      <button class="btn danger small" onclick="CONFIG.planes.splice(${i},1);renderPlanesCfg();">Quitar</button>
+    </div>`).join('');
+}
+function renderTiendasCfg(){
+  document.getElementById('cfg-tiendas').innerHTML = CONFIG.tiendas.map((t,i)=>`
+    <div class="settings-row">
+      <input type="text" value="${esc(t)}" onchange="CONFIG.tiendas[${i}]=this.value">
+    </div>`).join('');
+}
+function renderAlergenosCfg(){
+  document.getElementById('cfg-alergenos').innerHTML = CONFIG.alergenos.map((a,i)=>`
+    <div class="settings-row">
+      <input type="text" value="${esc(a)}" onchange="CONFIG.alergenos[${i}]=this.value">
+      <button class="btn danger small" onclick="CONFIG.alergenos.splice(${i},1);renderAlergenosCfg();">Quitar</button>
+    </div>`).join('');
+}
+
+/* ================= DASHBOARD ================= */
+function renderDashboard(){
+  const el = document.getElementById('view-dashboard');
+  if(!el) return;
+  const today = todayStr();
+  const tempAlertas = temperaturasAlertasHoy();
+  const tempRegistradas = temperaturasRegistradasHoy();
+  const limpiezaHoy = DATA.limpieza.filter(r=>r.fecha===today);
+  const totalElementos = CONFIG.zonasLimpieza.reduce((sum,z)=>sum+z.elementos.length,0);
+  const elementosCompletados = new Set(limpiezaHoy.filter(r=>r.realizado).map(r=>r.area+'|'+r.elemento)).size;
+  const aguaHoy = DATA.agua.filter(r=>r.fecha===today);
+  const aguaRevisar = aguaHoy.filter(r=>r.estado!=='OK').length;
+  const recepHoy = DATA.recepcion.filter(r=>r.fecha===today);
+  const recepRechazadas = recepHoy.filter(r=>!r.aceptado).length;
+  const alergHoy = DATA.alergenos.filter(r=>r.fecha===today).length + DATA.alergenosTienda.filter(r=>r.fecha===today).length;
+  const aceiteCambiar = DATA.aceite.filter(r=>r.fecha===today && r.estado==='CAMBIAR').length;
+  const trazaHoy = DATA.trazabilidad.filter(r=>r.fecha===today);
+  const mantPendientes = DATA.mantenimiento.filter(r=>!r.resuelto).length;
+  const ncAbiertas = DATA.noconformidades.filter(r=>r.estado==='Abierta').length;
+  const pedidosPendientes = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo).length;
+
+  const critico = tempAlertas>0 || recepRechazadas>0 || ncAbiertas>0 || aguaRevisar>0 || aceiteCambiar>0;
+
+  el.innerHTML = `
+    <div class="dash-hero">
+      <div>
+        <h2>${esc(CONFIG.empresa.nombre)}</h2>
+        <p>Resumen de autocontrol APPCC de hoy, ${fmtDate(today)}. ${esc(CONFIG.empresa.obrador)} · Reg. sanitario ${esc(CONFIG.empresa.registroSanitario)}. Reparto a ${CONFIG.tiendas.length} tiendas.</p>
+      </div>
+      <div class="stamp ${critico?'danger':'ok'}">${critico?'Revisar':'Controlado'}</div>
+    </div>
+
+    <div class="grid-cards">
+      <div class="card">
+        <div class="card-top">${icon('temp')}<span class="badge ${tempAlertas>0?'danger':'ok'}">${tempAlertas>0?'Alerta':'OK'}</span></div>
+        <h3>Temperaturas</h3><div class="metric mono">${tempRegistradas}/${CONFIG.equipos.length}</div>
+        <div class="sub">${tempAlertas} equipos fuera de rango hoy</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('clean')}<span class="badge ${elementosCompletados>=totalElementos?'ok':'warn'}">${elementosCompletados}/${totalElementos}</span></div>
+        <h3>Limpieza</h3><div class="metric mono">${limpiezaHoy.length}</div>
+        <div class="sub">Elementos con tarea registrada hoy</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('water')}<span class="badge ${aguaRevisar>0?'danger':'ok'}">${aguaRevisar>0?'Revisar':'OK'}</span></div>
+        <h3>Control de agua</h3><div class="metric mono">${aguaHoy.length}</div>
+        <div class="sub">Controles registrados hoy</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('truck')}<span class="badge ${recepRechazadas>0?'danger':'ok'}">${recepRechazadas>0?'Rechazos':'OK'}</span></div>
+        <h3>Recepciones</h3><div class="metric mono">${recepHoy.length}</div>
+        <div class="sub">${recepRechazadas} rechazadas hoy</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('wheat')}<span class="badge ok">OK</span></div>
+        <h3>Alérgenos</h3><div class="metric mono">${alergHoy}</div>
+        <div class="sub">Registros de hoy (lote + tienda)</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('oil')}<span class="badge ${aceiteCambiar>0?'danger':'ok'}">${aceiteCambiar>0?'Cambiar':'OK'}</span></div>
+        <h3>Aceite de fritura</h3><div class="metric mono">${DATA.aceite.filter(r=>r.fecha===today).length}</div>
+        <div class="sub">${aceiteCambiar} con compuestos polares altos</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('route')}<span class="badge ok">OK</span></div>
+        <h3>Trazabilidad</h3><div class="metric mono">${trazaHoy.length}</div>
+        <div class="sub">Lotes producidos hoy</div>
+      </div>
+      <div class="card" style="cursor:pointer" onclick="showView('materiasprimas')">
+        <div class="card-top">${icon('box')}<span class="badge ${pedidosPendientes>0?'danger':'ok'}">${pedidosPendientes>0?'Pedir':'OK'}</span></div>
+        <h3>Materias primas</h3><div class="metric mono">${pedidosPendientes}</div>
+        <div class="sub">Productos por debajo de stock mínimo</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('wrench')}<span class="badge ${mantPendientes>0?'warn':'ok'}">${mantPendientes>0?'Pendiente':'OK'}</span></div>
+        <h3>Mantenimiento / Plagas</h3><div class="metric mono">${mantPendientes}</div>
+        <div class="sub">Partes pendientes de resolver</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('alert')}<span class="badge ${ncAbiertas>0?'danger':'ok'}">${ncAbiertas>0?'Abiertas':'OK'}</span></div>
+        <h3>Incidencias</h3><div class="metric mono">${ncAbiertas}</div>
+        <div class="sub">Incidencias abiertas en total</div>
+      </div>
+    </div>
+
+    <div class="wheat-divider">${icon('wheat')}<span>Acceso rápido</span></div>
+    <div class="grid-cards">
+      ${VIEWS.filter(v=>!['dashboard','informes','ajustes'].includes(v.id)).map(v=>`
+        <div class="card" style="cursor:pointer" onclick="showView('${v.id}')">
+          <div class="card-top">${icon(v.icon)}</div>
+          <h3>${v.label}</h3><div class="sub">Añadir o consultar registros</div>
+        </div>`).join('')}
+    </div>
+  `;
+}
+function updateSidebarFoot(){
+  const foot = document.getElementById('sidebarFoot');
+  if(foot) foot.innerHTML = `${esc(CONFIG.empresa.nombre)}<br>${esc(CONFIG.empresa.obrador)}<br>Reg. San. ${esc(CONFIG.empresa.registroSanitario)}`;
+}
+
+/* ---------- RENDERERS MAP & BOOT ---------- */
+const RENDERERS = {
+  dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
+  recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, trazabilidad:viewTrazabilidad,
+  materiasprimas:viewMateriasPrimas,
+  mantenimiento:viewMantenimiento, noconformidades:viewNoConformidades, listeria:viewListeria,
+  informes:viewInformes, ajustes:viewAjustes
+};
+
+function buildViewsSkeleton(){
+  const content = document.getElementById('content');
+  content.innerHTML = VIEWS.map(v=>`<div class="view" id="view-${v.id}"></div>`).join('');
+}
+
+async function boot(){
+  document.getElementById('topDate').textContent = new Date().toLocaleDateString('es-ES',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  renderNav();
+  buildViewsSkeleton();
+  await loadAll();
+  updateSidebarFoot();
+  showView('dashboard');
+  document.querySelector('.navitem[data-view="dashboard"]').classList.add('active');
+  document.getElementById('view-dashboard').classList.add('active');
+}
+boot();
+</script>
+</body>
+</html>
