@@ -1381,10 +1381,10 @@ function viewMateriasPrimas(){
             ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>`<option value="${esc(m.nombre)}">${esc(m.nombre)} (stock: ${m.stockActual} ${esc(m.unidad)})</option>`).join('')}
           </select>
         </label>
-        <label class="field"><span>Lote</span>
-          <span style="display:flex;gap:6px;">
-            <input type="text" name="lote" id="loteInputLote" required style="flex:1;">
-            <button class="btn secondary small" type="button" id="mismoLoteBtn" title="Rellena con el mismo número de lote que usasteis la última vez para este producto">Mismo lote (ML)</button>
+        <label class="field wide"><span>Lote</span>
+          <span style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" name="lote" id="loteInputLote" required style="flex:1;min-width:160px;">
+            <button class="btn secondary small" type="button" id="mismoLoteBtn" style="white-space:nowrap;" title="Rellena con el mismo número de lote que usasteis la última vez para este producto">Mismo lote (ML)</button>
           </span>
         </label>
         <label class="field"><span>Fecha apertura</span><input type="date" name="fechaApertura" id="loteFechaApertura" value="${todayStr()}" required></label>
