@@ -6,7 +6,6 @@
 <title>APPCC · Panificadora Salduba</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --bg:#F7F1E6;
@@ -391,78 +390,23 @@ function importarBackupFile(file){
   reader.readAsText(file);
 }
 
-/* ---------- SINCRONIZACIÓN CON GOOGLE DRIVE ---------- */
-const DRIVE_BACKUP_FILENAME = 'appcc-salduba-backup.json';
-let googleAccessToken = null;
-let googleTokenClient = null;
-function getGoogleClientId(){ try{ return localStorage.getItem('appcc_google_client_id') || ''; }catch(e){ return ''; } }
-function setGoogleClientId(id){ try{ localStorage.setItem('appcc_google_client_id', id); }catch(e){ console.error(e); } }
-function initGoogleTokenClient(){
-  const clientId = getGoogleClientId();
-  if(!clientId || typeof google==='undefined' || !google.accounts) return null;
-  if(googleTokenClient) return googleTokenClient;
-  googleTokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    callback: ''
-  });
-  return googleTokenClient;
-}
-function conectarGoogleDrive(){
-  const client = initGoogleTokenClient();
-  const estado = document.getElementById('driveStatus');
-  if(!client){ alert('Añade primero el ID de cliente de Google (OAuth) y guárdalo.'); return; }
-  client.callback = (resp)=>{
-    if(resp.error){ estado.textContent = 'No se pudo conectar: '+resp.error; return; }
-    googleAccessToken = resp.access_token;
-    estado.textContent = 'Conectado a Google Drive ✓';
-  };
-  client.requestAccessToken({prompt:'consent'});
-}
-async function asegurarTokenDrive(){
-  if(googleAccessToken) return googleAccessToken;
-  return new Promise((resolve,reject)=>{
-    const client = initGoogleTokenClient();
-    if(!client){ reject(new Error('Falta configurar el ID de cliente de Google en Ajustes.')); return; }
-    client.callback = (resp)=>{
-      if(resp.error){ reject(new Error(resp.error)); return; }
-      googleAccessToken = resp.access_token;
-      const estado = document.getElementById('driveStatus');
-      if(estado) estado.textContent = 'Conectado a Google Drive ✓';
-      resolve(googleAccessToken);
-    };
-    client.requestAccessToken({prompt:''});
-  });
-}
-async function buscarArchivoDrive(token){
-  const q = encodeURIComponent(`name='${DRIVE_BACKUP_FILENAME}' and trashed=false`);
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
-    headers:{Authorization:'Bearer '+token}
-  });
-  const data = await res.json();
-  if(!res.ok) throw new Error(data?.error?.message || 'Error al buscar el archivo en Drive');
-  return (data.files && data.files[0]) || null;
-}
+/* ---------- SINCRONIZACIÓN CON GOOGLE DRIVE (vía Apps Script) ---------- */
+function getAppsScriptUrl(){ try{ return localStorage.getItem('appcc_appscript_url') || ''; }catch(e){ return ''; } }
+function setAppsScriptUrl(url){ try{ localStorage.setItem('appcc_appscript_url', url); }catch(e){ console.error(e); } }
 async function subirBackupADrive(){
   const estado = document.getElementById('driveSyncEstado');
+  const url = getAppsScriptUrl();
+  if(!url){ estado.textContent = 'Configura primero la URL de Apps Script y guárdala.'; return; }
   estado.textContent = 'Subiendo a Google Drive…';
   try{
-    const token = await asegurarTokenDrive();
-    const existente = await buscarArchivoDrive(token);
     const backup = {config:CONFIG, data:DATA, exportadoEl:new Date().toISOString()};
-    const metadata = {name:DRIVE_BACKUP_FILENAME, mimeType:'application/json'};
-    const boundary = 'appcc_boundary_'+uid();
-    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(backup)}\r\n--${boundary}--`;
-    const url = existente
-      ? `https://www.googleapis.com/upload/drive/v3/files/${existente.id}?uploadType=multipart`
-      : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
     const res = await fetch(url, {
-      method: existente ? 'PATCH' : 'POST',
-      headers:{Authorization:'Bearer '+token, 'Content-Type':`multipart/related; boundary=${boundary}`},
-      body
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(backup)
     });
     const data = await res.json();
-    if(!res.ok) throw new Error(data?.error?.message || 'Error al subir a Drive');
+    if(!data.ok) throw new Error(data.error || 'Error desconocido en Apps Script');
     estado.textContent = 'Copia subida a Google Drive correctamente ('+new Date().toLocaleTimeString()+').';
   }catch(err){
     console.error(err);
@@ -471,16 +415,15 @@ async function subirBackupADrive(){
 }
 async function descargarBackupDeDrive(){
   const estado = document.getElementById('driveSyncEstado');
+  const url = getAppsScriptUrl();
+  if(!url){ estado.textContent = 'Configura primero la URL de Apps Script y guárdala.'; return; }
   estado.textContent = 'Buscando copia en Google Drive…';
   try{
-    const token = await asegurarTokenDrive();
-    const existente = await buscarArchivoDrive(token);
-    if(!existente){ estado.textContent = 'No hay ninguna copia guardada en Drive todavía. Sube una primero desde otro dispositivo.'; return; }
-    if(!confirm('Esto reemplazará TODOS los datos actuales de esta app por los guardados en Google Drive. ¿Continuar?')){ estado.textContent=''; return; }
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${existente.id}?alt=media`, {headers:{Authorization:'Bearer '+token}});
+    const sep = url.includes('?') ? '&' : '?';
+    const res = await fetch(url+sep+'action=get');
     const backup = await res.json();
-    if(!res.ok) throw new Error(backup?.error?.message || 'Error al descargar de Drive');
-    if(!backup.config || !backup.data) throw new Error('El archivo de Drive no tiene el formato esperado');
+    if(!backup || !backup.config || !backup.data){ estado.textContent = 'No hay ninguna copia guardada en Drive todavía. Sube una primero desde otro dispositivo.'; return; }
+    if(!confirm('Esto reemplazará TODOS los datos actuales de esta app por los guardados en Google Drive. ¿Continuar?')){ estado.textContent=''; return; }
     CONFIG = backup.config;
     DATA = backup.data;
     await saveConfig();
@@ -1944,17 +1887,16 @@ function viewAjustes(){
     </div>
     <div class="panel">
       <h2>${icon('box')} Sincronización con Google Drive</h2>
-      <p class="hint">Para ver los mismos datos desde varios ordenadores/tablets, sube y descarga aquí una copia guardada en tu Google Drive. <strong>Solo funciona si esta app está alojada en una dirección web real (https://...), no si la abres como archivo local.</strong> Requiere un "ID de cliente" de Google configurado para esa dirección — pide instrucciones si aún no lo tienes.</p>
+      <p class="hint">Para ver los mismos datos desde varios ordenadores/tablets, sube y descarga aquí una copia guardada en tu Google Drive a través de tu Apps Script. <strong>Solo funciona si esta app está alojada en una dirección web real (https://...), no si la abres como archivo local.</strong></p>
       <div class="filters">
-        <label class="field"><span>ID de cliente de Google (OAuth)</span><input type="text" id="googleClientIdInput" value="${esc(getGoogleClientId())}" placeholder="xxxxx.apps.googleusercontent.com" style="min-width:320px;"></label>
-        <button class="btn small" id="saveGoogleClientIdBtn" type="button">Guardar ID</button>
+        <label class="field"><span>URL de tu Apps Script</span><input type="text" id="appScriptUrlInput" value="${esc(getAppsScriptUrl())}" placeholder="https://script.google.com/macros/s/AKfycb.../exec" style="min-width:380px;"></label>
+        <button class="btn small" id="saveAppScriptUrlBtn" type="button">Guardar URL</button>
       </div>
       <div class="filters">
-        <button class="btn secondary small" id="connectDriveBtn" type="button">Conectar con Google Drive</button>
         <button class="btn small" id="uploadDriveBtn" type="button">Subir copia a Drive</button>
         <button class="btn small" id="downloadDriveBtn" type="button">Descargar copia de Drive</button>
       </div>
-      <p class="hint" id="driveStatus">Todavía no conectado.</p>
+      <p class="hint" id="driveStatus">${getAppsScriptUrl() ? 'URL de Apps Script configurada ✓' : 'Todavía no hay ninguna URL configurada.'}</p>
       <p class="hint" id="driveSyncEstado"></p>
     </div>
     <div class="panel">
@@ -2014,12 +1956,11 @@ function viewAjustes(){
     });
   }
   document.getElementById('export-backup-btn').addEventListener('click', exportarBackup);
-  document.getElementById('saveGoogleClientIdBtn').addEventListener('click', ()=>{
-    setGoogleClientId(document.getElementById('googleClientIdInput').value.trim());
-    googleTokenClient = null; googleAccessToken = null;
-    alert('ID de cliente guardado. Pulsa "Conectar con Google Drive" para iniciar sesión.');
+  document.getElementById('saveAppScriptUrlBtn').addEventListener('click', ()=>{
+    setAppsScriptUrl(document.getElementById('appScriptUrlInput').value.trim());
+    document.getElementById('driveStatus').textContent = getAppsScriptUrl() ? 'URL de Apps Script configurada ✓' : 'Todavía no hay ninguna URL configurada.';
+    alert('URL guardada. Ya puedes subir/descargar copia.');
   });
-  document.getElementById('connectDriveBtn').addEventListener('click', conectarGoogleDrive);
   document.getElementById('uploadDriveBtn').addEventListener('click', subirBackupADrive);
   document.getElementById('downloadDriveBtn').addEventListener('click', descargarBackupDeDrive);
   document.getElementById('import-backup-file').addEventListener('change', e=>{
