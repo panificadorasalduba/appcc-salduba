@@ -2221,6 +2221,11 @@ function viewAjustes(){
       <p class="hint">Pensado para el primer día de uso real: vacía todos los registros (temperaturas, limpieza, recepciones, lotes, incidencias...) <strong>y además pone el stock de todas las materias primas del catálogo a 0</strong>, para empezar a registrar recepciones, apertura de lotes e inventario desde cero. El catálogo (nombres, proveedores, stock mínimo) se conserva, solo se vacía la cantidad actual.</p>
       <button class="btn danger" id="reset-todo-btn">Vaciar registros y poner el stock a 0</button>
     </div>
+    <div class="panel">
+      <h2>${icon('box')} Vaciar también el catálogo de materias primas</h2>
+      <p class="hint">Usa esto si quieres quitar de golpe los productos de ejemplo que trae la app de partida (Sal Salinas del Odiel, Bolsas papel tiendas, Cápsula magdalena...) para no verlos en "Pedidos pendientes" sin haberlos recibido de verdad. Borra por completo el catálogo (y los teléfonos de proveedores guardados) — <strong>no borra los registros de temperaturas, limpieza, etc., solo el catálogo de materias primas y stock</strong>. En cuanto registréis la primera recepción real, la app creará los productos correctos automáticamente.</p>
+      <button class="btn danger" id="reset-catalogo-btn">Vaciar catálogo de materias primas</button>
+    </div>
   `;
   renderEquiposCfg(); renderZonasCfg(); renderTiendasCfg(); renderAlergenosCfg(); renderPlanesCfg();
   document.getElementById('add-equipo').addEventListener('click',()=>{ CONFIG.equipos.push({nombre:'Nuevo equipo',min:0,max:4}); renderEquiposCfg(); });
@@ -2297,6 +2302,14 @@ function viewAjustes(){
     await saveConfig();
     alert('Todo listo: registros vaciados y stock a 0. Ya puedes empezar a registrar recepciones reales.');
     updateSidebarFoot();
+    renderDashboard();
+  });
+  document.getElementById('reset-catalogo-btn').addEventListener('click', async ()=>{
+    if(!confirm('Esto borrará POR COMPLETO el catálogo de materias primas (todos los productos, stock y teléfonos de proveedores). No afecta a otros registros. ¿Continuar? Esta acción no se puede deshacer.')) return;
+    CONFIG.materiasPrimas = [];
+    CONFIG.telefonosProveedores = {};
+    await saveConfig();
+    alert('Catálogo de materias primas vaciado. Se irá rellenando solo con las próximas recepciones reales.');
     renderDashboard();
   });
 }
