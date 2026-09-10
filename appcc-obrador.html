@@ -1037,7 +1037,22 @@ async function llamarGemini(base64, apiKey){
   if(!response.ok){
     let msg = data?.error?.message || ('HTTP '+response.status);
     if(response.status===400 || response.status===403) msg += ' — revisa que la clave de Gemini en Ajustes sea correcta y tenga la API de Gemini habilitada';
-    throw new Error(msg);
+    const err = new Error(msg);
+    if(response.status===429){
+      let segundos = null;
+      const detalle = (data?.error?.details||[]).find(d=>d['@type']&&d['@type'].includes('RetryInfo'));
+      if(detalle && detalle.retryDelay){
+        const m = /([\d.]+)s/.exec(detalle.retryDelay);
+        if(m) segundos = Math.ceil(parseFloat(m[1]));
+      }
+      if(segundos===null){
+        const m2 = /retry in ([\d.]+)s/i.exec(msg);
+        if(m2) segundos = Math.ceil(parseFloat(m2[1]));
+      }
+      err.retrySeconds = segundos || 60;
+      err.esLimiteVelocidad = true;
+    }
+    throw err;
   }
   const text = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || '';
   if(!text) throw new Error('La IA no ha devuelto texto legible.');
@@ -1082,11 +1097,38 @@ async function extraerAlbaran(){
     estado.textContent = recepcionExtraidas.some(l=>l.producto) ? 'Datos leídos. Revisa y corrige cualquier campo antes de guardar.' : 'No se detectó ningún producto claro en la foto. Añádelos manualmente abajo.';
   }catch(err){
     console.error(err);
+    if(err.esLimiteVelocidad){
+      iniciarCuentaAtrasLimite(err.retrySeconds, btn, estado);
+      return;
+    }
     estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
     if(recepcionExtraidas.length===0){ recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''}); renderLineasExtraidas(); }
   }finally{
-    btn.disabled = false; btn.textContent = 'Extraer datos con IA';
+    if(!estado.dataset.limiteActivo) btn.disabled = false;
+    if(btn.textContent==='Leyendo albarán…') btn.textContent = 'Extraer datos con IA';
   }
+}
+function iniciarCuentaAtrasLimite(segundos, btn, estado){
+  estado.dataset.limiteActivo = '1';
+  btn.disabled = true;
+  let restante = segundos;
+  const actualizar = ()=>{
+    btn.textContent = `Espera ${restante}s…`;
+    estado.textContent = `Has hecho muchas peticiones seguidas y el nivel gratuito de Gemini limita a 20 por minuto. Espera ${restante} segundos y podrás seguir — no hace falta que hagas nada más, el botón se reactivará solo.`;
+  };
+  actualizar();
+  const intervalo = setInterval(()=>{
+    restante--;
+    if(restante<=0){
+      clearInterval(intervalo);
+      delete estado.dataset.limiteActivo;
+      btn.disabled = false;
+      btn.textContent = 'Extraer datos con IA';
+      estado.textContent = 'Ya puedes pulsar "Extraer datos con IA" de nuevo.';
+      return;
+    }
+    actualizar();
+  }, 1000);
 }
 function renderLineasExtraidas(){
   const el = document.getElementById('lineasExtraidas');
