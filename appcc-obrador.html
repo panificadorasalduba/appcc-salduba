@@ -1354,6 +1354,15 @@ function viewMateriasPrimas(){
     </div>
 
     <div class="panel">
+      <h2>${icon('box')} Inventario</h2>
+      <p class="hint">Lo que queda ahora mismo de cada materia prima, según las recepciones registradas y los lotes que habéis ido abriendo y cerrando. Solo consulta — para editar cantidades ve al catálogo de abajo.</p>
+      <div class="filters">
+        <label class="field"><span>Buscar</span><input type="text" id="inventarioSearch" placeholder="Ej: harina, sal, bolsas..."></label>
+      </div>
+      <div id="inventario-table"></div>
+    </div>
+
+    <div class="panel">
       <h2>${icon('box')} Catálogo y stock de materias primas</h2>
       <p class="hint">Cada vez que se registra una recepción (con foto de albarán o manual) el producto entra aquí solo, sumando la cantidad recibida — si es la primera vez que llega, se crea automáticamente. Al abrir un bote/cubo/saco en "Lotes" se descuenta 1 del stock. También puedes editar stock y proveedor a mano en cualquier momento.</p>
       <div id="catalogo-mp-table"></div>
@@ -1428,6 +1437,8 @@ function viewMateriasPrimas(){
     </div>
   `;
   renderPedidosPendientes();
+  renderInventario();
+  document.getElementById('inventarioSearch').addEventListener('input', renderInventario);
   renderCatalogoMP();
   renderTelefonosProveedores();
   document.getElementById('add-mp-btn').addEventListener('click', async ()=>{
@@ -1557,6 +1568,21 @@ async function autocompletarProveedores(){
 }
 
 /* ---- Catálogo y stock ---- */
+function renderInventario(){
+  const el = document.getElementById('inventario-table');
+  if(!el) return;
+  const q = (document.getElementById('inventarioSearch')?.value || '').trim().toLowerCase();
+  const items = CONFIG.materiasPrimas
+    .filter(m=> !q || m.nombre.toLowerCase().includes(q) || (m.proveedor||'').toLowerCase().includes(q) || (m.categoria||'').toLowerCase().includes(q))
+    .slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  if(items.length===0){ el.innerHTML = '<p class="hint">No hay materias primas que coincidan.</p>'; return; }
+  const rows = items.map(m=>`<tr>
+    <td>${esc(m.nombre)}</td><td>${esc(m.categoria)||'—'}</td><td>${esc(m.proveedor)||'—'}</td>
+    <td class="mono">${m.stockActual} ${esc(m.unidad)}</td>
+    <td><span class="badge ${m.stockActual<=m.stockMinimo?'danger':'ok'}">${m.stockActual<=m.stockMinimo?'Bajo mínimo':'OK'}</span></td>
+  </tr>`);
+  el.innerHTML = table(['Producto','Categoría','Proveedor','Stock actual','Estado'], rows);
+}
 function renderCatalogoMP(){
   const rows = CONFIG.materiasPrimas.map((m,i)=>`<tr>
     <td><input type="text" value="${esc(m.nombre)}" style="width:170px;" onchange="updateMPField(${i},'nombre',this.value)"></td>
@@ -1574,6 +1600,7 @@ async function updateMPField(i, field, value){
   await saveConfig();
   renderPedidosPendientes();
   renderCatalogoMP();
+  renderInventario();
   if(field==='proveedor') renderTelefonosProveedores();
 }
 async function removeMP(i){
@@ -2073,6 +2100,11 @@ function viewAjustes(){
       <p class="hint">Elimina todos los registros guardados de todos los módulos. Los ajustes (empresa, equipos, zonas, tiendas, alérgenos, planes) no se ven afectados.</p>
       <button class="btn danger" id="reset-data">Vaciar todos los registros</button>
     </div>
+    <div class="panel">
+      <h2>${icon('box')} Empezar de cero</h2>
+      <p class="hint">Pensado para el primer día de uso real: vacía todos los registros (temperaturas, limpieza, recepciones, lotes, incidencias...) <strong>y además pone el stock de todas las materias primas del catálogo a 0</strong>, para empezar a registrar recepciones, apertura de lotes e inventario desde cero. El catálogo (nombres, proveedores, stock mínimo) se conserva, solo se vacía la cantidad actual.</p>
+      <button class="btn danger" id="reset-todo-btn">Vaciar registros y poner el stock a 0</button>
+    </div>
   `;
   renderEquiposCfg(); renderZonasCfg(); renderTiendasCfg(); renderAlergenosCfg(); renderPlanesCfg();
   document.getElementById('add-equipo').addEventListener('click',()=>{ CONFIG.equipos.push({nombre:'Nuevo equipo',min:0,max:4}); renderEquiposCfg(); });
@@ -2140,6 +2172,15 @@ function viewAjustes(){
     if(!confirm('Esto eliminará TODOS los registros de todos los módulos. ¿Continuar?')) return;
     for(const mod of Object.keys(DATA)){ DATA[mod]= (mod==='temperaturas'?{}:[]); await saveModule(mod); }
     alert('Registros eliminados.');
+    renderDashboard();
+  });
+  document.getElementById('reset-todo-btn').addEventListener('click', async ()=>{
+    if(!confirm('Esto eliminará TODOS los registros de todos los módulos Y pondrá el stock de todas las materias primas a 0. ¿Continuar? Esta acción no se puede deshacer.')) return;
+    for(const mod of Object.keys(DATA)){ DATA[mod]= (mod==='temperaturas'?{}:[]); await saveModule(mod); }
+    CONFIG.materiasPrimas.forEach(m=>{ m.stockActual = 0; });
+    await saveConfig();
+    alert('Todo listo: registros vaciados y stock a 0. Ya puedes empezar a registrar recepciones reales.');
+    updateSidebarFoot();
     renderDashboard();
   });
 }
