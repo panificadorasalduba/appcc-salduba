@@ -1568,6 +1568,15 @@ async function autocompletarProveedores(){
 }
 
 /* ---- Catálogo y stock ---- */
+function ultimaRecepcionDe(nombre){
+  const key = nombre.trim().toLowerCase();
+  const recs = DATA.recepcion.filter(r=>r.producto.trim().toLowerCase()===key).sort((a,b)=> (b.fecha+(b.hora||'')).localeCompare(a.fecha+(a.hora||'')));
+  return recs.length ? recs[0] : null;
+}
+function loteAbiertoDe(nombre){
+  const key = nombre.trim().toLowerCase();
+  return DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===key) || null;
+}
 function renderInventario(){
   const el = document.getElementById('inventario-table');
   if(!el) return;
@@ -1576,12 +1585,71 @@ function renderInventario(){
     .filter(m=> !q || m.nombre.toLowerCase().includes(q) || (m.proveedor||'').toLowerCase().includes(q) || (m.categoria||'').toLowerCase().includes(q))
     .slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
   if(items.length===0){ el.innerHTML = '<p class="hint">No hay materias primas que coincidan.</p>'; return; }
-  const rows = items.map(m=>`<tr>
+  const rows = items.map(m=>{
+    const rec = ultimaRecepcionDe(m.nombre);
+    const abierto = loteAbiertoDe(m.nombre);
+    return `<tr>
     <td>${esc(m.nombre)}</td><td>${esc(m.categoria)||'—'}</td><td>${esc(m.proveedor)||'—'}</td>
     <td class="mono">${m.stockActual} ${esc(m.unidad)}</td>
     <td><span class="badge ${m.stockActual<=m.stockMinimo?'danger':'ok'}">${m.stockActual<=m.stockMinimo?'Bajo mínimo':'OK'}</span></td>
-  </tr>`);
-  el.innerHTML = table(['Producto','Categoría','Proveedor','Stock actual','Estado'], rows);
+    <td class="mono">${rec ? fmtDate(rec.fecha) : '—'}</td>
+    <td class="mono">${rec && rec.lote ? esc(rec.lote) : '—'}</td>
+    <td class="mono">${rec && rec.caducidad ? fmtDate(rec.caducidad) : '—'}</td>
+    <td>${abierto ? `<span class="badge warn">${esc(abierto.lote)}</span> <span class="mono" style="font-size:11px;">desde ${fmtDate(abierto.fechaApertura)}</span>` : '—'}</td>
+    <td><button class="btn secondary small" onclick="abrirAjusteInventario('${esc(m.nombre).replace(/'/g,"\\'")}')">Ajustar</button></td>
+  </tr>`;
+  });
+  el.innerHTML = table(['Producto','Categoría','Proveedor','Stock actual','Estado','F. última recepción','Lote recibido','Caduca','Lote abierto',''], rows);
+}
+function abrirAjusteInventario(nombre){
+  const m = CONFIG.materiasPrimas.find(x=>x.nombre===nombre);
+  if(!m) return;
+  const abierto = loteAbiertoDe(nombre);
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,16,12,0.78);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;overflow:auto;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-width:480px;width:100%;margin:20px 0;" onclick="event.stopPropagation()">
+      <h2 style="margin-bottom:4px;">${icon('box')} Ajuste manual — ${esc(nombre)}</h2>
+      <p class="hint">Usa esto si ha habido una recepción, apertura o cierre de lote que no se registró en su momento, o si el stock no cuadra con lo que hay físicamente.</p>
+      <div class="record-form">
+        <label class="field wide"><span>Corregir stock actual</span><input type="number" step="0.01" id="ajusteStock" value="${m.stockActual}"></label>
+        ${abierto ? `
+        <label class="field checkline" style="grid-column:1/-1;"><input type="checkbox" id="ajusteCerrarLote"><span>Cerrar el lote abierto (${esc(abierto.lote)}, desde ${fmtDate(abierto.fechaApertura)})</span></label>
+        <label class="field"><span>Fecha de cierre</span><input type="date" id="ajusteFechaCierre" value="${todayStr()}"></label>
+        ` : ''}
+        <div class="field wide" style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px;"><span>Registrar un lote no anotado (opcional)</span></div>
+        <label class="field"><span>Nº de lote</span><input type="text" id="ajusteLote" placeholder="Número de lote"></label>
+        <label class="field"><span>Fecha apertura</span><input type="date" id="ajusteFechaApertura" value="${todayStr()}"></label>
+        <label class="field checkline"><input type="checkbox" id="ajusteYaCerrado"><span>Este lote nuevo ya está cerrado</span></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn secondary" id="ajusteCancelar" type="button">Cancelar</button>
+        <button class="btn" id="ajusteGuardar" type="button">Guardar ajuste</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', ()=>overlay.remove());
+  document.body.appendChild(overlay);
+  document.getElementById('ajusteCancelar').addEventListener('click', ()=>overlay.remove());
+  document.getElementById('ajusteGuardar').addEventListener('click', async ()=>{
+    const nuevoStock = parseFloat(document.getElementById('ajusteStock').value);
+    if(isFinite(nuevoStock)) m.stockActual = nuevoStock;
+    if(abierto && document.getElementById('ajusteCerrarLote').checked){
+      abierto.fechaCierre = document.getElementById('ajusteFechaCierre').value || todayStr();
+      await saveModule('lotesMP');
+    }
+    const nuevoLote = document.getElementById('ajusteLote').value.trim();
+    if(nuevoLote){
+      const fApertura = document.getElementById('ajusteFechaApertura').value || todayStr();
+      const yaCerrado = document.getElementById('ajusteYaCerrado').checked;
+      DATA.lotesMP.unshift({id:uid(), producto:nombre, lote:nuevoLote, fechaApertura:fApertura, fechaCierre: yaCerrado?fApertura:'', semana:getWeekNumber(fApertura)});
+      await saveModule('lotesMP');
+    }
+    await saveConfig();
+    overlay.remove();
+    renderInventario();
+    renderPedidosPendientes();
+    alert('Ajuste guardado correctamente.');
+  });
 }
 function renderCatalogoMP(){
   const rows = CONFIG.materiasPrimas.map((m,i)=>`<tr>
