@@ -119,6 +119,15 @@
   .table-wrap{overflow-x:auto;}
   .empty-row td{color:var(--ink-soft);font-style:italic;text-align:center;padding:22px;}
 
+  .inv-folder{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow:hidden;background:var(--panel);}
+  .inv-folder summary{cursor:pointer;list-style:none;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#FBF6EC;flex-wrap:wrap;}
+  .inv-folder summary::-webkit-details-marker{display:none;}
+  .inv-folder-title{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px;}
+  .inv-arrow{display:inline-block;transition:transform .12s ease;color:var(--wheat);}
+  .inv-folder[open] .inv-arrow{transform:rotate(90deg);}
+  .inv-folder-meta{display:flex;align-items:center;gap:10px;}
+  .inv-folder-body{padding:10px 14px 14px;}
+
   .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.2px;}
   .badge.ok{background:var(--ok-tint);color:var(--ok);}
   .badge.warn{background:var(--warn-tint);color:var(--warn);}
@@ -1445,7 +1454,7 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Inventario</h2>
-      <p class="hint">Lo que queda ahora mismo de cada materia prima, según las recepciones registradas y los lotes que habéis ido abriendo y cerrando. Solo consulta — para editar cantidades ve al catálogo de abajo.</p>
+      <p class="hint">Un "sobre" por cada materia prima — pulsa encima para desplegarlo y ver sus entradas ordenadas por fecha, cada una con su lote. Solo consulta — para editar cantidades ve al catálogo de abajo.</p>
       <div class="filters">
         <label class="field"><span>Buscar</span><input type="text" id="inventarioSearch" placeholder="Ej: harina, sal, bolsas..."></label>
       </div>
@@ -1658,14 +1667,24 @@ async function autocompletarProveedores(){
 }
 
 /* ---- Catálogo y stock ---- */
-function ultimaRecepcionDe(nombre){
-  const key = nombre.trim().toLowerCase();
-  const recs = DATA.recepcion.filter(r=>r.producto.trim().toLowerCase()===key).sort((a,b)=> (b.fecha+(b.hora||'')).localeCompare(a.fecha+(a.hora||'')));
-  return recs.length ? recs[0] : null;
-}
 function loteAbiertoDe(nombre){
   const key = nombre.trim().toLowerCase();
   return DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===key) || null;
+}
+function entradasDe(nombre){
+  const key = nombre.trim().toLowerCase();
+  const lotesPorClave = {};
+  DATA.lotesMP.filter(r=>r.producto.trim().toLowerCase()===key).forEach(r=>{
+    const k = (r.lote||'').trim().toLowerCase();
+    if(k) lotesPorClave[k] = r;
+  });
+  return DATA.recepcion.filter(r=>r.producto.trim().toLowerCase()===key)
+    .map(r=>{
+      const loteInfo = r.lote ? lotesPorClave[r.lote.trim().toLowerCase()] : null;
+      const estadoLote = loteInfo ? (loteInfo.fechaCierre ? 'Cerrado' : 'Abierto') : 'En stock (sin abrir)';
+      return {fecha:r.fecha, lote:r.lote, caducidad:r.caducidad, cantidad:r.cantidad, proveedor:r.proveedor, estadoLote};
+    })
+    .sort((a,b)=> a.fecha.localeCompare(b.fecha));
 }
 function renderInventario(){
   const el = document.getElementById('inventario-table');
@@ -1675,21 +1694,32 @@ function renderInventario(){
     .filter(m=> !q || m.nombre.toLowerCase().includes(q) || (m.proveedor||'').toLowerCase().includes(q) || (m.categoria||'').toLowerCase().includes(q))
     .slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
   if(items.length===0){ el.innerHTML = '<p class="hint">No hay materias primas que coincidan.</p>'; return; }
-  const rows = items.map(m=>{
-    const rec = ultimaRecepcionDe(m.nombre);
-    const abierto = loteAbiertoDe(m.nombre);
-    return `<tr>
-    <td>${esc(m.nombre)}</td><td>${esc(m.categoria)||'—'}</td><td>${esc(m.proveedor)||'—'}</td>
-    <td class="mono">${m.stockActual} ${esc(m.unidad)}</td>
-    <td><span class="badge ${m.stockActual<=m.stockMinimo?'danger':'ok'}">${m.stockActual<=m.stockMinimo?'Bajo mínimo':'OK'}</span></td>
-    <td class="mono">${rec ? fmtDate(rec.fecha) : '—'}</td>
-    <td class="mono">${rec && rec.lote ? esc(rec.lote) : '—'}</td>
-    <td class="mono">${rec && rec.caducidad ? fmtDate(rec.caducidad) : '—'}</td>
-    <td>${abierto ? `<span class="badge warn">${esc(abierto.lote)}</span> <span class="mono" style="font-size:11px;">desde ${fmtDate(abierto.fechaApertura)}</span>` : '—'}</td>
-    <td><button class="btn secondary small" onclick="abrirAjusteInventario('${esc(m.nombre).replace(/'/g,"\\'")}')">Ajustar</button></td>
-  </tr>`;
-  });
-  el.innerHTML = table(['Producto','Categoría','Proveedor','Stock actual','Estado','F. última recepción','Lote recibido','Caduca','Lote abierto',''], rows);
+  el.innerHTML = items.map(m=>{
+    const entradas = entradasDe(m.nombre);
+    const filas = entradas.length
+      ? entradas.map(en=>`<tr>
+          <td class="mono">${fmtDate(en.fecha)}</td>
+          <td class="mono">${esc(en.lote)||'—'}</td>
+          <td class="mono">${en.caducidad ? fmtDate(en.caducidad) : '—'}</td>
+          <td class="mono">${esc(en.cantidad)||'—'}</td>
+          <td>${esc(en.proveedor)||'—'}</td>
+          <td><span class="badge ${en.estadoLote==='Abierto'?'warn':'ok'}">${en.estadoLote}</span></td>
+        </tr>`)
+      : ['<tr class="empty-row"><td colspan="6">Sin recepciones registradas todavía para este producto.</td></tr>'];
+    return `<details class="inv-folder">
+      <summary>
+        <span class="inv-folder-title"><span class="inv-arrow">▸</span> 📁 ${esc(m.nombre)} <span class="hint" style="font-weight:400;">(${esc(m.categoria)||'sin categoría'})</span></span>
+        <span class="inv-folder-meta">
+          <span class="mono">${m.stockActual} ${esc(m.unidad)}</span>
+          <span class="badge ${m.stockActual<=m.stockMinimo?'danger':'ok'}">${m.stockActual<=m.stockMinimo?'Bajo mínimo':'OK'}</span>
+          <button class="btn secondary small" onclick="event.preventDefault();event.stopPropagation();abrirAjusteInventario('${esc(m.nombre).replace(/'/g,"\\'")}')">Ajustar</button>
+        </span>
+      </summary>
+      <div class="inv-folder-body">
+        ${table(['F. entrada','Lote','Caduca','Cantidad','Proveedor','Estado'], filas)}
+      </div>
+    </details>`;
+  }).join('');
 }
 function abrirAjusteInventario(nombre){
   const m = CONFIG.materiasPrimas.find(x=>x.nombre===nombre);
