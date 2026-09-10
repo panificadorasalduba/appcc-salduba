@@ -797,6 +797,8 @@ function renderMantTable(){
 /* ================= RECEPCION ================= */
 let recepcionExtraidas = [];
 let recepcionFotoDataUrl = null;
+let albaranQueue = [];
+let albaranQueueIndex = 0;
 let camaraStream = null;
 async function abrirCamara(){
   const estado = document.getElementById('albaranEstado');
@@ -825,11 +827,38 @@ function capturarFotoCamara(){
   canvas.width = Math.round(video.videoWidth*scale);
   canvas.height = Math.round(video.videoHeight*scale);
   canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-  recepcionFotoDataUrl = canvas.toDataURL('image/jpeg', 0.72);
-  document.getElementById('albaranPreview').innerHTML = `<img src="${recepcionFotoDataUrl}" style="max-width:220px;border-radius:8px;border:1px solid var(--line);">`;
-  document.getElementById('albaranExtraerBtn').disabled = false;
-  document.getElementById('albaranEstado').textContent = 'Foto capturada. Pulsa "Extraer datos con IA".';
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+  albaranQueue.push(dataUrl);
+  if(albaranQueue.length===1) albaranQueueIndex = 0;
+  cargarFotoDeCola();
   cerrarCamara();
+}
+function cargarFotoDeCola(){
+  const preview = document.getElementById('albaranPreview');
+  const estado = document.getElementById('albaranEstado');
+  const btn = document.getElementById('albaranExtraerBtn');
+  if(!preview) return;
+  if(albaranQueue.length===0){
+    recepcionFotoDataUrl = null;
+    preview.innerHTML = '';
+    if(btn) btn.disabled = true;
+    return;
+  }
+  if(albaranQueueIndex>=albaranQueue.length) albaranQueueIndex = albaranQueue.length-1;
+  recepcionFotoDataUrl = albaranQueue[albaranQueueIndex];
+  const miniaturas = albaranQueue.map((d,i)=>`<img src="${d}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:2px solid ${i===albaranQueueIndex?'var(--wheat)':'var(--line)'};cursor:pointer;" onclick="albaranQueueIndex=${i};cargarFotoDeCola();">`).join('');
+  preview.innerHTML = `
+    ${albaranQueue.length>1 ? `<div class="hint" style="margin-bottom:6px;">Albarán ${albaranQueueIndex+1} de ${albaranQueue.length} — pulsa una miniatura para cambiar de foto</div><div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${miniaturas}</div>` : ''}
+    <img src="${recepcionFotoDataUrl}" style="max-width:220px;border-radius:8px;border:1px solid var(--line);">
+  `;
+  if(btn) btn.disabled = false;
+  recepcionExtraidas = [];
+  renderLineasExtraidas();
+  const provInput = document.getElementById('albaranProveedor');
+  if(provInput) provInput.value = '';
+  if(estado) estado.textContent = albaranQueue.length>1
+    ? `Foto ${albaranQueueIndex+1} de ${albaranQueue.length} lista. Pulsa "Extraer datos con IA".`
+    : 'Foto lista. Pulsa "Extraer datos con IA".';
 }
 function compressImage(file, maxWidth, quality){
   return new Promise((resolve,reject)=>{
@@ -858,7 +887,7 @@ function viewRecepcion(){
       <h2>${icon('truck')} Escanear albarán</h2>
       <p class="hint">Haz una foto del albarán al recepcionar la mercancía. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
       <div class="filters">
-        <label class="field"><span>Subir foto</span><input type="file" id="albaranFile" accept="image/*" capture="environment"></label>
+        <label class="field"><span>Subir fotos (una o varias)</span><input type="file" id="albaranFile" accept="image/*" multiple></label>
         <button class="btn secondary" id="albaranCamBtn" type="button">📷 Abrir cámara</button>
         <button class="btn secondary" id="albaranExtraerBtn" disabled>Extraer datos con IA</button>
       </div>
@@ -901,19 +930,23 @@ function viewRecepcion(){
     </div>
     <div class="panel"><h2>${icon('truck')} Histórico de recepciones</h2><div id="recep-table"></div></div>
   `;
-  recepcionExtraidas = []; recepcionFotoDataUrl = null;
+  recepcionExtraidas = []; recepcionFotoDataUrl = null; albaranQueue = []; albaranQueueIndex = 0;
   renderLineasExtraidas();
   document.getElementById('albaranFile').addEventListener('change', async e=>{
-    const file = e.target.files[0];
-    if(!file) return;
-    document.getElementById('albaranEstado').textContent = 'Procesando foto…';
+    const files = Array.from(e.target.files||[]);
+    if(!files.length) return;
+    const estado = document.getElementById('albaranEstado');
+    estado.textContent = files.length>1 ? `Procesando ${files.length} fotos…` : 'Procesando foto…';
     try{
-      recepcionFotoDataUrl = await compressImage(file, 1100, 0.72);
-      document.getElementById('albaranPreview').innerHTML = `<img src="${recepcionFotoDataUrl}" style="max-width:220px;border-radius:8px;border:1px solid var(--line);">`;
-      document.getElementById('albaranExtraerBtn').disabled = false;
-      document.getElementById('albaranEstado').textContent = 'Foto lista. Pulsa "Extraer datos con IA".';
+      const comprimidas = [];
+      for(const file of files){
+        comprimidas.push(await compressImage(file, 1100, 0.72));
+      }
+      albaranQueue = albaranQueue.concat(comprimidas);
+      albaranQueueIndex = albaranQueue.length - comprimidas.length;
+      cargarFotoDeCola();
     }catch(err){
-      document.getElementById('albaranEstado').textContent = 'No se ha podido procesar la foto.';
+      estado.textContent = 'No se han podido procesar las fotos.';
     }
   });
   document.getElementById('albaranCamBtn').addEventListener('click', abrirCamara);
@@ -1093,8 +1126,23 @@ async function confirmarRecepcionFoto(){
     if(nombre) actualizados.push(nombre);
   }
   await saveConfig();
-  viewRecepcion();
+  // quitar de la cola el albarán ya guardado y pasar al siguiente, si hay más
+  if(albaranQueue.length>0){
+    albaranQueue.splice(albaranQueueIndex,1);
+    if(albaranQueueIndex>=albaranQueue.length) albaranQueueIndex = Math.max(0, albaranQueue.length-1);
+  }
+  renderRecepTable();
   renderDashboard();
+  if(albaranQueue.length>0){
+    cargarFotoDeCola();
+    const estado = document.getElementById('albaranEstado');
+    if(estado) estado.textContent = `Albarán guardado. Quedan ${albaranQueue.length} foto(s) por procesar en la cola.`;
+    document.getElementById('albaranResponsable').value = responsable;
+    document.getElementById('albaranFecha').value = todayStr();
+    document.getElementById('albaranHora').value = nowStr();
+  } else {
+    viewRecepcion();
+  }
   if(actualizados.length){ alert('Stock actualizado en Materias primas para: '+actualizados.join(', ')); }
 }
 async function verFotoAlbaran(fotoId){
