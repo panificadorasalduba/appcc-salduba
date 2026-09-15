@@ -807,7 +807,70 @@ function renderMantTable(){
 let recepcionExtraidas = [];
 let recepcionFotoDataUrl = null;
 let albaranQueue = [];
+let albaranQueueHash = [];
 let albaranQueueIndex = 0;
+
+/* ---------- control de albaranes duplicados ----------
+   Dos casos distintos:
+   a) la MISMA foto subida dos veces  -> se detecta por la huella de la imagen,
+      antes de gastar una lectura de IA, y se descarta sola.
+   b) el MISMO albarán ya registrado (otra foto del mismo papel, o guardado dos
+      veces) -> se detecta al guardar comparando proveedor + nº de albarán, o
+      proveedor + fecha + productos/lotes/cantidades si no hay número.
+   Sin esto, el stock y los lotes se duplican. */
+function huellaTexto(txt){
+  let h = 0x811c9dc5;
+  const t = String(txt||'');
+  for(let i=0;i<t.length;i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h>>>0).toString(16);
+}
+function huellaFoto(dataUrl){ return huellaTexto(dataUrl)+'-'+String(dataUrl||'').length; }
+function normTxt(v){
+  return String(v==null?'':v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]+/g,' ').trim();
+}
+function huellaAlbaran(proveedor, fecha, numAlbaran, lineas){
+  const num = normTxt(numAlbaran).replace(/\s+/g,'');
+  const prov = normTxt(proveedor);
+  // el nº de albarán identifica el papel por sí solo: la fecha puede leerse mal
+  if(num && num.length>=3) return 'n:'+prov+'|'+num;
+  const cuerpo = (lineas||[]).map(l=>normTxt(l.producto)+'#'+normTxt(l.lote)+'#'+normTxt(l.cantidad))
+    .filter(x=>x.replace(/[#\s]/g,'')).sort().join('|');
+  return 'c:'+prov+'|'+(fecha||'')+'|'+huellaTexto(cuerpo);
+}
+/** Huellas de todo lo ya registrado, incluidos los registros antiguos que
+    todavía no llevaban huella guardada. */
+function huellasRegistradas(){
+  const grupos = {};
+  DATA.recepcion.forEach(r=>{
+    if(r.huella){
+      if(!grupos['h:'+r.huella]) grupos['h:'+r.huella] = {huella:r.huella, ref:r};
+      return;
+    }
+    const k = 'g:'+(r.fotoId || (normTxt(r.proveedor)+'|'+(r.fecha||'')));
+    if(!grupos[k]) grupos[k] = {ref:r, lineas:[], proveedor:r.proveedor, fecha:r.fecha, num:r.numAlbaran||''};
+    grupos[k].lineas.push(r);
+  });
+  const mapa = new Map();
+  Object.keys(grupos).forEach(k=>{
+    const g = grupos[k];
+    const h = g.huella || huellaAlbaran(g.proveedor, g.fecha, g.num, g.lineas);
+    if(!mapa.has(h)) mapa.set(h, g.ref);
+  });
+  return mapa;
+}
+function fotosYaRegistradas(){
+  const set = new Set();
+  DATA.recepcion.forEach(r=>{ if(r.fotoHash) set.add(r.fotoHash); });
+  return set;
+}
+function avisoAlbaran(html){
+  const el = document.getElementById('albaranAviso');
+  if(!el) return;
+  if(!html){ el.style.display='none'; el.innerHTML=''; return; }
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
 let camaraStream = null;
 async function abrirCamara(){
   const estado = document.getElementById('albaranEstado');
@@ -837,7 +900,14 @@ function capturarFotoCamara(){
   canvas.height = Math.round(video.videoHeight*scale);
   canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
   const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+  const hFoto = huellaFoto(dataUrl);
+  if(albaranQueueHash.indexOf(hFoto)>=0){
+    avisoAlbaran('<b>Foto repetida.</b> Esa misma imagen ya estaba en la cola, así que no se ha añadido otra vez.');
+    cerrarCamara();
+    return;
+  }
   albaranQueue.push(dataUrl);
+  albaranQueueHash.push(hFoto);
   if(albaranQueue.length===1) albaranQueueIndex = 0;
   cargarFotoDeCola();
   cerrarCamara();
@@ -865,6 +935,8 @@ function cargarFotoDeCola(){
   renderLineasExtraidas();
   const provInput = document.getElementById('albaranProveedor');
   if(provInput) provInput.value = '';
+  const numInput = document.getElementById('albaranNumero');
+  if(numInput) numInput.value = '';
   if(estado) estado.textContent = albaranQueue.length>1
     ? `Foto ${albaranQueueIndex+1} de ${albaranQueue.length} lista. Pulsa "Extraer datos con IA".`
     : 'Foto lista. Pulsa "Extraer datos con IA".';
@@ -906,9 +978,11 @@ function viewRecepcion(){
         <button class="btn secondary" type="button" id="albaranCerrarCamBtn">Cancelar</button>
       </div>
       <div id="albaranPreview" style="margin-bottom:10px;"></div>
+      <div id="albaranAviso" style="display:none;margin-bottom:12px;padding:12px 14px;border:1px solid #c0392b;border-left-width:4px;border-radius:8px;background:#fdecea;color:#7d2018;font-size:14px;line-height:1.5;"></div>
       <p id="albaranEstado" class="hint" style="margin-bottom:14px;"></p>
       <div class="record-form" style="margin-bottom:14px;">
         <label class="field"><span>Proveedor</span><input type="text" id="albaranProveedor"></label>
+        <label class="field"><span>Nº de albarán</span><input type="text" id="albaranNumero" placeholder="El de la esquina del papel"></label>
         <label class="field"><span>Fecha</span><input type="date" id="albaranFecha" value="${todayStr()}"></label>
         <label class="field"><span>Hora</span><input type="time" id="albaranHora" value="${nowStr()}"></label>
         <label class="field"><span>Temperatura llegada (°C)</span><input type="number" step="0.1" id="albaranTemp"></label>
@@ -939,7 +1013,7 @@ function viewRecepcion(){
     </div>
     <div class="panel"><h2>${icon('truck')} Histórico de recepciones</h2><div id="recep-table"></div></div>
   `;
-  recepcionExtraidas = []; recepcionFotoDataUrl = null; albaranQueue = []; albaranQueueIndex = 0;
+  recepcionExtraidas = []; recepcionFotoDataUrl = null; albaranQueue = []; albaranQueueHash = []; albaranQueueIndex = 0;
   renderLineasExtraidas();
   document.getElementById('albaranFile').addEventListener('change', async e=>{
     const files = Array.from(e.target.files||[]);
@@ -947,13 +1021,34 @@ function viewRecepcion(){
     const estado = document.getElementById('albaranEstado');
     estado.textContent = files.length>1 ? `Procesando ${files.length} fotos…` : 'Procesando foto…';
     try{
-      const comprimidas = [];
+      const yaGuardadas = fotosYaRegistradas();
+      const nuevas = [];
+      let repetidasEnCola = 0, repetidasGuardadas = 0;
       for(const file of files){
-        comprimidas.push(await compressImage(file, 1100, 0.72));
+        const dataUrl = await compressImage(file, 1100, 0.72);
+        const h = huellaFoto(dataUrl);
+        if(yaGuardadas.has(h)){ repetidasGuardadas++; continue; }
+        if(albaranQueueHash.indexOf(h)>=0 || nuevas.some(x=>x.h===h)){ repetidasEnCola++; continue; }
+        nuevas.push({dataUrl, h});
       }
-      albaranQueue = albaranQueue.concat(comprimidas);
-      albaranQueueIndex = albaranQueue.length - comprimidas.length;
+      const descartadas = repetidasEnCola + repetidasGuardadas;
+      if(nuevas.length){
+        albaranQueue = albaranQueue.concat(nuevas.map(x=>x.dataUrl));
+        albaranQueueHash = albaranQueueHash.concat(nuevas.map(x=>x.h));
+        albaranQueueIndex = albaranQueue.length - nuevas.length;
+      }
       cargarFotoDeCola();
+      if(descartadas){
+        const partes = [];
+        if(repetidasGuardadas) partes.push(repetidasGuardadas+' que ya estaba'+(repetidasGuardadas>1?'n':'')+' registrada'+(repetidasGuardadas>1?'s':'')+' en el histórico');
+        if(repetidasEnCola) partes.push(repetidasEnCola+' que ya estaba'+(repetidasEnCola>1?'n':'')+' en la cola');
+        avisoAlbaran('<b>'+descartadas+' foto'+(descartadas>1?'s':'')+' duplicada'+(descartadas>1?'s':'')+
+          ' — descartada'+(descartadas>1?'s':'')+'.</b><br>'+partes.join(' y ')+
+          '. No se ha'+(descartadas>1?'n':'')+' añadido a la cola para que no se duplique el stock ni los lotes.');
+      } else {
+        avisoAlbaran('');
+      }
+      if(!nuevas.length && descartadas) estado.textContent = 'Todas las fotos elegidas estaban repetidas.';
     }catch(err){
       estado.textContent = 'No se han podido procesar las fotos.';
     }
@@ -962,7 +1057,11 @@ function viewRecepcion(){
   document.getElementById('albaranCapturarBtn').addEventListener('click', capturarFotoCamara);
   document.getElementById('albaranCerrarCamBtn').addEventListener('click', cerrarCamara);
   document.getElementById('albaranExtraerBtn').addEventListener('click', extraerAlbaran);
-  document.getElementById('albaranConfirmarBtn').addEventListener('click', confirmarRecepcionFoto);
+  document.getElementById('albaranConfirmarBtn').addEventListener('click', ()=>{ forzarGuardadoDuplicado=false; confirmarRecepcionFoto(); });
+  ['albaranNumero','albaranProveedor','albaranFecha'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>{ forzarGuardadoDuplicado=false; avisarSiYaRegistrado(); });
+  });
   document.getElementById('form-recepcion').addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
@@ -985,7 +1084,7 @@ function viewRecepcion(){
   });
   renderRecepTable();
 }
-const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
+const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
 
 async function llamarClaudeSinClave(base64){
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1101,7 +1200,10 @@ async function extraerAlbaran(){
     recepcionExtraidas = (parsed.lineas||[]).map(l=>({producto:l.producto||'', lote:l.lote||'', cantidad:l.cantidad||'', caducidad:l.caducidad||''}));
     if(recepcionExtraidas.length===0) recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''});
     document.getElementById('albaranProveedor').value = parsed.proveedor||'';
+    const campoNum = document.getElementById('albaranNumero');
+    if(campoNum) campoNum.value = parsed.numAlbaran||'';
     if(parsed.fecha) document.getElementById('albaranFecha').value = parsed.fecha;
+    avisarSiYaRegistrado();
     renderLineasExtraidas();
     estado.textContent = recepcionExtraidas.some(l=>l.producto) ? 'Datos leídos. Revisa y corrige cualquier campo antes de guardar.' : 'No se detectó ningún producto claro en la foto. Añádelos manualmente abajo.';
   }catch(err){
@@ -1151,24 +1253,92 @@ function renderLineasExtraidas(){
       <button class="btn danger small" onclick="recepcionExtraidas.splice(${i},1);renderLineasExtraidas();">Quitar</button>
     </div>`).join('') + `<button class="btn secondary small" style="margin-top:6px;" onclick="recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''});renderLineasExtraidas();">+ Añadir línea</button>`;
 }
+/** Avisa en cuanto la IA lee el albarán, antes de que ella rellene nada más. */
+function avisarSiYaRegistrado(){
+  const num = (document.getElementById('albaranNumero')||{}).value || '';
+  const proveedor = (document.getElementById('albaranProveedor')||{}).value || '';
+  const fecha = (document.getElementById('albaranFecha')||{}).value || '';
+  const lineas = recepcionExtraidas.filter(l=>l.producto && l.producto.trim());
+  if(!proveedor && !num) return false;
+  const huella = huellaAlbaran(proveedor, fecha, num, lineas);
+  const previo = huellasRegistradas().get(huella);
+  if(!previo) { avisoAlbaran(''); return false; }
+  avisoAlbaran('<b>Este albarán ya está registrado.</b><br>'+
+    esc(previo.proveedor||'—')+(previo.numAlbaran?(' · albarán '+esc(previo.numAlbaran)):'')+
+    ' · '+fmtDate(previo.fecha)+(previo.hora?(' a las '+esc(previo.hora)):'')+
+    '.<br>Si lo vuelves a guardar, el stock y los lotes se contarían dos veces. '+
+    'Lo normal aquí es descartarlo.');
+  return true;
+}
+/** Quita de la cola la foto que se está viendo y pasa a la siguiente. */
+function descartarFotoActual(mensaje){
+  if(albaranQueue.length>0){
+    albaranQueue.splice(albaranQueueIndex,1);
+    albaranQueueHash.splice(albaranQueueIndex,1);
+    if(albaranQueueIndex>=albaranQueue.length) albaranQueueIndex = Math.max(0, albaranQueue.length-1);
+  }
+  recepcionExtraidas = [];
+  if(albaranQueue.length>0){
+    cargarFotoDeCola();
+  } else {
+    recepcionFotoDataUrl = null;
+    const preview = document.getElementById('albaranPreview');
+    if(preview) preview.innerHTML = '';
+    renderLineasExtraidas();
+    const btn = document.getElementById('albaranExtraerBtn');
+    if(btn) btn.disabled = true;
+    ['albaranProveedor','albaranNumero'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  }
+  avisoAlbaran('<b>Albarán duplicado descartado.</b><br>'+(mensaje||'')+
+    (albaranQueue.length>0 ? (' Quedan '+albaranQueue.length+' foto(s) en la cola.') : ' No queda ninguna foto pendiente.'));
+}
+let forzarGuardadoDuplicado = false;
+function guardarDuplicadoDeTodasFormas(){
+  forzarGuardadoDuplicado = true;
+  avisoAlbaran('');
+  confirmarRecepcionFoto();
+}
 async function confirmarRecepcionFoto(){
   const lineasValidas = recepcionExtraidas.filter(l=>l.producto && l.producto.trim());
   if(lineasValidas.length===0){ alert('Añade al menos un producto con nombre antes de guardar.'); return; }
   const responsable = document.getElementById('albaranResponsable').value.trim();
   if(!responsable){ alert('Indica quién recepciona la mercancía.'); return; }
   const proveedor = document.getElementById('albaranProveedor').value;
+  const numAlbaran = ((document.getElementById('albaranNumero')||{}).value || '').trim();
   const fecha = document.getElementById('albaranFecha').value || todayStr();
   const hora = document.getElementById('albaranHora').value || nowStr();
   const tempLlegada = document.getElementById('albaranTemp').value;
   const estadoEnvase = document.getElementById('albaranEnvase').value;
+
+  // ---- freno de duplicados: nada se guarda si este albarán ya está registrado ----
+  const huella = huellaAlbaran(proveedor, fecha, numAlbaran, lineasValidas);
+  const fotoHash = recepcionFotoDataUrl ? huellaFoto(recepcionFotoDataUrl) : '';
+  const previo = huellasRegistradas().get(huella);
+  if(previo && !forzarGuardadoDuplicado){
+    avisoAlbaran('<b>ALBARÁN DUPLICADO — no se ha guardado.</b><br>'+
+      'Ya hay una recepción registrada de '+esc(previo.proveedor||'—')+
+      (previo.numAlbaran?(' con el albarán '+esc(previo.numAlbaran)):'')+
+      ' del '+fmtDate(previo.fecha)+(previo.hora?(' a las '+esc(previo.hora)):'')+
+      ' con estos mismos productos.<br>Guardarlo otra vez duplicaría el stock y los lotes.'+
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'+
+      '<button class="btn small" type="button" onclick="descartarFotoActual(\'Era el mismo albarán que ya tenías registrado.\')">Descartar esta foto</button>'+
+      '<button class="btn secondary small" type="button" onclick="guardarDuplicadoDeTodasFormas()">Guardarlo de todas formas</button>'+
+      '</div>');
+    const estado = document.getElementById('albaranEstado');
+    if(estado) estado.textContent = 'Guardado detenido: este albarán ya estaba registrado.';
+    return;
+  }
+  forzarGuardadoDuplicado = false;
+  avisoAlbaran('');
+
   let fotoId = null;
   if(recepcionFotoDataUrl){
     fotoId = uid();
     try{ await Store.set('foto:'+fotoId, recepcionFotoDataUrl); }catch(e){ console.error(e); fotoId=null; }
   }
   lineasValidas.forEach(l=>{
-    DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, producto:l.producto, lote:l.lote, cantidad:l.cantidad||'', tempLlegada, estadoEnvase,
-      caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId});
+    DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, numAlbaran, producto:l.producto, lote:l.lote, cantidad:l.cantidad||'', tempLlegada, estadoEnvase,
+      caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId, huella, fotoHash});
   });
   await saveModule('recepcion');
   const actualizados = [];
@@ -1180,6 +1350,7 @@ async function confirmarRecepcionFoto(){
   // quitar de la cola el albarán ya guardado y pasar al siguiente, si hay más
   if(albaranQueue.length>0){
     albaranQueue.splice(albaranQueueIndex,1);
+    albaranQueueHash.splice(albaranQueueIndex,1);
     if(albaranQueueIndex>=albaranQueue.length) albaranQueueIndex = Math.max(0, albaranQueue.length-1);
   }
   renderRecepTable();
@@ -1189,6 +1360,7 @@ async function confirmarRecepcionFoto(){
     const estado = document.getElementById('albaranEstado');
     if(estado) estado.textContent = `Albarán guardado. Quedan ${albaranQueue.length} foto(s) por procesar en la cola.`;
     document.getElementById('albaranResponsable').value = responsable;
+    const numSig = document.getElementById('albaranNumero'); if(numSig) numSig.value = '';
     document.getElementById('albaranFecha').value = todayStr();
     document.getElementById('albaranHora').value = nowStr();
   } else {
@@ -1209,7 +1381,7 @@ async function verFotoAlbaran(fotoId){
 }
 function renderRecepTable(){
   const rows = DATA.recepcion.map(r=>`<tr>
-    <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td>${esc(r.producto)}</td>
+    <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td class="mono">${esc(r.numAlbaran)||'—'}</td><td>${esc(r.producto)}</td>
     <td class="mono">${esc(r.lote)||'—'}</td><td class="mono">${r.cantidad?esc(r.cantidad):'—'}</td>
     <td class="mono">${r.tempLlegada!==''&&r.tempLlegada!==undefined?r.tempLlegada+'°C':'—'}</td>
     <td>${esc(r.estadoEnvase)}</td><td class="mono">${fmtDate(r.caducidad)}</td>
@@ -1218,7 +1390,7 @@ function renderRecepTable(){
     <td>${r.fotoId?`<button class="btn secondary small" onclick="verFotoAlbaran('${r.fotoId}')">Ver</button>`:'—'}</td>
     <td><button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button></td>
   </tr>`);
-  document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Producto','Lote','Cantidad','Temp.','Envase','Caduca','Estado','Responsable','Albarán',''], rows);
+  document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Nº albarán','Producto','Lote','Cantidad','Temp.','Envase','Caduca','Estado','Responsable','Foto',''], rows);
 }
 
 /* ================= ALERGENOS ================= */
