@@ -368,11 +368,21 @@ async function loadAll(){
     }catch(e){ DATA[mod] = (mod==='temperaturas' ? {} : []); }
   }
 }
-async function saveConfig(){
+async function saveConfigLocal(){
   try{ await Store.set(STORE_KEYS.config, JSON.stringify(CONFIG)); }catch(e){ console.error(e); }
 }
-async function saveModule(mod){
+async function saveModuleLocal(mod){
   try{ await Store.set(STORE_KEYS[mod], JSON.stringify(DATA[mod])); }catch(e){ console.error(e); }
+}
+/* Todo lo que se guarda aquí se guarda además en Drive, solo, unos segundos después. */
+async function saveConfig(){
+  CONFIG._ts = Date.now();
+  await saveConfigLocal();
+  pedirSync();
+}
+async function saveModule(mod){
+  await saveModuleLocal(mod);
+  pedirSync();
 }
 
 /* ---------- COPIA DE SEGURIDAD ---------- */
@@ -406,48 +416,230 @@ function importarBackupFile(file){
 /* ---------- SINCRONIZACIÓN CON GOOGLE DRIVE (vía Apps Script) ---------- */
 function getAppsScriptUrl(){ try{ return localStorage.getItem('appcc_appscript_url') || ''; }catch(e){ return ''; } }
 function setAppsScriptUrl(url){ try{ localStorage.setItem('appcc_appscript_url', url); }catch(e){ console.error(e); } }
-async function subirBackupADrive(){
-  const estado = document.getElementById('driveSyncEstado');
-  const url = getAppsScriptUrl();
-  if(!url){ estado.textContent = 'Configura primero la URL de Apps Script y guárdala.'; return; }
-  estado.textContent = 'Subiendo a Google Drive…';
-  try{
-    const backup = {config:CONFIG, data:DATA, exportadoEl:new Date().toISOString()};
-    const res = await fetch(url, {
-      method:'POST',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify(backup)
+async function subirBackupADrive(){ await sincronizar('manual'); }
+async function descargarBackupDeDrive(){ await sincronizar('manual'); }
+
+/* ================= SINCRONIZACIÓN AUTOMÁTICA (Google Drive vía Apps Script) =================
+   Los registros de autocontrol no pueden vivir solo en la tablet: son el registro
+   sanitario. Aquí se guardan solos en tu Google Drive y se leen solos al abrir,
+   de modo que desde cualquier tablet u ordenador aparece siempre lo mismo.
+
+   Cómo evita pisar datos: nunca se sube lo que hay en pantalla "tal cual". Antes de
+   subir se lee lo que hay en Drive y se MEZCLA registro a registro por su id, así dos
+   tablets que apuntan a la vez no se borran la una a la otra. Lo borrado a propósito
+   se recuerda en una lista de bajas para que no resucite al mezclar. */
+
+const SYNC_CADA_MS = 3*60*1000;     // repaso periódico
+const SYNC_ESPERA_MS = 4000;        // tras un cambio, espera por si vienen más
+const BAJAS_DIAS = 180;             // cuánto se recuerda un borrado
+
+let SYNC = { estado:'', ultima:null, enCurso:false, pendiente:false, timer:null, fallos:0 };
+let BAJAS = {};                     // { idRegistro: marcaDeTiempo }
+
+function syncActiva(){ return !!getAppsScriptUrl(); }
+
+async function cargarBajas(){
+  try{ const r = await Store.get('sync:bajas'); BAJAS = r ? JSON.parse(r) : {}; }catch(e){ BAJAS = {}; }
+}
+async function guardarBajas(){
+  const corte = Date.now() - BAJAS_DIAS*24*3600*1000;
+  for(const k of Object.keys(BAJAS)) if(BAJAS[k] < corte) delete BAJAS[k];
+  try{ await Store.set('sync:bajas', JSON.stringify(BAJAS)); }catch(e){}
+}
+
+/* Cuántos datos de verdad lleva un registro: al mezclar gana el más completo,
+   que es el que se ha seguido rellenando (por ejemplo un lote al que ya se le
+   ha puesto la fecha de cierre). Así una mezcla nunca vacía un campo. */
+function relleno(r){
+  let n = 0;
+  for(const k of Object.keys(r||{})){
+    if(k === '_ts') continue;
+    const v = r[k];
+    if(v === null || v === undefined || v === '') continue;
+    if(Array.isArray(v) && !v.length) continue;
+    n++;
+  }
+  return n;
+}
+
+function mezclarLista(local, remoto){
+  const fuera = new Map();
+  (Array.isArray(remoto)?remoto:[]).forEach(r=>{ if(r && r.id) fuera.set(r.id, r); });
+  const salida = [];
+  const vistos = new Set();
+  (Array.isArray(local)?local:[]).forEach(r=>{
+    if(!r || !r.id){ salida.push(r); return; }
+    vistos.add(r.id);
+    if(BAJAS[r.id]) return;                       // borrado a propósito
+    const otro = fuera.get(r.id);
+    if(!otro){ salida.push(r); return; }
+    salida.push(relleno(otro) > relleno(r) ? otro : r);
+  });
+  fuera.forEach((r,id)=>{ if(!vistos.has(id) && !BAJAS[id]) salida.push(r); });
+  return salida;
+}
+
+/* La rejilla de temperaturas se mezcla casilla a casilla: cada tablet rellena
+   sus equipos y ninguna debe borrar lo que ha escrito la otra. */
+function mezclarTemperaturas(local, remoto){
+  const salida = {};
+  const claves = new Set([...Object.keys(local||{}), ...Object.keys(remoto||{})]);
+  claves.forEach(k=>{
+    const a = (local||{})[k], b = (remoto||{})[k];
+    if(!a){ salida[k] = b; return; }
+    if(!b){ salida[k] = a; return; }
+    salida[k] = a.map((fila,i)=>{
+      const otra = b[i] || {};
+      const valores = Object.assign({}, otra.valores||{});
+      Object.keys(fila.valores||{}).forEach(eq=>{
+        const v = fila.valores[eq];
+        if(v !== '' && v !== null && v !== undefined) valores[eq] = v;
+      });
+      return {
+        day: fila.day,
+        valores,
+        responsable: fila.responsable || otra.responsable || '',
+        incidencia: fila.incidencia || otra.incidencia || ''
+      };
     });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error || 'Error desconocido en Apps Script');
-    estado.textContent = 'Copia subida a Google Drive correctamente ('+new Date().toLocaleTimeString()+').';
+  });
+  return salida;
+}
+
+function mezclarTodo(remoto){
+  if(!remoto || typeof remoto !== 'object') return false;
+  const rData = remoto.data || {};
+  let cambios = false;
+  /* Las bajas se aplican ANTES de mezclar: si otro dispositivo borró un registro,
+     aquí tiene que desaparecer también, no volver a colarse en la mezcla. */
+  const antesBajas = JSON.stringify(BAJAS);
+  Object.assign(BAJAS, remoto.bajas || {});
+  if(JSON.stringify(BAJAS) !== antesBajas) cambios = true;
+  for(const mod of Object.keys(DATA)){
+    const antes = JSON.stringify(DATA[mod]);
+    DATA[mod] = (mod === 'temperaturas')
+      ? mezclarTemperaturas(DATA.temperaturas, rData.temperaturas)
+      : mezclarLista(DATA[mod], rData[mod]);
+    if(JSON.stringify(DATA[mod]) !== antes) cambios = true;
+  }
+  // Los ajustes (equipos, zonas, tiendas…) los cambia una sola persona: manda el más reciente.
+  const tsRemoto = remoto.configTs || 0, tsLocal = CONFIG._ts || 0;
+  if(remoto.config && tsRemoto > tsLocal){ CONFIG = remoto.config; cambios = true; }
+  return cambios;
+}
+
+function contarRegistros(d){
+  let n = 0;
+  for(const mod of Object.keys(d||{})){
+    if(mod === 'temperaturas') n += Object.keys(d.temperaturas||{}).length;
+    else n += (d[mod]||[]).length;
+  }
+  return n;
+}
+
+function pintarEstadoSync(){
+  const el = document.getElementById('syncFoot');
+  if(el) el.textContent = SYNC.estado;
+  const aj = document.getElementById('driveSyncEstado');
+  if(aj) aj.textContent = SYNC.estado;
+}
+function marcarSync(txt){ SYNC.estado = txt; pintarEstadoSync(); }
+
+async function leerDeDrive(){
+  const url = getAppsScriptUrl();
+  const sep = url.includes('?') ? '&' : '?';
+  const res = await fetch(url+sep+'action=get&t='+Date.now(), {cache:'no-store'});
+  if(!res.ok) throw new Error('Drive respondió '+res.status);
+  const txt = await res.text();
+  let j; try{ j = JSON.parse(txt); }catch(e){ throw new Error('Drive devolvió algo que no es una copia válida'); }
+  if(j && j.data && !j.bajas && j.exportadoEl) j.bajas = {};   // copia del formato antiguo
+  return j || {};
+}
+
+/* Guarda en Drive lo que hay aquí MEZCLADO con lo que ya había allí. */
+async function sincronizar(motivo){
+  if(!syncActiva()) return false;
+  if(SYNC.enCurso){ SYNC.pendiente = true; return false; }
+  SYNC.enCurso = true;
+  try{
+    marcarSync('Guardando en Drive…');
+    const remoto = await leerDeDrive();
+    const habiaFuera = contarRegistros(remoto.data);
+    const cambios = mezclarTodo(remoto);
+    const ahoraHay = contarRegistros(DATA);
+
+    // Red de seguridad: jamás subir "nada" encima de un histórico que sí existe.
+    if(habiaFuera > 0 && ahoraHay === 0){
+      marcarSync('Aviso: no se ha subido nada porque esta tablet está vacía y en Drive sí hay registros.');
+      return false;
+    }
+    const cuerpo = JSON.stringify({
+      v:2, config:CONFIG, configTs: CONFIG._ts || 0,
+      data:DATA, bajas:BAJAS, guardadoEl:new Date().toISOString()
+    });
+    const res = await fetch(getAppsScriptUrl(), {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:cuerpo
+    });
+    const r = await res.json();
+    if(!r.ok) throw new Error(r.error || 'Drive no confirmó el guardado');
+
+    if(cambios){
+      await saveConfigLocal();
+      for(const mod of Object.keys(DATA)) await saveModuleLocal(mod);
+      await guardarBajas();
+      refrescarPantalla();
+    } else {
+      await guardarBajas();
+    }
+    SYNC.ultima = new Date(); SYNC.fallos = 0;
+    marcarSync('Guardado en Drive a las '+SYNC.ultima.toLocaleTimeString('es-ES').slice(0,5)+
+               ' · '+ahoraHay+' registros');
+    return true;
   }catch(err){
-    console.error(err);
-    estado.textContent = 'Error al subir a Drive: '+err.message;
+    SYNC.fallos++;
+    console.error('sync', err);
+    marcarSync('Sin conexión con Drive ('+err.message+'). Lo guardado aquí no se pierde; se reintenta solo.');
+    return false;
+  }finally{
+    SYNC.enCurso = false;
+    if(SYNC.pendiente){ SYNC.pendiente = false; setTimeout(()=>sincronizar('pendiente'), 1500); }
   }
 }
-async function descargarBackupDeDrive(){
-  const estado = document.getElementById('driveSyncEstado');
-  const url = getAppsScriptUrl();
-  if(!url){ estado.textContent = 'Configura primero la URL de Apps Script y guárdala.'; return; }
-  estado.textContent = 'Buscando copia en Google Drive…';
+
+function pedirSync(){
+  if(!syncActiva()) return;
+  clearTimeout(SYNC.timer);
+  SYNC.timer = setTimeout(()=>sincronizar('cambio'), SYNC_ESPERA_MS);
+}
+
+function refrescarPantalla(){
   try{
-    const sep = url.includes('?') ? '&' : '?';
-    const res = await fetch(url+sep+'action=get');
-    const backup = await res.json();
-    if(!backup || !backup.config || !backup.data){ estado.textContent = 'No hay ninguna copia guardada en Drive todavía. Sube una primero desde otro dispositivo.'; return; }
-    if(!confirm('Esto reemplazará TODOS los datos actuales de esta app por los guardados en Google Drive. ¿Continuar?')){ estado.textContent=''; return; }
-    CONFIG = backup.config;
-    DATA = backup.data;
-    await saveConfig();
-    for(const mod of Object.keys(DATA)) await saveModule(mod);
-    estado.textContent = 'Datos restaurados desde Google Drive correctamente.';
     updateSidebarFoot();
-    showView('dashboard');
-  }catch(err){
-    console.error(err);
-    estado.textContent = 'Error al descargar de Drive: '+err.message;
+    const activa = document.querySelector('.view.active');
+    const id = activa ? activa.id.replace('view-','') : 'dashboard';
+    if(RENDERERS[id]) RENDERERS[id]();
+    renderDashboard();
+  }catch(e){ console.error('repintado', e); }
+}
+
+async function arrancarSync(){
+  await cargarBajas();
+  // Un enlace con ?sync=... deja configurado el dispositivo de una vez y se limpia solo.
+  try{
+    const p = new URLSearchParams(location.search).get('sync');
+    if(p){
+      setAppsScriptUrl(decodeURIComponent(p));
+      history.replaceState(null,'',location.pathname);
+    }
+  }catch(e){}
+  if(!syncActiva()){
+    marcarSync('Los datos se guardan solo en este dispositivo. Configura la sincronización en Ajustes.');
+    return;
   }
+  await sincronizar('arranque');
+  setInterval(()=>{ if(!document.hidden) sincronizar('periódico'); }, SYNC_CADA_MS);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sincronizar('vuelta'); });
+  window.addEventListener('online', ()=>sincronizar('reconexión'));
 }
 
 
@@ -522,6 +714,8 @@ function table(headers, rows){
 async function removeRecord(mod, id, rerender){
   if(!confirm('¿Eliminar este registro? Esta acción no se puede deshacer.')) return;
   DATA[mod] = DATA[mod].filter(r=>r.id!==id);
+  BAJAS[id] = Date.now();          // se recuerda la baja para que no vuelva al mezclar
+  await guardarBajas();
   await saveModule(mod);
   rerender();
   renderDashboard();
@@ -2435,7 +2629,7 @@ function viewAjustes(){
     </div>
     <div class="panel">
       <h2>${icon('box')} Copia de seguridad</h2>
-      <p class="hint">${HAS_CLAUDE_STORAGE ? 'Aunque los datos ya se comparten desde Claude.ai, es buena idea guardar una copia de vez en cuando.' : 'Como los datos viven solo en esta tablet, descarga una copia periódicamente (por ejemplo, cada semana) para no perder el histórico si se resetea el dispositivo o se borra el navegador.'}</p>
+      <p class="hint">${getAppsScriptUrl() ? 'Los datos ya se guardan solos en tu Google Drive, pero descargar una copia de vez en cuando no sobra: es tu respaldo si algo fuera mal.' : 'Como los datos viven solo en esta tablet, descarga una copia periódicamente (por ejemplo, cada semana) para no perder el histórico si se resetea el dispositivo o se borra el navegador.'}</p>
       <div class="filters">
         <button class="btn secondary small" id="export-backup-btn" type="button">Descargar copia de seguridad</button>
         <label class="field"><span>Restaurar desde archivo</span><input type="file" id="import-backup-file" accept=".json"></label>
@@ -2443,14 +2637,15 @@ function viewAjustes(){
     </div>
     <div class="panel">
       <h2>${icon('box')} Sincronización con Google Drive</h2>
-      <p class="hint">Para ver los mismos datos desde varios ordenadores/tablets, sube y descarga aquí una copia guardada en tu Google Drive a través de tu Apps Script. <strong>Solo funciona si esta app está alojada en una dirección web real (https://...), no si la abres como archivo local.</strong></p>
+      <p class="hint">${getAppsScriptUrl()
+        ? 'Los registros se guardan solos en tu Google Drive según los vas apuntando, y se leen solos al abrir la app. Por eso desde cualquier tablet u ordenador ves siempre lo mismo. No hay que pulsar nada; los botones de abajo son solo por si quieres forzar un guardado en el momento.'
+        : '<strong>Atención: ahora mismo los registros se guardan solo en este dispositivo.</strong> Pega abajo la dirección de tu Apps Script y guárdala; a partir de ese momento todo se guarda y se lee solo desde tu Google Drive.'}</p>
       <div class="filters">
         <label class="field"><span>URL de tu Apps Script</span><input type="text" id="appScriptUrlInput" value="${esc(getAppsScriptUrl())}" placeholder="https://script.google.com/macros/s/AKfycb.../exec" style="min-width:380px;"></label>
         <button class="btn small" id="saveAppScriptUrlBtn" type="button">Guardar URL</button>
       </div>
       <div class="filters">
-        <button class="btn small" id="uploadDriveBtn" type="button">Subir copia a Drive</button>
-        <button class="btn small" id="downloadDriveBtn" type="button">Descargar copia de Drive</button>
+        <button class="btn small" id="uploadDriveBtn" type="button">Guardar ahora en Drive</button>
       </div>
       <p class="hint" id="driveStatus">${getAppsScriptUrl() ? 'URL de Apps Script configurada ✓' : 'Todavía no hay ninguna URL configurada.'}</p>
       <p class="hint" id="driveSyncEstado"></p>
@@ -2528,7 +2723,6 @@ function viewAjustes(){
     alert('URL guardada. Ya puedes subir/descargar copia.');
   });
   document.getElementById('uploadDriveBtn').addEventListener('click', subirBackupADrive);
-  document.getElementById('downloadDriveBtn').addEventListener('click', descargarBackupDeDrive);
   document.getElementById('import-backup-file').addEventListener('change', e=>{
     const file = e.target.files[0];
     if(file) importarBackupFile(file);
@@ -2701,7 +2895,9 @@ function renderDashboard(){
 }
 function updateSidebarFoot(){
   const foot = document.getElementById('sidebarFoot');
-  if(foot) foot.innerHTML = `${esc(CONFIG.empresa.nombre)}<br>${esc(CONFIG.empresa.obrador)}<br>Reg. San. ${esc(CONFIG.empresa.registroSanitario)}`;
+  if(foot) foot.innerHTML = `${esc(CONFIG.empresa.nombre)}<br>${esc(CONFIG.empresa.obrador)}<br>Reg. San. ${esc(CONFIG.empresa.registroSanitario)}`
+    + `<br><span id="syncFoot" style="display:block;margin-top:6px;opacity:.85;line-height:1.35"></span>`;
+  pintarEstadoSync();
 }
 
 /* ---------- RENDERERS MAP & BOOT ---------- */
@@ -2725,6 +2921,7 @@ async function boot(){
   await loadAll();
   updateSidebarFoot();
   showView('dashboard');
+  arrancarSync();
   document.querySelector('.navitem[data-view="dashboard"]').classList.add('active');
   document.getElementById('view-dashboard').classList.add('active');
 }
