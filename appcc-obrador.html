@@ -198,6 +198,17 @@
   .hoja table.rejilla{width:100%;border-collapse:collapse;font-size:11px;}
   .hoja table.rejilla th,.hoja table.rejilla td{border:1px solid #999;padding:3px 4px;vertical-align:top;}
   .hoja table.rejilla th{background:#f0ece2;font-weight:600;text-align:center;}
+  table.papel-lotes{table-layout:fixed;}
+  table.papel-lotes th.banda{text-align:right;font-size:12px;letter-spacing:.5px;padding:5px 8px;background:#e6e0d2;}
+  table.papel-lotes td{font-size:10px;padding:2px 4px;height:15px;}
+  table.papel-lotes td.celda-prod{width:21%;font-weight:600;text-transform:uppercase;font-size:10px;
+    vertical-align:middle;line-height:1.25;}
+  /* los lotes largos se parten en dos líneas antes que perderse cortados */
+  table.papel-lotes td.celda-lote{font-size:9px;color:#666;line-height:1.2;word-break:break-word;}
+  table.papel-lotes td.celda-lote .ml{color:#111;font-weight:700;font-size:10px;letter-spacing:.2px;}
+  table.papel-lotes td.rot{font-size:8px;color:#666;text-align:left;}
+  table.papel-lotes td.fec{text-align:center;font-weight:600;}
+  table.papel-lotes tbody.bloque-prod{border-bottom:2px solid #666;}
   .hoja.ancha table.rejilla{font-size:10px;}
   .hoja.ancha table.rejilla th{font-size:9px;line-height:1.15;}
   .hoja table.rejilla td.n{text-align:center;}
@@ -231,6 +242,8 @@
     #dossier .hoja.ancha{page:apaisada;}
     #dossier table.rejilla thead{display:table-header-group;}
     #dossier table.rejilla tr{break-inside:avoid;page-break-inside:avoid;}
+    #dossier table.papel-lotes tbody.bloque-prod{break-inside:avoid;page-break-inside:avoid;}
+    #dossier table.papel-lotes th.banda{background:#e6e0d2!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     #dossier .firma{break-inside:avoid;page-break-inside:avoid;}
     #dossier table.rejilla th{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     #dossier table.rejilla tr.grupo td,#dossier table.rejilla td.malo,#dossier table.rejilla td.tot{
@@ -3236,27 +3249,122 @@ function hojaProduccion(clave, mes, desde, hasta){
     <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
 }
 
+/* ---- Hoja de lotes de materias primas, calcada del cuaderno de papel ----
+   En el papel cada producto ocupa una fila con cuatro casilleros de lote a lo
+   ancho, y cada casillero son tres pisos: LOTE, "F. ABRO / F. CIERRO" y las dos
+   fechas. Aquí se reproduce igual, con el catálogo completo (los productos sin
+   lote salen en blanco, como en el cuaderno) y una hoja por sección y año. */
+const LOTES_SECCIONES = [
+  ['pasteleria',   'Productos pastelería · ingredientes'],
+  ['bajaRotacion', 'Productos obrador · baja rotación'],
+  ['materiales',   'Productos pastelería · materiales de uso alimentario'],
+];
+const LOTES_BLOQUES = 4;   // casilleros de lote por fila, como en el papel
+
+function ddmm(f){
+  const p = String(f||'').split('-');
+  return p.length===3 ? p[2]+'/'+p[1] : '';
+}
+/** El papel escribe la semana pegada al lote ("03P061 S15", "L26P134-S17-S18"). */
+function loteConSemana(r){
+  let t = String(r.lote||'').trim();
+  /* En el cuaderno la semana se escribe pegada al lote ("-S15 -S20") y se va
+     añadiendo cada vez que se reabre. Si el código ya trae semanas apuntadas se
+     respeta tal cual; solo se le añade la semana a los lotes que no la llevan. */
+  if(/s\s*-?\s*\d{1,2}(\D|$)/i.test(t)) return t;
+  let s = (r.semana!==undefined && r.semana!=='') ? r.semana
+        : (r.fechaApertura ? getWeekNumber(r.fechaApertura) : '');
+  if(s===''||s===undefined||s===null) return t;
+  return t ? t+' S'+s : 'S'+s;
+}
+function casilleroLote(r){
+  if(!r) return {lote:'', abro:'', cierro:''};
+  return {lote:loteConSemana(r), abro:ddmm(r.fechaApertura), cierro:ddmm(r.fechaCierre)};
+}
+/** Las tres filas que ocupa un producto (o más, si tiene más de cuatro lotes). */
+function filasProductoLote(nombre, lotes){
+  const bandas = Math.max(1, Math.ceil(lotes.length / LOTES_BLOQUES));
+  let out = '';
+  for(let b=0; b<bandas; b++){
+    const trozo = lotes.slice(b*LOTES_BLOQUES, (b+1)*LOTES_BLOQUES);
+    let f1='', f2='', f3='';
+    for(let i=0; i<LOTES_BLOQUES; i++){
+      const c = casilleroLote(trozo[i]);
+      f1 += `<td colspan="2" class="celda-lote">LOTE: <span class="ml">${esc(c.lote)}</span></td>`;
+      f2 += `<td class="rot">F. ABRO:</td><td class="rot">F. CIERRO:</td>`;
+      f3 += `<td class="fec">${esc(c.abro)}</td><td class="fec">${esc(c.cierro)}</td>`;
+    }
+    const nom = b===0
+      ? `<td class="celda-prod" rowspan="${3*bandas}">${esc(nombre)}</td>`
+      : '';
+    out += `<tr>${nom}${f1}</tr><tr>${f2}</tr><tr class="fila-fechas">${f3}</tr>`;
+  }
+  return `<tbody class="bloque-prod">${out}</tbody>`;
+}
+/** Devuelve las hojas del registro de lotes: una por sección y año. */
+function hojasLotesMP(desde, hasta){
+  const vigente = r=>{
+    const ap = String(r.fechaApertura||''), ci = String(r.fechaCierre||'');
+    if(hasta && ap && ap > hasta) return false;    // todavía no se había abierto
+    if(desde && ci && ci < desde) return false;    // ya estaba cerrado antes
+    return true;
+  };
+  const todos = (DATA.lotesMP||[]).filter(vigente);
+
+  /* El cuaderno es anual. Los lotes sin fecha (los que se apuntaron en el papel
+     sin anotar el día) van al año del cuaderno en curso, no a una hoja aparte. */
+  const anioActual = (hasta||todayStr()).slice(0,4);
+  const porAnio = {};
+  todos.forEach(r=>{
+    const a = String(r.fechaApertura || r.fechaCierre || '').slice(0,4) || anioActual;
+    (porAnio[a] = porAnio[a] || []).push(r);
+  });
+  let anios = Object.keys(porAnio).sort();
+  if(!anios.length){ anios = [anioActual]; porAnio[anioActual] = []; }
+
+  const cat = CONFIG.catalogoLotes || {};
+  const enCatalogo = {};
+  LOTES_SECCIONES.forEach(([k])=> (cat[k]||[]).forEach(p=> enCatalogo[normTxt(p)] = true ));
+
+  const out = [];
+  anios.forEach(anio=>{
+    const porProd = {};
+    porAnio[anio].forEach(r=>{
+      const k = normTxt(r.producto);
+      (porProd[k] = porProd[k] || []).push(r);
+    });
+    Object.keys(porProd).forEach(k=> porProd[k].sort((a,b)=>
+      String(a.fechaApertura||'￿').localeCompare(String(b.fechaApertura||'￿')) ));
+
+    // lotes de productos que no están en ningún catálogo: se añaden al final
+    const sueltos = Object.keys(porProd).filter(k=> !enCatalogo[k]);
+
+    LOTES_SECCIONES.forEach(([clave, titulo], iSec)=>{
+      let lista = (cat[clave]||[]).slice();
+      if(iSec===0) sueltos.forEach(k=> lista.push(porProd[k][0].producto) );
+      if(!lista.length) return;
+      const cuerpo = lista.map(p=> filasProductoLote(p, porProd[normTxt(p)] || []) ).join('');
+      const usados = lista.reduce((n,p)=> n + ((porProd[normTxt(p)]||[]).length), 0);
+      out.push(`<section class="hoja hoja-lotes">
+        ${cabeceraHoja('Materias primas · registro de lotes','T1 · Traza 1-10','Año '+anio+' · '+titulo)}
+        <table class="rejilla papel-lotes">
+          <thead><tr><th colspan="${1+2*LOTES_BLOQUES}" class="banda">${esc(titulo.toUpperCase())}</th></tr></thead>
+          ${cuerpo}
+        </table>
+        <p class="pie-nota">${usados} lote${usados===1?'':'s'} anotado${usados===1?'':'s'} en esta hoja. Las casillas en blanco son las del cuaderno que aún no se han usado.</p>
+        <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`);
+    });
+  });
+  return out;
+}
+
 /** Listado corriente (limpieza, agua, recepción…) con la cabecera de su hoja. */
 function hojaListado(clave, titulo, traza, desde, hasta){
   const meta = MODULE_META[clave];
   if(!meta) return '';
   let filas = (DATA[clave]||[]).slice();
-  if(clave === 'lotesMP'){
-    // los lotes se filtran por apertura o cierre dentro del rango
-    filas = filas.filter(r=>{
-      const ap = String(r.fechaApertura||''), ci = String(r.fechaCierre||'');
-      if(hasta && ap && ap > hasta) return false;   // todavía no se había abierto
-      if(desde && ci && ci < desde) return false;   // ya estaba cerrado antes
-      return true;                                  // sigue abierto o estuvo vigente
-    });
-    filas.sort((a,b)=>{
-      const x = String(a.fechaApertura||'\uffff'), y = String(b.fechaApertura||'\uffff');
-      return x.localeCompare(y);
-    });
-  } else {
-    filas = filas.filter(r=> dentro(r.fecha, desde, hasta));
-    filas.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
-  }
+  filas = filas.filter(r=> dentro(r.fecha, desde, hasta));
+  filas.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
   if(!filas.length) return '';
   const cuerpo = filas.map(r=>`<tr>${meta.row(r).map(c=>`<td>${esc(c==null?'':c)}</td>`).join('')}</tr>`).join('');
   return `<section class="hoja">${cabeceraHoja(titulo||meta.label, traza||'', rotuloRango(desde,hasta))}
@@ -3300,8 +3408,10 @@ function generarDossier(){
   });
 
   // listados
+  // el registro de lotes va con la forma del cuaderno, no como listado
+  hojasLotesMP(desde, hasta).forEach(h=> partes.push(h) );
+
   const listados = [
-    ['lotesMP','Materias primas · registro de lotes','T1 · Traza 1'],
     ['recepcion','Recepción de mercancías','T1 · Recepción'],
     ['limpieza','Limpieza y desinfección','T4 · Limpieza'],
     ['agua','Control de agua','T5 · Agua'],
