@@ -2059,7 +2059,7 @@ function viewMateriasPrimas(){
       <div class="filters">
         <label class="field"><span>Buscar</span><input type="text" id="catMPBuscar" placeholder="Producto, proveedor o categoría…"></label>
         <label class="field"><span>Producto</span><select id="catMPProducto"><option value="">Todos los productos</option></select></label>
-        <button class="btn secondary small" id="catMPLimpiar">Ver todos</button>
+        <button class="btn secondary small" id="catMPLimpiar">Limpiar búsqueda</button>
       </div>
       <p class="hint" id="catMPCuenta"></p>
       <div id="catalogo-mp-table"></div>
@@ -2440,6 +2440,14 @@ function renderCatalogoMP(){
   const q = b ? b.value.trim().toLowerCase() : '';
   poblarSelectCatalogoMP(b ? b.value : '');
   const elegido = pr ? pr.value : '';   // el desplegable manda sobre la casilla
+  const host = document.getElementById('catalogo-mp-table');
+  const cuentaEl = document.getElementById('catMPCuenta');
+  /* Sin búsqueda no se vuelca el catálogo entero: se busca el producto y ya. */
+  if(!q && !elegido){
+    if(host) host.innerHTML = `<p class="hint">Hay <strong>${CONFIG.materiasPrimas.length}</strong> productos en el catálogo. Escribe el nombre arriba (o el proveedor, o la categoría), o elígelo en el desplegable, para verlo y editarlo.</p>`;
+    if(cuentaEl) cuentaEl.textContent = '';
+    return;
+  }
   /* Se guarda el índice real: la tabla se edita por posición dentro de
      CONFIG.materiasPrimas, así que filtrar no puede cambiar a qué fila apunta. */
   let lista = CONFIG.materiasPrimas.map((m,i)=>({m, i}));
@@ -2448,12 +2456,9 @@ function renderCatalogoMP(){
     (x.m.nombre||'').toLowerCase().includes(q) ||
     (x.m.proveedor||'').toLowerCase().includes(q) ||
     (x.m.categoria||'').toLowerCase().includes(q));
-  const cuenta = document.getElementById('catMPCuenta');
-  if(cuenta) cuenta.textContent = (q||elegido)
-    ? lista.length+' producto'+(lista.length===1?'':'s')+' de '+CONFIG.materiasPrimas.length+' en total'
-    : CONFIG.materiasPrimas.length+' productos en el catálogo';
+  if(cuentaEl) cuentaEl.textContent = lista.length+' producto'+(lista.length===1?'':'s')+' de '+CONFIG.materiasPrimas.length+' en total';
   if(!lista.length){
-    document.getElementById('catalogo-mp-table').innerHTML = '<p class="hint">Ningún producto con esa búsqueda.</p>';
+    if(host) host.innerHTML = '<p class="hint">Ningún producto con esa búsqueda.</p>';
     return;
   }
   const rows = lista.map(({m, i})=>`<tr>
