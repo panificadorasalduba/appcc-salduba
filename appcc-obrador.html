@@ -2074,6 +2074,12 @@ function viewMateriasPrimas(){
     <div class="panel">
       <h2>${icon('box')} Catálogo y stock de materias primas</h2>
       <p class="hint">Cada vez que se registra una recepción (con foto de albarán o manual) el producto entra aquí solo, sumando la cantidad recibida — si es la primera vez que llega, se crea automáticamente. Al abrir un bote/cubo/saco en "Lotes" se descuenta 1 del stock. También puedes editar stock y proveedor a mano en cualquier momento.</p>
+      <div class="filters">
+        <label class="field"><span>Buscar</span><input type="text" id="catMPBuscar" placeholder="Producto, proveedor o categoría…"></label>
+        <label class="field"><span>Producto</span><select id="catMPProducto"><option value="">Todos los productos</option></select></label>
+        <button class="btn secondary small" id="catMPLimpiar">Ver todos</button>
+      </div>
+      <p class="hint" id="catMPCuenta"></p>
       <div id="catalogo-mp-table"></div>
       <button class="btn secondary small" id="add-mp-btn">+ Añadir materia prima</button>
       <button class="btn secondary small" id="autocompletar-proveedores-btn">Autocompletar proveedores según el listado</button>
@@ -2194,6 +2200,16 @@ function viewMateriasPrimas(){
   ['lotesHistBuscar','lotesHistProducto','lotesHistEstado'].forEach(id=>{
     const el = document.getElementById(id);
     if(el){ el.addEventListener('input', renderLotesMPTable); el.addEventListener('change', renderLotesMPTable); }
+  });
+  ['catMPBuscar','catMPProducto'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){ el.addEventListener('input', renderCatalogoMP); el.addEventListener('change', renderCatalogoMP); }
+  });
+  const catLimpiar = document.getElementById('catMPLimpiar');
+  if(catLimpiar) catLimpiar.addEventListener('click', ()=>{
+    const b = document.getElementById('catMPBuscar'); if(b) b.value = '';
+    const pr = document.getElementById('catMPProducto'); if(pr) pr.value = '';
+    renderCatalogoMP();
   });
   montarAltaPedido();
   document.getElementById('loteFechaApertura').addEventListener('change', e=>{
@@ -2431,8 +2447,42 @@ function abrirAjusteInventario(nombre){
     alert('Ajuste guardado correctamente.');
   });
 }
+/** Rellena el desplegable del catálogo; si hay texto escrito, solo con lo que casa. */
+function poblarSelectCatalogoMP(texto){
+  const sel = document.getElementById('catMPProducto');
+  if(!sel) return;
+  const previo = sel.value;
+  const q = (texto||'').trim().toLowerCase();
+  let nombres = CONFIG.materiasPrimas.map(m=>m.nombre).filter(Boolean);
+  if(q) nombres = nombres.filter(n=>n.toLowerCase().includes(q));
+  nombres = [...new Set(nombres)].sort((a,b)=>a.localeCompare(b,'es'));
+  sel.innerHTML = `<option value="">${q ? nombres.length+' producto'+(nombres.length===1?'':'s')+' con «'+esc(texto.trim())+'»' : 'Todos los productos'}</option>`
+    + nombres.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value = nombres.indexOf(previo)>=0 ? previo : '';
+}
 function renderCatalogoMP(){
-  const rows = CONFIG.materiasPrimas.map((m,i)=>`<tr>
+  const b = document.getElementById('catMPBuscar');
+  const pr = document.getElementById('catMPProducto');
+  const q = b ? b.value.trim().toLowerCase() : '';
+  poblarSelectCatalogoMP(b ? b.value : '');
+  const elegido = pr ? pr.value : '';   // el desplegable manda sobre la casilla
+  /* Se guarda el índice real: la tabla se edita por posición dentro de
+     CONFIG.materiasPrimas, así que filtrar no puede cambiar a qué fila apunta. */
+  let lista = CONFIG.materiasPrimas.map((m,i)=>({m, i}));
+  if(elegido) lista = lista.filter(x=> x.m.nombre === elegido);
+  else if(q) lista = lista.filter(x=>
+    (x.m.nombre||'').toLowerCase().includes(q) ||
+    (x.m.proveedor||'').toLowerCase().includes(q) ||
+    (x.m.categoria||'').toLowerCase().includes(q));
+  const cuenta = document.getElementById('catMPCuenta');
+  if(cuenta) cuenta.textContent = (q||elegido)
+    ? lista.length+' producto'+(lista.length===1?'':'s')+' de '+CONFIG.materiasPrimas.length+' en total'
+    : CONFIG.materiasPrimas.length+' productos en el catálogo';
+  if(!lista.length){
+    document.getElementById('catalogo-mp-table').innerHTML = '<p class="hint">Ningún producto con esa búsqueda.</p>';
+    return;
+  }
+  const rows = lista.map(({m, i})=>`<tr>
     <td><input type="text" value="${esc(m.nombre)}" style="width:170px;" onchange="updateMPField(${i},'nombre',this.value)"></td>
     <td><input type="text" value="${esc(m.categoria)}" style="width:90px;" onchange="updateMPField(${i},'categoria',this.value)"></td>
     <td><input type="text" value="${esc(m.proveedor)}" style="width:110px;" onchange="updateMPField(${i},'proveedor',this.value)" placeholder="Proveedor"></td>
