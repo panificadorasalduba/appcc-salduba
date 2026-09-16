@@ -1971,6 +1971,18 @@ function viewMateriasPrimas(){
       <h2>${icon('truck')} Pedidos pendientes</h2>
       <p class="hint">Se genera solo cuando el stock actual de un producto cae igual o por debajo del stock mínimo. Agrupado por proveedor para enviarlo directo por WhatsApp al comercial.</p>
       <div id="pedidos-pendientes"></div>
+      <div class="card" style="margin-top:12px;">
+        <div class="card-top"><h3>Añadir un producto al pedido</h3></div>
+        <p class="hint" style="margin:0 0 8px;">Marca el proveedor y salen sus productos; eliges el que sea y se añade al pedido de ese proveedor.</p>
+        <div class="filters">
+          <label class="field"><span>Proveedor</span><select id="pedProveedorSel">
+            <option value="" disabled selected>Selecciona un proveedor…</option></select></label>
+          <label class="field"><span>Producto</span><select id="pedProductoSel" disabled>
+            <option value="">Elige primero un proveedor…</option></select></label>
+          <div class="field" style="justify-content:flex-end">
+            <button class="btn" type="button" id="pedAnadirBtn" disabled>Añadir al pedido</button></div>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -2000,6 +2012,10 @@ function viewMateriasPrimas(){
     <div class="panel">
       <h2>${icon('box')} Lotes abiertos actualmente</h2>
       <p class="hint">Un bote/cubo/saco abierto y todavía en uso. Ciérralo el día que se termine.</p>
+      <div class="filters">
+        <label class="field"><span>Buscar</span><input type="text" id="lotesAbBuscar" placeholder="Producto o número de lote…"></label>
+        <label class="field"><span>Producto</span><select id="lotesAbProducto"><option value="">Todos</option></select></label>
+      </div>
       <div id="lotes-abiertos-table"></div>
     </div>
 
@@ -2038,7 +2054,16 @@ function viewMateriasPrimas(){
       ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).length===0 ? '<p class="hint">No hay ningún producto con stock disponible ahora mismo. Registra una recepción primero.</p>' : ''}
     </div>
 
-    <div class="panel"><h2>${icon('box')} Histórico completo de lotes</h2><div id="lotesmp-table"></div></div>
+    <div class="panel"><h2>${icon('box')} Histórico completo de lotes</h2>
+      <div class="filters">
+        <label class="field"><span>Buscar</span><input type="text" id="lotesHistBuscar" placeholder="Producto o número de lote…"></label>
+        <label class="field"><span>Producto</span><select id="lotesHistProducto"><option value="">Todos</option></select></label>
+        <label class="field"><span>Estado</span><select id="lotesHistEstado">
+          <option value="">Todos</option><option value="abierto">Solo abiertos</option><option value="cerrado">Solo cerrados</option></select></label>
+      </div>
+      <div id="lotesmp-table"></div>
+      <p class="hint" id="lotesHistCuenta" style="margin-top:8px;"></p>
+    </div>
 
     <div class="wheat-divider">${icon('box')}<span>Referencia</span></div>
     <div class="panel">
@@ -2081,6 +2106,15 @@ function viewMateriasPrimas(){
   document.getElementById('recalcular-proveedores-btn').addEventListener('click', recalcularProveedoresDesdeRecepciones);
   renderLotesAbiertos();
   renderLotesMPTable();
+  ['lotesAbBuscar','lotesAbProducto'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', renderLotesAbiertos);
+  });
+  ['lotesHistBuscar','lotesHistProducto','lotesHistEstado'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', renderLotesMPTable);
+  });
+  montarAltaPedido();
   document.getElementById('loteFechaApertura').addEventListener('change', e=>{
     const sem = document.getElementById('loteSemanaDisplay');
     if(sem && !sem.dataset.tocada) sem.value = getWeekNumber(e.target.value);
@@ -2384,6 +2418,45 @@ function renderPedidosPendientes(){
     </div>`;
   }).join('');
 }
+/** Elegir proveedor y que salgan sus productos, para añadir al pedido sin escribir. */
+function proveedoresConocidos(){
+  const set = new Set();
+  TARIFARIO_DATA.forEach(t=>{ if(t.proveedor) set.add(t.proveedor.trim()); });
+  CONFIG.materiasPrimas.forEach(m=>{ if(m.proveedor && m.proveedor.trim()) set.add(m.proveedor.trim()); });
+  Object.keys(CONFIG.telefonosProveedores||{}).forEach(p=>{ if(p) set.add(p.trim()); });
+  return [...set].sort((a,b)=>a.localeCompare(b,'es'));
+}
+function productosDeProveedor(prov){
+  const clave = prov.trim().toLowerCase();
+  const set = new Set();
+  TARIFARIO_DATA.forEach(t=>{ if((t.proveedor||'').trim().toLowerCase()===clave) set.add(t.descripcion); });
+  CONFIG.materiasPrimas.forEach(m=>{ if((m.proveedor||'').trim().toLowerCase()===clave) set.add(m.nombre); });
+  return [...set].sort((a,b)=>a.localeCompare(b,'es'));
+}
+function montarAltaPedido(){
+  const selP = document.getElementById('pedProveedorSel');
+  const selProd = document.getElementById('pedProductoSel');
+  const btn = document.getElementById('pedAnadirBtn');
+  if(!selP || !selProd || !btn) return;
+  selP.innerHTML = '<option value="" disabled selected>Selecciona un proveedor…</option>' +
+    proveedoresConocidos().map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  selP.addEventListener('change', ()=>{
+    const prods = productosDeProveedor(selP.value);
+    if(!prods.length){
+      selProd.innerHTML = '<option value="">Este proveedor no tiene productos en el listado</option>';
+      selProd.disabled = true; btn.disabled = true; return;
+    }
+    selProd.innerHTML = '<option value="" disabled selected>Elige un producto…</option>' +
+      prods.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    selProd.disabled = false; btn.disabled = true;
+  });
+  selProd.addEventListener('change', ()=>{ btn.disabled = !selProd.value; });
+  btn.addEventListener('click', async ()=>{
+    if(!selP.value || !selProd.value) return;
+    await agregarAlPedido(selProd.value, selP.value);
+    selProd.value = ''; btn.disabled = true;
+  });
+}
 function compararProducto(nombre){
   showView('materiasprimas');
   setTimeout(()=>{
@@ -2567,8 +2640,33 @@ async function cerrarLoteMP(id){
   renderLotesAbiertos();
   renderLotesMPTable();
 }
+/** Rellena un desplegable con los productos que de verdad hay en los lotes. */
+function poblarSelectProductosLote(id, lista){
+  const sel = document.getElementById(id);
+  if(!sel) return;
+  const previo = sel.value;
+  const nombres = [...new Set(lista.map(r=>r.producto).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+  sel.innerHTML = '<option value="">Todos</option>' +
+    nombres.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value = nombres.indexOf(previo)>=0 ? previo : '';
+}
+/** Deja solo los lotes que casan con lo escrito y con el producto elegido. */
+function filtraLotes(lista, idBuscar, idProducto){
+  const b = document.getElementById(idBuscar);
+  const pr = document.getElementById(idProducto);
+  const q = (b ? b.value : '').trim().toLowerCase();
+  const prod = pr ? pr.value : '';
+  return lista.filter(r=>{
+    if(prod && r.producto !== prod) return false;
+    if(!q) return true;
+    return ((r.producto||'')+' '+(r.lote||'')).toLowerCase().includes(q);
+  });
+}
 function renderLotesAbiertos(){
-  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre);
+  const todos = DATA.lotesMP.filter(r=>!r.fechaCierre);
+  poblarSelectProductosLote('lotesAbProducto', todos);
+  const abiertos = filtraLotes(todos, 'lotesAbBuscar', 'lotesAbProducto')
+    .sort((a,b)=>String(b.fechaApertura||'').localeCompare(String(a.fechaApertura||'')));
   const rows = abiertos.map(r=>`<tr>
     <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td><td class="mono">${fmtDate(r.fechaApertura)}</td>
     <td><button class="btn secondary small" onclick="cerrarLoteMP('${r.id}')">Cerrar lote (hoy)</button></td>
@@ -2576,7 +2674,15 @@ function renderLotesAbiertos(){
   document.getElementById('lotes-abiertos-table').innerHTML = table(['Producto','Lote','Semana','F. apertura',''], rows);
 }
 function renderLotesMPTable(){
-  const rows = DATA.lotesMP.map(r=>`<tr>
+  poblarSelectProductosLote('lotesHistProducto', DATA.lotesMP);
+  const est = document.getElementById('lotesHistEstado');
+  const estado = est ? est.value : '';
+  let lista = filtraLotes(DATA.lotesMP, 'lotesHistBuscar', 'lotesHistProducto');
+  if(estado==='abierto') lista = lista.filter(r=>!r.fechaCierre);
+  if(estado==='cerrado') lista = lista.filter(r=>r.fechaCierre);
+  const cuenta = document.getElementById('lotesHistCuenta');
+  if(cuenta) cuenta.textContent = lista.length+' de '+DATA.lotesMP.length+' lotes';
+  const rows = lista.map(r=>`<tr>
     <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td>
     <td class="mono">${fmtDate(r.fechaApertura)}</td><td class="mono">${r.fechaCierre?fmtDate(r.fechaCierre):'—'}</td>
     <td><button class="btn danger small" onclick="removeRecord('lotesMP','${r.id}',()=>{renderLotesMPTable();renderLotesAbiertos();})">Borrar</button></td>
