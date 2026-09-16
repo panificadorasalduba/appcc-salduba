@@ -2023,6 +2023,9 @@ function viewMateriasPrimas(){
       <h2>${icon('box')} Abrir nuevo lote</h2>
       <p class="hint">Elige el producto. Arriba salen los que tienen stock registrado; debajo, el catálogo completo de los cuadernos de papel. Si no está en la lista, elige <strong>«Otro producto»</strong> y escríbelo: se guardará en el catálogo para la próxima vez. Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
       <form class="record-form" id="form-lotesmp">
+        <label class="field wide"><span>Buscar producto</span>
+          <input type="text" id="loteBuscarProducto" placeholder="Escribe parte del nombre: almendra, bandeja, nata…">
+        </label>
         <label class="field wide"><span>Producto</span>
           <select name="producto" id="loteProductoSel" required>
             <option value="" disabled selected>Selecciona un producto…</option>
@@ -2049,6 +2052,7 @@ function viewMateriasPrimas(){
         </label>
         <p class="hint wide" style="margin:-4px 0 0;">La semana se pone sola con la fecha de apertura, pero puedes cambiarla: en el cuaderno es la semana que lleva el propio lote (‑S17, ‑S18…), que no siempre coincide con el día en que se abre.</p>
         <div class="field wide" id="loteInfoProducto"></div>
+        <div class="field wide" id="loteRecepciones"></div>
         <div class="form-actions"><button class="btn" type="submit">Abrir lote</button></div>
       </form>
       ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).length===0 ? '<p class="hint">No hay ningún producto con stock disponible ahora mismo. Registra una recepción primero.</p>' : ''}
@@ -2122,6 +2126,14 @@ function viewMateriasPrimas(){
   document.getElementById('loteSemanaDisplay').addEventListener('input', e=>{ e.target.dataset.tocada = '1'; });
   document.getElementById('loteProductoSel').addEventListener('change', mostrarInfoProductoLote);
   document.getElementById('loteOtroNombre').addEventListener('input', mostrarInfoProductoLote);
+  document.getElementById('loteBuscarProducto').addEventListener('input', ()=>{
+    poblarSelectProductoLote();
+    /* Si lo escrito deja un único producto, se elige solo y salen ya sus recepciones. */
+    const sel = document.getElementById('loteProductoSel');
+    const reales = [...sel.querySelectorAll('option')].filter(o=>o.value && o.value!=='__otro__');
+    if(reales.length===1){ sel.value = reales[0].value; mostrarInfoProductoLote(); }
+    else { document.getElementById('loteRecepciones').innerHTML=''; document.getElementById('loteInfoProducto').innerHTML=''; }
+  });
   document.getElementById('mismoLoteBtn').addEventListener('click', usarMismoLote);
   document.getElementById('form-lotesmp').addEventListener('submit', async e=>{
     e.preventDefault();
@@ -2500,6 +2512,39 @@ function enviarPedidoWhatsApp(proveedor){
 
 /* El catálogo tal y como viene impreso en los cuadernos: así el lote se abre
    con el nombre exacto del papel y no cada uno con su propia manera de escribirlo. */
+/** Rehace el desplegable de producto acotado por lo que se escribe en la casilla.
+    Con 130 referencias en el catálogo, bajar por la lista entera no es manera. */
+function poblarSelectProductoLote(){
+  const sel = document.getElementById('loteProductoSel');
+  if(!sel) return;
+  const cajaBuscar = document.getElementById('loteBuscarProducto');
+  const q = (cajaBuscar ? cajaBuscar.value : '').trim().toLowerCase();
+  const previo = sel.value;
+  const casa = n => !q || String(n).toLowerCase().includes(q);
+
+  const conStock = CONFIG.materiasPrimas.filter(m=>m.stockActual>0 && casa(m.nombre))
+    .sort((a,b)=>a.nombre.localeCompare(b.nombre,'es'));
+  const cat = CONFIG.catalogoLotes || {};
+  const nombresStock = new Set(CONFIG.materiasPrimas.filter(m=>m.stockActual>0).map(m=>m.nombre.trim().toLowerCase()));
+  const bloques = [
+    ['Pastelería · materias primas', cat.pasteleria||[]],
+    ['Obrador · baja rotación', cat.bajaRotacion||[]],
+    ['Materiales de uso alimentario', cat.materiales||[]]
+  ];
+  let cuantos = conStock.length;
+  let html = conStock.map(m=>`<option value="${esc(m.nombre)}">${esc(m.nombre)} (stock: ${m.stockActual} ${esc(m.unidad)})</option>`).join('');
+  bloques.forEach(([titulo, lista])=>{
+    const ops = lista.filter(n=>!nombresStock.has(String(n).trim().toLowerCase()) && casa(n));
+    cuantos += ops.length;
+    if(ops.length) html += `<optgroup label="${esc(titulo)}">`+
+      ops.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')+'</optgroup>';
+  });
+  const cabecera = q
+    ? `<option value="" disabled selected>${cuantos} producto${cuantos===1?'':'s'} con «${esc(cajaBuscar.value.trim())}»</option>`
+    : '<option value="" disabled selected>Selecciona un producto…</option>';
+  sel.innerHTML = cabecera + html + '<option value="__otro__">➕ Otro producto (escribirlo a mano)…</option>';
+  if(previo && [...sel.options].some(o=>o.value===previo)) sel.value = previo;
+}
 function opcionesCatalogoLotes(){
   const cat = CONFIG.catalogoLotes || {};
   const conStock = new Set(CONFIG.materiasPrimas.filter(m=>m.stockActual>0).map(m=>m.nombre.trim().toLowerCase()));
@@ -2533,6 +2578,65 @@ function cantidadRecepcion(r){
   const m = /Cantidad:\s*([\d.,]+)/.exec(r.observaciones||'');
   if(m){ const v = parseFloat(m[1].replace(',','.')); if(isFinite(v)&&v>0) return v; }
   return 1;
+}
+/** Todo lo recepcionado de un producto, agrupado por lote: cuánto entró, cuándo,
+    de qué proveedor, cuándo caduca y cuántos envases de ese lote se han abierto ya. */
+function lotesRecibidos(nombre){
+  const key0 = String(nombre||'').trim().toLowerCase();
+  if(!key0) return [];
+  const porLote = {};
+  DATA.recepcion
+    .filter(r=>String(r.producto||'').trim().toLowerCase()===key0 && r.lote && String(r.lote).trim())
+    .forEach(r=>{
+      const key = String(r.lote).trim().toLowerCase();
+      if(!porLote[key]) porLote[key] = {lote:r.lote, cantidadRecibida:0, fecha:r.fecha,
+                                        caducidad:r.caducidad, proveedor:r.proveedor, albaranes:[]};
+      porLote[key].cantidadRecibida += cantidadRecepcion(r);
+      porLote[key].albaranes.push({fecha:r.fecha, numAlbaran:r.numAlbaran||'', proveedor:r.proveedor||''});
+      if(String(r.fecha||'') < String(porLote[key].fecha||'')){
+        porLote[key].fecha = r.fecha; porLote[key].caducidad = r.caducidad;
+      }
+    });
+  const abiertosPorLote = {};
+  DATA.lotesMP.filter(r=>String(r.producto||'').trim().toLowerCase()===key0).forEach(r=>{
+    const key = String(r.lote||'').trim().toLowerCase();
+    abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
+  });
+  return Object.keys(porLote)
+    .map(key=>({...porLote[key], abiertos: abiertosPorLote[key]||0}))
+    .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));   // el más antiguo primero (FIFO)
+}
+/** Tabla para elegir de qué lote recepcionado se abre el envase. */
+function pintarRecepcionesDelProducto(nombre){
+  const host = document.getElementById('loteRecepciones');
+  if(!host) return;
+  if(!nombre){ host.innerHTML=''; return; }
+  const lotes = lotesRecibidos(nombre);
+  if(!lotes.length){
+    host.innerHTML = `<p class="hint">No hay ninguna recepción registrada con lote para <strong>${esc(nombre)}</strong>. Escribe el número de lote a mano arriba.</p>`;
+    return;
+  }
+  const primeroDisponible = lotes.filter(l=>l.abiertos < l.cantidadRecibida)[0];
+  const filas = lotes.map(l=>{
+    const quedan = l.cantidadRecibida - l.abiertos;
+    const agotado = quedan <= 0;
+    const recomendado = primeroDisponible && l.lote === primeroDisponible.lote;
+    return `<tr${agotado?' style="opacity:.55"':''}>
+      <td class="mono">${esc(l.lote)}${recomendado?' <span class="badge ok">usar este</span>':''}${agotado?' <span class="badge">agotado</span>':''}</td>
+      <td class="mono">${fmtDate(l.fecha)}</td>
+      <td class="mono">${l.caducidad?fmtDate(l.caducidad):'—'}</td>
+      <td>${esc(l.proveedor)||'—'}</td>
+      <td class="mono">${quedan} de ${l.cantidadRecibida}</td>
+      <td><button class="btn ${recomendado?'':'secondary'} small" type="button"
+            onclick="elegirLoteRecibido('${esc(l.lote).replace(/'/g,"\\'")}')">Abrir este</button></td>
+    </tr>`;
+  }).join('');
+  host.innerHTML = `<p class="hint" style="margin:0 0 6px;">Recepciones de <strong>${esc(nombre)}</strong> — ordenadas de la más antigua a la más nueva. Se gasta primero la de arriba (FIFO).</p>`
+    + table(['Lote','Recibido','Caduca','Proveedor','Sin abrir',''], [filas]);
+}
+function elegirLoteRecibido(lote){
+  const inp = document.getElementById('loteInputLote');
+  if(inp){ inp.value = lote; try{ inp.focus(); }catch(e){} }
 }
 function loteMasAntiguoDisponible(nombre){
   const key0 = nombre.trim().toLowerCase();
@@ -2596,6 +2700,7 @@ function mostrarInfoProductoLote(){
   if(abierto){
     html += `<p class="hint" style="margin:4px 0 0;color:var(--warn);">⚠ Ya hay un lote abierto: <strong>${esc(abierto.lote)}</strong> (desde ${fmtDate(abierto.fechaApertura)}). Se te pedirá cerrarlo al abrir el nuevo.</p>`;
   }
+  pintarRecepcionesDelProducto(nombre);
   const antiguo = loteMasAntiguoDisponible(nombre);
   if(loteInput) loteInput.value = '';
   if(antiguo){
