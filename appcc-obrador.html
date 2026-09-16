@@ -2044,24 +2044,6 @@ const TARIFARIO_DATA = [{"proveedor": "COHEPA", "descripcion": "ACE. ALTO OLEICO
 
 function viewMateriasPrimas(){
   document.getElementById('view-materiasprimas').innerHTML = `
-    <div class="panel" id="panel-pedidos">
-      <h2>${icon('truck')} Pedidos pendientes</h2>
-      <p class="hint">Se genera solo cuando el stock actual de un producto cae igual o por debajo del stock mínimo. Agrupado por proveedor para enviarlo directo por WhatsApp al comercial.</p>
-      <div id="pedidos-pendientes"></div>
-      <div class="card" style="margin-top:12px;">
-        <div class="card-top"><h3>Añadir un producto al pedido</h3></div>
-        <p class="hint" style="margin:0 0 8px;">Marca el proveedor y salen sus productos; eliges el que sea y se añade al pedido de ese proveedor.</p>
-        <div class="filters">
-          <label class="field"><span>Proveedor</span><select id="pedProveedorSel">
-            <option value="" disabled selected>Selecciona un proveedor…</option></select></label>
-          <label class="field"><span>Producto</span><select id="pedProductoSel" disabled>
-            <option value="">Elige primero un proveedor…</option></select></label>
-          <div class="field" style="justify-content:flex-end">
-            <button class="btn" type="button" id="pedAnadirBtn" disabled>Añadir al pedido</button></div>
-        </div>
-      </div>
-    </div>
-
     <div class="panel">
       <h2>${icon('box')} Inventario</h2>
       <p class="hint">Un "sobre" por cada materia prima — pulsa encima para desplegarlo y ver sus entradas ordenadas por fecha, cada una con su lote. Solo consulta — para editar cantidades ve al catálogo de abajo.</p>
@@ -2088,7 +2070,7 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Teléfonos de proveedores (WhatsApp)</h2>
-      <p class="hint">Un teléfono por proveedor, no por producto — se usa para enviar los pedidos automáticos por WhatsApp cuando algún producto suyo cae por debajo de stock mínimo.</p>
+      <p class="hint">Un teléfono por proveedor, no por producto. Es la agenda de contacto de los comerciales; queda guardada aquí para tenerla a mano.</p>
       <div class="settings-list" id="telefonos-proveedores"></div>
     </div>
 
@@ -2179,7 +2161,6 @@ function viewMateriasPrimas(){
       <div id="fichasmp-table"></div>
     </div>
   `;
-  renderPedidosPendientes();
   renderInventario();
   document.getElementById('inventarioSearch').addEventListener('input', renderInventario);
   renderCatalogoMP();
@@ -2211,7 +2192,6 @@ function viewMateriasPrimas(){
     const pr = document.getElementById('catMPProducto'); if(pr) pr.value = '';
     renderCatalogoMP();
   });
-  montarAltaPedido();
   document.getElementById('loteFechaApertura').addEventListener('change', e=>{
     const sem = document.getElementById('loteSemanaDisplay');
     if(sem && !sem.dataset.tocada) sem.value = getWeekNumber(e.target.value);
@@ -2253,7 +2233,6 @@ function viewMateriasPrimas(){
       <div class="card-top"><h3>${esc(prod)}</h3></div>
       <div class="sub" style="margin-bottom:10px;">Proveedor: ${esc(prov)}</div>
       <button class="btn secondary small" onclick="agregarAlCatalogo('${esc(prod).replace(/'/g,"\\'")}','${esc(prov).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button>
-      <button class="btn small" onclick="agregarAlPedido('${esc(prod).replace(/'/g,"\\'")}','${esc(prov).replace(/'/g,"\\'")}')">Añadir al pedido</button>
       <button class="btn secondary small" onclick="compararProducto('${esc(prod).replace(/'/g,"\\'")}')">Comparar precio</button>
     </div>`;
   });
@@ -2273,10 +2252,9 @@ function viewMateriasPrimas(){
         <td>${esc(t.proveedor)}${esMasBarato?' <span class="badge ok">Más barato</span>':''}</td>
         <td>${esc(t.descripcion)}</td><td>${esc(t.formato)||'—'}</td>
         <td class="mono">${t.precio!==null?t.precio.toFixed(2)+' €':'—'}</td>
-        <td><button class="btn small" onclick="agregarAlPedido('${esc(t.descripcion).replace(/'/g,"\\'")}','${esc(t.proveedor).replace(/'/g,"\\'")}')">Añadir al pedido</button></td>
       </tr>`;
     });
-    cont.innerHTML = table(['Proveedor','Producto','Formato','Precio ud.',''], rows);
+    cont.innerHTML = table(['Proveedor','Producto','Formato','Precio ud.'], rows);
   };
   document.getElementById('comparadorSearch').addEventListener('input', runComparador);
   runComparador();
@@ -2305,7 +2283,6 @@ async function agregarAlCatalogo(nombre, proveedor){
   }
   await saveConfig();
   renderCatalogoMP();
-  renderPedidosPendientes();
 }
 async function recalcularProveedoresDesdeRecepciones(){
   let n = 0;
@@ -2323,7 +2300,6 @@ async function recalcularProveedoresDesdeRecepciones(){
   });
   await saveConfig();
   renderCatalogoMP();
-  renderPedidosPendientes();
   renderTelefonosProveedores();
   alert(n>0 ? `Proveedor actualizado en ${n} producto(s) a partir del historial de recepciones.` : 'No se ha encontrado ninguna recepción que coincida con productos del catálogo, o ya estaban todos correctos.');
 }
@@ -2337,7 +2313,6 @@ async function autocompletarProveedores(){
   });
   await saveConfig();
   renderCatalogoMP();
-  renderPedidosPendientes();
   renderTelefonosProveedores();
   alert(n>0 ? `Proveedor asignado a ${n} producto(s) del catálogo.` : 'No se ha encontrado ninguna coincidencia nueva en el tarifario.');
 }
@@ -2443,7 +2418,6 @@ function abrirAjusteInventario(nombre){
     await saveConfig();
     overlay.remove();
     renderInventario();
-    renderPedidosPendientes();
     alert('Ajuste guardado correctamente.');
   });
 }
@@ -2496,7 +2470,6 @@ function renderCatalogoMP(){
 async function updateMPField(i, field, value){
   CONFIG.materiasPrimas[i][field] = value;
   await saveConfig();
-  renderPedidosPendientes();
   renderCatalogoMP();
   renderInventario();
   if(field==='proveedor') renderTelefonosProveedores();
@@ -2525,7 +2498,10 @@ async function updateTelefonoProveedor(proveedor, telefono){
   await saveConfig();
 }
 
-/* ---- Pedidos pendientes + WhatsApp ---- */
+/* ---- Pedidos pendientes + WhatsApp ----
+   APARTADO RETIRADO de la pantalla de Materias primas (no aportaba nada en el
+   obrador). Las funciones y los datos (DATA.pedidosManual) se conservan intactos
+   por si algún día se vuelve a poner; no se pinta en ninguna vista. ---- */
 function renderPedidosPendientes(){
   const el = document.getElementById('pedidos-pendientes');
   if(!el) return;
@@ -2615,13 +2591,11 @@ async function agregarAlPedido(nombre, proveedor){
   if(yaEsta){ alert(`"${nombre}" ya estaba añadido al pedido de ${key}.`); return; }
   DATA.pedidosManual.push({id:uid(), producto:nombre, proveedor:key, fecha:todayStr()});
   await saveModule('pedidosManual');
-  renderPedidosPendientes();
   alert(`"${nombre}" añadido al próximo pedido de ${key}.`);
 }
 async function quitarDePedidoManual(id){
   DATA.pedidosManual = (DATA.pedidosManual||[]).filter(p=>p.id!==id);
   await saveModule('pedidosManual');
-  renderPedidosPendientes();
 }
 function enviarPedidoWhatsApp(proveedor){
   const auto = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo && (m.proveedor&&m.proveedor.trim()?m.proveedor.trim():'Sin proveedor asignado')===proveedor);
@@ -3709,7 +3683,7 @@ function viewAjustes(){
     </div>
     <div class="panel">
       <h2>${icon('box')} Vaciar también el catálogo de materias primas</h2>
-      <p class="hint">Usa esto si quieres quitar de golpe los productos de ejemplo que trae la app de partida (Sal Salinas del Odiel, Bolsas papel tiendas, Cápsula magdalena...) para no verlos en "Pedidos pendientes" sin haberlos recibido de verdad. Borra por completo el catálogo (y los teléfonos de proveedores guardados) — <strong>no borra los registros de temperaturas, limpieza, etc., solo el catálogo de materias primas y stock</strong>. En cuanto registréis la primera recepción real, la app creará los productos correctos automáticamente.</p>
+      <p class="hint">Usa esto si quieres quitar de golpe los productos de ejemplo que trae la app de partida (Sal Salinas del Odiel, Bolsas papel tiendas, Cápsula magdalena...) para no verlos en el catálogo sin haberlos recibido de verdad. Borra por completo el catálogo (y los teléfonos de proveedores guardados) — <strong>no borra los registros de temperaturas, limpieza, etc., solo el catálogo de materias primas y stock</strong>. En cuanto registréis la primera recepción real, la app creará los productos correctos automáticamente.</p>
       <button class="btn danger" id="reset-catalogo-btn">Vaciar catálogo de materias primas</button>
     </div>
   `;
