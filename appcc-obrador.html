@@ -202,7 +202,11 @@
   table.papel-lotes th.banda{text-align:right;font-size:12px;letter-spacing:.5px;padding:5px 8px;background:#e6e0d2;}
   table.papel-lotes td{font-size:10px;padding:2px 4px;height:15px;}
   table.papel-lotes td.celda-prod{width:21%;font-weight:600;text-transform:uppercase;font-size:10px;
-    vertical-align:middle;line-height:1.25;}
+    vertical-align:middle;line-height:1.25;word-break:break-word;hyphens:auto;}
+  .hoja-lotes.ancha table.papel-lotes td.celda-prod{width:15%;}
+  .hoja-lotes.ancha table.papel-lotes td{font-size:9px;padding:2px 3px;}
+  .hoja-lotes.ancha table.papel-lotes td.celda-lote{font-size:8px;}
+  .hoja-lotes.ancha table.papel-lotes td.rot{font-size:7px;}
   /* los lotes largos se parten en dos líneas antes que perderse cortados */
   table.papel-lotes td.celda-lote{font-size:9px;color:#666;line-height:1.2;word-break:break-word;}
   table.papel-lotes td.celda-lote .ml{color:#111;font-weight:700;font-size:10px;letter-spacing:.2px;}
@@ -3282,25 +3286,19 @@ function casilleroLote(r){
   return {lote:loteConSemana(r), abro:ddmm(r.fechaApertura), cierro:ddmm(r.fechaCierre)};
 }
 /** Las tres filas que ocupa un producto (o más, si tiene más de cuatro lotes). */
-function filasProductoLote(nombre, lotes){
-  const bandas = Math.max(1, Math.ceil(lotes.length / LOTES_BLOQUES));
-  let out = '';
-  for(let b=0; b<bandas; b++){
-    const trozo = lotes.slice(b*LOTES_BLOQUES, (b+1)*LOTES_BLOQUES);
-    let f1='', f2='', f3='';
-    for(let i=0; i<LOTES_BLOQUES; i++){
-      const c = casilleroLote(trozo[i]);
-      f1 += `<td colspan="2" class="celda-lote">LOTE: <span class="ml">${esc(c.lote)}</span></td>`;
-      f2 += `<td class="rot">F. ABRO:</td><td class="rot">F. CIERRO:</td>`;
-      f3 += `<td class="fec">${esc(c.abro)}</td><td class="fec">${esc(c.cierro)}</td>`;
-    }
-    const nom = b===0
-      ? `<td class="celda-prod" rowspan="${3*bandas}">${esc(nombre)}</td>`
-      : '';
-    out += `<tr>${nom}${f1}</tr><tr>${f2}</tr><tr class="fila-fechas">${f3}</tr>`;
+function filasProductoLote(nombre, lotes, bloques){
+  let f1='', f2='', f3='';
+  for(let i=0; i<bloques; i++){
+    const c = casilleroLote(lotes[i]);
+    f1 += `<td colspan="2" class="celda-lote">LOTE: <span class="ml">${esc(c.lote)}</span></td>`;
+    f2 += `<td class="rot">F. ABRO:</td><td class="rot">F. CIERRO:</td>`;
+    f3 += `<td class="fec">${esc(c.abro)}</td><td class="fec">${esc(c.cierro)}</td>`;
   }
-  return `<tbody class="bloque-prod">${out}</tbody>`;
+  return `<tbody class="bloque-prod">`
+    + `<tr><td class="celda-prod" rowspan="3">${esc(nombre)}</td>${f1}</tr>`
+    + `<tr>${f2}</tr><tr class="fila-fechas">${f3}</tr></tbody>`;
 }
+
 /** Devuelve las hojas del registro de lotes: una por sección y año. */
 function hojasLotesMP(desde, hasta){
   const vigente = r=>{
@@ -3343,12 +3341,17 @@ function hojasLotesMP(desde, hasta){
       let lista = (cat[clave]||[]).slice();
       if(iSec===0) sueltos.forEach(k=> lista.push(porProd[k][0].producto) );
       if(!lista.length) return;
-      const cuerpo = lista.map(p=> filasProductoLote(p, porProd[normTxt(p)] || []) ).join('');
+      /* La hoja se ensancha sola: tantos casilleros a lo ancho como lotes tenga el
+         producto que más haya gastado, con el mínimo del cuaderno impreso (4). */
+      let bloques = LOTES_BLOQUES;
+      lista.forEach(p=>{ const n = (porProd[normTxt(p)]||[]).length; if(n > bloques) bloques = n; });
+      const cuerpo = lista.map(p=> filasProductoLote(p, porProd[normTxt(p)] || [], bloques) ).join('');
       const usados = lista.reduce((n,p)=> n + ((porProd[normTxt(p)]||[]).length), 0);
-      out.push(`<section class="hoja hoja-lotes">
+      const ancha = bloques > LOTES_BLOQUES ? ' ancha' : '';   // apaisada si no cabe de pie
+      out.push(`<section class="hoja hoja-lotes${ancha}" data-bloques="${bloques}">
         ${cabeceraHoja('Materias primas · registro de lotes','T1 · Traza 1-10','Año '+anio+' · '+titulo)}
         <table class="rejilla papel-lotes">
-          <thead><tr><th colspan="${1+2*LOTES_BLOQUES}" class="banda">${esc(titulo.toUpperCase())}</th></tr></thead>
+          <thead><tr><th colspan="${1+2*bloques}" class="banda">${esc(titulo.toUpperCase())}</th></tr></thead>
           ${cuerpo}
         </table>
         <p class="pie-nota">${usados} lote${usados===1?'':'s'} anotado${usados===1?'':'s'} en esta hoja. Las casillas en blanco son las del cuaderno que aún no se han usado.</p>
