@@ -2005,14 +2005,18 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Abrir nuevo lote</h2>
-      <p class="hint">Elige el producto. Arriba salen los que tienen stock registrado; debajo, el catálogo completo de los cuadernos de papel (pastelería, baja rotación y materiales de uso alimentario). Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
+      <p class="hint">Elige el producto. Arriba salen los que tienen stock registrado; debajo, el catálogo completo de los cuadernos de papel. Si no está en la lista, elige <strong>«Otro producto»</strong> y escríbelo: se guardará en el catálogo para la próxima vez. Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
       <form class="record-form" id="form-lotesmp">
         <label class="field wide"><span>Producto</span>
           <select name="producto" id="loteProductoSel" required>
             <option value="" disabled selected>Selecciona un producto…</option>
             ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>`<option value="${esc(m.nombre)}">${esc(m.nombre)} (stock: ${m.stockActual} ${esc(m.unidad)})</option>`).join('')}
             ${opcionesCatalogoLotes()}
+            <option value="__otro__">➕ Otro producto (escribirlo a mano)…</option>
           </select>
+        </label>
+        <label class="field wide" id="loteOtroWrap" hidden><span>Nombre del producto</span>
+          <input type="text" id="loteOtroNombre" placeholder="Escríbelo igual que en el cuaderno">
         </label>
         <label class="field wide"><span>Lote</span>
           <span style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -2021,7 +2025,13 @@ function viewMateriasPrimas(){
           </span>
         </label>
         <label class="field"><span>Fecha apertura</span><input type="date" name="fechaApertura" id="loteFechaApertura" value="${todayStr()}" required></label>
-        <label class="field"><span>Semana</span><input type="text" id="loteSemanaDisplay" value="S${getWeekNumber(todayStr())}" disabled></label>
+        <label class="field"><span>Semana</span>
+          <span style="display:flex;align-items:center;gap:6px;">
+            <span style="font-weight:700;">S</span>
+            <input type="number" min="1" max="53" name="semana" id="loteSemanaDisplay" value="${getWeekNumber(todayStr())}" style="width:80px;" required>
+          </span>
+        </label>
+        <p class="hint wide" style="margin:-4px 0 0;">La semana se pone sola con la fecha de apertura, pero puedes cambiarla: en el cuaderno es la semana que lleva el propio lote (‑S17, ‑S18…), que no siempre coincide con el día en que se abre.</p>
         <div class="field wide" id="loteInfoProducto"></div>
         <div class="form-actions"><button class="btn" type="submit">Abrir lote</button></div>
       </form>
@@ -2072,14 +2082,19 @@ function viewMateriasPrimas(){
   renderLotesAbiertos();
   renderLotesMPTable();
   document.getElementById('loteFechaApertura').addEventListener('change', e=>{
-    document.getElementById('loteSemanaDisplay').value = 'S'+getWeekNumber(e.target.value);
+    const sem = document.getElementById('loteSemanaDisplay');
+    if(sem && !sem.dataset.tocada) sem.value = getWeekNumber(e.target.value);
   });
+  document.getElementById('loteSemanaDisplay').addEventListener('input', e=>{ e.target.dataset.tocada = '1'; });
   document.getElementById('loteProductoSel').addEventListener('change', mostrarInfoProductoLote);
+  document.getElementById('loteOtroNombre').addEventListener('input', mostrarInfoProductoLote);
   document.getElementById('mismoLoteBtn').addEventListener('click', usarMismoLote);
   document.getElementById('form-lotesmp').addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
-    await abrirLoteMP(f.get('producto'), f.get('lote'), f.get('fechaApertura'));
+    const nombre = productoLoteElegido();
+    if(!nombre){ alert('Escribe el nombre del producto.'); return; }
+    await abrirLoteMP(nombre, f.get('lote'), f.get('fechaApertura'), f.get('semana'));
   });
   document.getElementById('tarifProveedorSel').addEventListener('change', ()=>{
     const prov = document.getElementById('tarifProveedorSel').value;
@@ -2469,8 +2484,18 @@ function loteMasAntiguoDisponible(nombre){
     .sort((a,b)=>a.fecha.localeCompare(b.fecha));
   return disponibles.length ? disponibles[0] : null;
 }
+/** Producto elegido: del desplegable, o el escrito a mano si se eligió "Otro producto". */
+function productoLoteElegido(){
+  const sel = document.getElementById('loteProductoSel');
+  if(!sel) return '';
+  if(sel.value === '__otro__'){
+    const t = document.getElementById('loteOtroNombre');
+    return t ? t.value.trim() : '';
+  }
+  return sel.value;
+}
 function usarMismoLote(){
-  const nombre = document.getElementById('loteProductoSel').value;
+  const nombre = productoLoteElegido();
   const loteInput = document.getElementById('loteInputLote');
   if(!nombre){ alert('Elige primero un producto.'); return; }
   const anteriores = DATA.lotesMP
@@ -2480,7 +2505,15 @@ function usarMismoLote(){
   loteInput.value = anteriores[0].lote;
 }
 function mostrarInfoProductoLote(){
-  const nombre = document.getElementById('loteProductoSel').value;
+  const sel = document.getElementById('loteProductoSel');
+  const otro = document.getElementById('loteOtroWrap');
+  const otroInput = document.getElementById('loteOtroNombre');
+  if(otro) otro.hidden = !sel || sel.value !== '__otro__';
+  if(sel && sel.value === '__otro__' && otroInput){
+    otroInput.required = true;
+    try{ otroInput.focus(); }catch(e){}
+  } else if(otroInput){ otroInput.required = false; }
+  const nombre = productoLoteElegido();
   const info = document.getElementById('loteInfoProducto');
   const loteInput = document.getElementById('loteInputLote');
   if(!nombre){ info.innerHTML=''; return; }
@@ -2501,7 +2534,7 @@ function mostrarInfoProductoLote(){
   }
   info.innerHTML = html;
 }
-async function abrirLoteMP(producto, lote, fechaApertura){
+async function abrirLoteMP(producto, lote, fechaApertura, semana){
   const abierto = DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===producto.trim().toLowerCase());
   if(abierto){
     if(confirm(`Ya hay un lote abierto para "${producto}" (lote ${abierto.lote}). ¿Cerrarlo hoy y abrir el nuevo?`)){
@@ -2510,8 +2543,17 @@ async function abrirLoteMP(producto, lote, fechaApertura){
       return;
     }
   }
-  DATA.lotesMP.unshift({id:uid(), producto, lote, fechaApertura, fechaCierre:'', semana:getWeekNumber(fechaApertura)});
+  const sem = (semana===undefined || semana===null || String(semana).trim()==='')
+    ? getWeekNumber(fechaApertura) : parseInt(semana,10);
+  DATA.lotesMP.unshift({id:uid(), producto, lote, fechaApertura, fechaCierre:'',
+                        semana: isFinite(sem) ? sem : getWeekNumber(fechaApertura)});
   await saveModule('lotesMP');
+  /* Un producto escrito a mano se queda en el catálogo: la próxima vez sale en la
+     lista y todo el mundo lo abre con el mismo nombre. */
+  const cat = CONFIG.catalogoLotes = CONFIG.catalogoLotes || {pasteleria:[], bajaRotacion:[], materiales:[]};
+  const yaEsta = Object.keys(cat).some(k=>(cat[k]||[]).some(n=>String(n).trim().toLowerCase()===producto.trim().toLowerCase()))
+    || CONFIG.materiasPrimas.some(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
+  if(!yaEsta){ (cat.pasteleria = cat.pasteleria || []).push(producto.trim()); await saveConfig(); }
   const idx = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
   if(idx>=0){ CONFIG.materiasPrimas[idx].stockActual = Math.max(0, CONFIG.materiasPrimas[idx].stockActual - 1); await saveConfig(); }
   viewMateriasPrimas();
