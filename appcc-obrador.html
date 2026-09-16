@@ -185,6 +185,58 @@
     .dash-hero{flex-direction:column;align-items:flex-start;}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none!important;}}
+
+  /* ===== DOSSIER DE INSPECCIÓN ===== */
+  #dossier{margin-top:14px;}
+  .hoja{background:#fff;color:#111;border:1px solid #d8d2c4;border-radius:8px;padding:18px 16px;margin:0 0 16px;overflow-x:auto;}
+  .hoja-cab{display:flex;align-items:flex-start;gap:12px;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px;}
+  .hoja-emp{font-size:11px;line-height:1.35;flex:none;max-width:210px;}
+  .hoja-tit{flex:1;text-align:center;}
+  .hoja-tit h3{margin:0;font-size:15px;text-transform:uppercase;letter-spacing:.5px;}
+  .hoja-sub{font-size:12px;margin-top:2px;}
+  .hoja-cod{flex:none;font-size:11px;border:1px solid #111;padding:3px 7px;border-radius:4px;white-space:nowrap;}
+  .hoja table.rejilla{width:100%;border-collapse:collapse;font-size:11px;}
+  .hoja table.rejilla th,.hoja table.rejilla td{border:1px solid #999;padding:3px 4px;vertical-align:top;}
+  .hoja table.rejilla th{background:#f0ece2;font-weight:600;text-align:center;}
+  .hoja.ancha table.rejilla{font-size:10px;}
+  .hoja.ancha table.rejilla th{font-size:9px;line-height:1.15;}
+  .hoja table.rejilla td.n{text-align:center;}
+  .hoja table.rejilla td.prod{text-align:left;white-space:nowrap;}
+  .hoja table.rejilla td.tot{font-weight:700;background:#f7f4ec;}
+  .hoja table.rejilla td.malo{background:#ffd9d9;font-weight:700;}
+  .hoja table.rejilla tr.grupo td{background:#e6e0d2;font-weight:700;text-transform:uppercase;font-size:10px;}
+  .hoja .lim{font-weight:400;font-size:9px;}
+  .hoja .pie-nota{font-size:10px;margin:6px 0 0;color:#444;}
+  .hoja .firma{margin-top:14px;font-size:11px;}
+  .hoja.portada{text-align:center;padding:60px 20px;}
+  .hoja.portada h1{font-size:24px;margin:0 0 24px;}
+  .hoja.portada .port-emp{font-size:14px;line-height:1.7;}
+  .hoja.portada .port-rango{font-size:15px;margin-top:26px;font-weight:600;}
+  .hoja.portada .port-fecha{font-size:12px;color:#555;margin-top:30px;}
+  .hoja-vacia{padding:14px;font-size:13px;}
+
+  @media print{
+    @page{size:A4 portrait;margin:11mm 9mm;}
+    html,body{background:#fff!important;color:#000!important;width:100%!important;margin:0!important;}
+    .sidebar,.topbar,.no-print{display:none!important;}
+    #app{display:block!important;width:100%!important;height:auto!important;}
+    .content{display:block!important;padding:0!important;margin:0!important;max-width:none!important;width:100%!important;overflow:visible!important;}
+    .view,.panel{display:none!important;}
+    #view-informes{display:block!important;}
+    #dossier{display:block!important;margin:0;width:100%!important;}
+    #dossier .hoja{display:block!important;border:none;border-radius:0;padding:0;margin:0;
+      break-after:page;page-break-after:always;break-inside:auto;overflow:visible;
+      width:100%!important;max-width:none!important;}
+    #dossier .hoja:last-child{break-after:auto;page-break-after:auto;}
+    #dossier .hoja.ancha{page:apaisada;}
+    #dossier table.rejilla thead{display:table-header-group;}
+    #dossier table.rejilla tr{break-inside:avoid;page-break-inside:avoid;}
+    #dossier .firma{break-inside:avoid;page-break-inside:avoid;}
+    #dossier table.rejilla th{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    #dossier table.rejilla tr.grupo td,#dossier table.rejilla td.malo,#dossier table.rejilla td.tot{
+      -webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+  @page apaisada{size:A4 landscape;margin:9mm;}
 </style>
 </head>
 <body>
@@ -2991,7 +3043,10 @@ const MODULE_META = {
   trazabilidad:{label:'Trazabilidad', headers:['Fecha','Lote','Producto','Cantidad','Materias primas','Tiendas','Responsable'],
     row:r=>[fmtDate(r.fecha),r.lote,r.producto,r.cantidad+' '+r.unidad,r.materiasPrimas,r.tiendas.join(' / '),r.responsable]},
   lotesMP:{label:'Lotes de materias primas', headers:['Producto','Lote','Semana','Fecha apertura','Fecha cierre'],
-    row:r=>[r.producto,r.lote,'S'+(r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)),fmtDate(r.fechaApertura),r.fechaCierre?fmtDate(r.fechaCierre):'']},
+    row:r=>{
+      const sem = (r.semana!==undefined && r.semana!=='') ? r.semana : (r.fechaApertura ? getWeekNumber(r.fechaApertura) : '');
+      return [r.producto, r.lote, sem===''?'':'S'+sem, r.fechaApertura?fmtDate(r.fechaApertura):'', r.fechaCierre?fmtDate(r.fechaCierre):''];
+    }},
   mantenimiento:{label:'Mantenimiento y plagas', headers:['Fecha','Tipo','Empresa','Descripción','Estado','Responsable'],
     row:r=>[fmtDate(r.fecha),r.tipo,r.empresa||'',r.descripcion,r.resuelto?'Resuelto':'Pendiente',r.responsable]},
   noconformidades:{label:'Incidencias', headers:['Fecha','Plan','Descripción','Acción correctora','Estado','Cierre','Responsable'],
@@ -3029,6 +3084,18 @@ function viewInformes(){
       </div>
       <div id="informe-table"></div>
     </div>
+    <div class="panel">
+      <h2>${icon('report')} Dossier para la inspección</h2>
+      <p class="hint">Genera de una vez <strong>todos</strong> los registros del APPCC con la misma forma que los cuadernos de papel: una hoja por mes para las rejillas (temperaturas, montaje, elaboraciones, masas) y una hoja por cada registro (lotes, recepciones, limpieza, agua, aceite, alérgenos, trazabilidad, mantenimiento e incidencias), cada una con la cabecera de la empresa, su código de traza y su línea de firma. Deja la fecha «Desde» vacía para sacar el historial completo.</p>
+      <div class="filters">
+        <label class="field"><span>Desde</span><input type="date" id="dosDesde"></label>
+        <label class="field"><span>Hasta</span><input type="date" id="dosHasta" value="${todayStr()}"></label>
+        <button class="btn" id="dosGenerar">Generar dossier</button>
+        <button class="btn secondary" id="dosImprimir">Imprimir / Guardar en PDF</button>
+      </div>
+      <p class="hint" id="dosCuenta"></p>
+    </div>
+    <div id="dossier"></div>
   `;
   const tempMeta = {label:'Temperaturas', headers:['Fecha','Equipo','Valor (°C)','Estado','Responsable','Incidencia'],
     row:r=>[fmtDate(r.fecha),r.equipo,r.valor,r.estado,r.responsable,r.incidencia||'']};
@@ -3043,8 +3110,219 @@ function viewInformes(){
     document.getElementById('informeCSV').onclick = ()=>downloadCSV(meta, filtered, mod);
   };
   document.getElementById('informeFiltrar').addEventListener('click', run);
+  document.getElementById('dosGenerar').addEventListener('click', generarDossier);
+  document.getElementById('dosImprimir').addEventListener('click', ()=>{
+    if(!document.getElementById('dossier').innerHTML.trim()) generarDossier();
+    setTimeout(()=>window.print(), 200);
+  });
   run();
 }
+
+/* ================= DOSSIER DE INSPECCIÓN =================
+   Genera de golpe TODOS los registros del APPCC hasta una fecha, con la misma
+   forma que los cuadernos de papel: las rejillas mensuales como rejillas y los
+   listados como listados, cada hoja con su cabecera de empresa y su código de
+   traza. Pensado para imprimir o guardar en PDF y entregárselo al inspector. */
+
+function rangoFechasDossier(){
+  const d = document.getElementById('dosDesde');
+  const h = document.getElementById('dosHasta');
+  return { desde: d && d.value ? d.value : '', hasta: h && h.value ? h.value : todayStr() };
+}
+function dentro(f, desde, hasta){
+  if(!f) return false;
+  if(desde && f < desde) return false;
+  if(hasta && f > hasta) return false;
+  return true;
+}
+/** Fecha del registro más antiguo que hay guardado (para el historial completo). */
+function primeraFechaConDatos(){
+  let min = '';
+  const mira = f => { if(f && /^\d{4}-\d{2}-\d{2}$/.test(f) && (!min || f < min)) min = f; };
+  Object.keys(DATA.temperaturas||{}).forEach(mes=>{
+    (DATA.temperaturas[mes]||[]).forEach(r=> mira(mes+'-'+String(r.day).padStart(2,'0')) );
+  });
+  (DATA.produccion||[]).forEach(r=> mira(r.fecha));
+  Object.keys(MODULE_META).forEach(k=>{
+    (DATA[k]||[]).forEach(r=>{ mira(r.fecha); mira(r.fechaApertura); mira(r.fechaCierre); });
+  });
+  return min;
+}
+/** Meses (YYYY-MM) que hay que sacar, según el rango pedido. */
+function mesesDelRango(desde, hasta){
+  const fin = hasta || todayStr();
+  const ini = desde || fin.slice(0,7)+'-01';
+  const out = [];
+  let y = +ini.slice(0,4), m = +ini.slice(5,7);
+  const yf = +fin.slice(0,4), mf = +fin.slice(5,7);
+  while(y < yf || (y===yf && m <= mf)){
+    out.push(y+'-'+String(m).padStart(2,'0'));
+    m++; if(m>12){ m=1; y++; }
+    if(out.length>120) break;
+  }
+  return out;
+}
+function cabeceraHoja(titulo, traza, sub){
+  const e = CONFIG.empresa || {};
+  return `<div class="hoja-cab">
+    <div class="hoja-emp"><strong>${esc(e.nombre||'')}</strong><br>${esc(e.obrador||'')}<br>Reg. sanitario ${esc(e.registroSanitario||'')}</div>
+    <div class="hoja-tit"><h3>${esc(titulo)}</h3>${sub?`<div class="hoja-sub">${esc(sub)}</div>`:''}</div>
+    <div class="hoja-cod">${esc(traza||'')}</div>
+  </div>`;
+}
+function hojaVacia(txt){ return `<p class="hoja-vacia">${esc(txt)}</p>`; }
+
+/** Rejilla mensual de temperaturas, igual que la hoja de papel. */
+function hojaTemperaturas(mes, desde, hasta){
+  const filas = DATA.temperaturas[mes];
+  if(!filas) return '';
+  const [y,m] = mes.split('-').map(Number);
+  const nDias = daysInMonth(y,m);
+  const equipos = CONFIG.equipos || [];
+  let hay = false;
+  let cuerpo = '';
+  for(let d=1; d<=nDias; d++){
+    const f = mes+'-'+String(d).padStart(2,'0');
+    if(!dentro(f, desde, hasta)) continue;
+    const row = filas.find(x=>Number(x.day)===d) || {valores:{}, responsable:'', incidencia:''};
+    const celdas = equipos.map(e=>{
+      const v = (row.valores||{})[e.nombre];
+      if(v!==undefined && v!=='') hay = true;
+      const fuera = (v!==undefined && v!=='' && isFinite(v)) ? !within(parseFloat(v), e.min, e.max) : false;
+      return `<td class="n${fuera?' malo':''}">${v!==undefined?esc(v):''}</td>`;
+    }).join('');
+    if(row.responsable || row.incidencia) hay = true;
+    cuerpo += `<tr><td class="n">${d}</td>${celdas}<td>${esc(row.responsable||'')}</td><td>${esc(row.incidencia||'')}</td></tr>`;
+  }
+  if(!hay) return '';
+  return `<section class="hoja ancha">${cabeceraHoja('Control de temperaturas de equipos','T3 · Temperaturas', nombreMes(mes))}
+    <table class="rejilla"><thead><tr><th>Día</th>${equipos.map(e=>`<th>${esc(e.nombre)}<br><span class="lim">${e.min}…${e.max}°C</span></th>`).join('')}<th>Responsable</th><th>Incid.</th></tr></thead>
+    <tbody>${cuerpo}</tbody></table>
+    <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
+}
+
+/** Rejilla mensual de producción (montaje, bollería/hojaldre, masas). */
+function hojaProduccion(clave, mes, desde, hasta){
+  const def = (CONFIG.produccion||{})[clave];
+  if(!def) return '';
+  const [y,m] = mes.split('-').map(Number);
+  const nDias = daysInMonth(y,m);
+  const dias = [];
+  for(let d=1; d<=nDias; d++){
+    const f = mes+'-'+String(d).padStart(2,'0');
+    if(dentro(f, desde, hasta)) dias.push(d);
+  }
+  if(!dias.length) return '';
+  const ix = {};
+  DATA.produccion.forEach(r=>{ if(r.registro===clave && r.fecha.slice(0,7)===mes) ix[r.producto+'|'+r.fecha] = r.unidades; });
+  let hay = false, cuerpo = '';
+  (def.grupos||[]).forEach(g=>{
+    cuerpo += `<tr class="grupo"><td colspan="${dias.length+2}">${esc(g.grupo)}</td></tr>`;
+    g.productos.forEach(prod=>{
+      let total = 0;
+      const celdas = dias.map(d=>{
+        const v = ix[prod+'|'+mes+'-'+String(d).padStart(2,'0')];
+        if(v!==undefined && v!==''){ hay = true; const n=parseFloat(String(v).replace(',','.')); if(isFinite(n)) total+=n; }
+        return `<td class="n">${v!==undefined?esc(v):''}</td>`;
+      }).join('');
+      cuerpo += `<tr><td class="prod">${esc(prod)}</td>${celdas}<td class="n tot">${total||''}</td></tr>`;
+    });
+  });
+  if(!hay) return '';
+  return `<section class="hoja ancha">${cabeceraHoja(def.titulo, def.traza||'', nombreMes(mes))}
+    <table class="rejilla"><thead><tr><th>Producto</th>${dias.map(d=>`<th>${d}</th>`).join('')}<th>Total</th></tr></thead>
+    <tbody>${cuerpo}</tbody></table>
+    <p class="pie-nota">${esc(def.ayuda||'')}</p>
+    <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
+}
+
+/** Listado corriente (limpieza, agua, recepción…) con la cabecera de su hoja. */
+function hojaListado(clave, titulo, traza, desde, hasta){
+  const meta = MODULE_META[clave];
+  if(!meta) return '';
+  let filas = (DATA[clave]||[]).slice();
+  if(clave === 'lotesMP'){
+    // los lotes se filtran por apertura o cierre dentro del rango
+    filas = filas.filter(r=>{
+      const ap = String(r.fechaApertura||''), ci = String(r.fechaCierre||'');
+      if(hasta && ap && ap > hasta) return false;   // todavía no se había abierto
+      if(desde && ci && ci < desde) return false;   // ya estaba cerrado antes
+      return true;                                  // sigue abierto o estuvo vigente
+    });
+    filas.sort((a,b)=>{
+      const x = String(a.fechaApertura||'\uffff'), y = String(b.fechaApertura||'\uffff');
+      return x.localeCompare(y);
+    });
+  } else {
+    filas = filas.filter(r=> dentro(r.fecha, desde, hasta));
+    filas.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
+  }
+  if(!filas.length) return '';
+  const cuerpo = filas.map(r=>`<tr>${meta.row(r).map(c=>`<td>${esc(c==null?'':c)}</td>`).join('')}</tr>`).join('');
+  return `<section class="hoja">${cabeceraHoja(titulo||meta.label, traza||'', rotuloRango(desde,hasta))}
+    <table class="rejilla"><thead><tr>${meta.headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${cuerpo}</tbody></table>
+    <p class="pie-nota">${filas.length} registro${filas.length===1?'':'s'}.</p>
+    <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
+}
+
+function nombreMes(mes){
+  const [y,m] = mes.split('-').map(Number);
+  return (MESES[m-1]||'') + ' ' + y;
+}
+function rotuloRango(desde, hasta){
+  if(desde && hasta) return 'Del '+fmtDate(desde)+' al '+fmtDate(hasta);
+  if(hasta) return 'Hasta el '+fmtDate(hasta);
+  return '';
+}
+
+function generarDossier(){
+  const {desde, hasta} = rangoFechasDossier();
+  const host = document.getElementById('dossier');
+  /* Si no se pone fecha de inicio, el dossier es el historial completo: hay que
+     empezar a contar meses desde el registro más antiguo, no desde este mes. */
+  const meses = mesesDelRango(desde || primeraFechaConDatos(), hasta);
+  const partes = [];
+
+  // portada
+  const e = CONFIG.empresa || {};
+  partes.push(`<section class="hoja portada">
+    <h1>Registros de autocontrol APPCC</h1>
+    <p class="port-emp"><strong>${esc(e.nombre||'')}</strong><br>${esc(e.obrador||'')}<br>${esc(e.direccion||'')}<br>Registro sanitario ${esc(e.registroSanitario||'')}</p>
+    <p class="port-rango">${esc(rotuloRango(desde,hasta))}</p>
+    <p class="port-fecha">Documento generado el ${fmtDate(todayStr())}</p>
+  </section>`);
+
+  // rejillas mensuales
+  meses.forEach(mes=>{ partes.push(hojaTemperaturas(mes, desde, hasta)); });
+  ['montaje','elaboraciones','masas'].forEach(k=>{
+    meses.forEach(mes=>{ partes.push(hojaProduccion(k, mes, desde, hasta)); });
+  });
+
+  // listados
+  const listados = [
+    ['lotesMP','Materias primas · registro de lotes','T1 · Traza 1'],
+    ['recepcion','Recepción de mercancías','T1 · Recepción'],
+    ['limpieza','Limpieza y desinfección','T4 · Limpieza'],
+    ['agua','Control de agua','T5 · Agua'],
+    ['aceite','Control de aceite y desinfección de fruta','R.02.07'],
+    ['alergenos','Alérgenos por lote','T6 · Alérgenos'],
+    ['alergenosTienda','Alérgenos en tienda','T6 · Alérgenos tienda'],
+    ['trazabilidad','Trazabilidad y reparto','T2 · Trazabilidad'],
+    ['mantenimiento','Mantenimiento y control de plagas','T7 · Mantenimiento'],
+    ['noconformidades','Incidencias y acciones correctoras','T8 · Incidencias'],
+  ];
+  listados.forEach(([k,t,c])=>{ partes.push(hojaListado(k,t,c,desde,hasta)); });
+
+  const hojas = partes.filter(Boolean);
+  host.innerHTML = hojas.length>1
+    ? hojas.join('')
+    : hojas.join('') + hojaVacia('No hay ningún registro en ese periodo.');
+  const cuenta = document.getElementById('dosCuenta');
+  if(cuenta) cuenta.textContent = (hojas.length-1)+' hoja'+((hojas.length-1)===1?'':'s')+' de registros generadas.';
+  host.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
 function downloadCSV(meta, rows, mod){
   const lines = [meta.headers.join(';')];
   rows.forEach(r=> lines.push(meta.row(r).map(v=>String(v??'').replace(/;/g,',')).join(';')));
