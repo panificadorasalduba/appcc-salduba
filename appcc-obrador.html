@@ -2617,22 +2617,39 @@ function pintarRecepcionesDelProducto(nombre){
     return;
   }
   const primeroDisponible = lotes.filter(l=>l.abiertos < l.cantidadRecibida)[0];
-  const filas = lotes.map(l=>{
+  const clave = String(nombre).trim().toLowerCase();
+  const filas = lotes.map((l,i)=>{
     const quedan = l.cantidadRecibida - l.abiertos;
     const agotado = quedan <= 0;
     const recomendado = primeroDisponible && l.lote === primeroDisponible.lote;
-    return `<tr${agotado?' style="opacity:.55"':''}>
+    /* Envases de este lote que siguen abiertos en la app. A veces se acaban en
+       el obrador y nadie los cierra aquí: desde esta misma tabla se cierran. */
+    const abiertosAhora = DATA.lotesMP.filter(r=>
+      !r.fechaCierre &&
+      String(r.producto||'').trim().toLowerCase()===clave &&
+      String(r.lote||'').trim().toLowerCase()===String(l.lote).trim().toLowerCase());
+    const cerrar = abiertosAhora.map((r,k)=>{
+      const idf = 'cierreFecha'+i+'_'+k;
+      return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
+        <span class="badge warn">abierto ${fmtDate(r.fechaApertura)}</span>
+        <input type="date" id="${idf}" value="${todayStr()}" style="width:150px;">
+        <button class="btn secondary small" type="button" onclick="cerrarLoteMP('${r.id}','${idf}')">Cerrar lote</button>
+      </div>`;
+    }).join('');
+    return `<tr${agotado && !abiertosAhora.length ?' style="opacity:.55"':''}>
       <td class="mono">${esc(l.lote)}${recomendado?' <span class="badge ok">usar este</span>':''}${agotado?' <span class="badge">agotado</span>':''}</td>
       <td class="mono">${fmtDate(l.fecha)}</td>
       <td class="mono">${l.caducidad?fmtDate(l.caducidad):'—'}</td>
       <td>${esc(l.proveedor)||'—'}</td>
       <td class="mono">${quedan} de ${l.cantidadRecibida}</td>
       <td><button class="btn ${recomendado?'':'secondary'} small" type="button"
-            onclick="elegirLoteRecibido('${esc(l.lote).replace(/'/g,"\\'")}')">Abrir este</button></td>
+            onclick="elegirLoteRecibido('${esc(l.lote).replace(/'/g,"\\'")}')">Abrir este</button>${cerrar}</td>
     </tr>`;
   }).join('');
-  host.innerHTML = `<p class="hint" style="margin:0 0 6px;">Recepciones de <strong>${esc(nombre)}</strong> — ordenadas de la más antigua a la más nueva. Se gasta primero la de arriba (FIFO).</p>`
-    + table(['Lote','Recibido','Caduca','Proveedor','Sin abrir',''], [filas]);
+  const nAbiertos = DATA.lotesMP.filter(r=>!r.fechaCierre && String(r.producto||'').trim().toLowerCase()===clave).length;
+  host.innerHTML = `<p class="hint" style="margin:0 0 6px;">Recepciones de <strong>${esc(nombre)}</strong> — ordenadas de la más antigua a la más nueva. Se gasta primero la de arriba (FIFO).`
+    + (nAbiertos ? ` Hay <strong>${nAbiertos}</strong> envase${nAbiertos===1?'':'s'} sin cerrar: si ya se acabó en el obrador, ciérralo aquí con la fecha que tocaba.` : '')
+    + `</p>` + table(['Lote','Recibido','Caduca','Proveedor','Sin abrir',''], [filas]);
 }
 function elegirLoteRecibido(lote){
   const inp = document.getElementById('loteInputLote');
@@ -2737,13 +2754,27 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana){
   viewMateriasPrimas();
   renderDashboard();
 }
-async function cerrarLoteMP(id){
+async function cerrarLoteMP(id, idInputFecha){
   const rec = DATA.lotesMP.find(r=>r.id===id);
   if(!rec) return;
-  rec.fechaCierre = todayStr();
+  /* Puede cerrarse con fecha anterior: a veces el envase se acaba en el obrador
+     y no se apunta hasta días después. La fecha de cierre debe ser la de verdad. */
+  let fecha = todayStr();
+  if(idInputFecha){
+    const inp = document.getElementById(idInputFecha);
+    if(inp && inp.value) fecha = inp.value;
+  }
+  if(fecha < String(rec.fechaApertura||'')){
+    alert('La fecha de cierre no puede ser anterior a la de apertura ('+fmtDate(rec.fechaApertura)+').');
+    return;
+  }
+  rec.fechaCierre = fecha;
   await saveModule('lotesMP');
   renderLotesAbiertos();
   renderLotesMPTable();
+  const sel = document.getElementById('loteProductoSel');
+  if(sel) pintarRecepcionesDelProducto(productoLoteElegido());
+  renderDashboard();
 }
 /** Rellena el desplegable con los productos que de verdad tienen lotes.
     Lo que se escribe en la casilla de buscar va acotando la lista, para no
