@@ -198,6 +198,14 @@
   .hoja table.rejilla{width:100%;border-collapse:collapse;font-size:11px;}
   .hoja table.rejilla th,.hoja table.rejilla td{border:1px solid #999;padding:3px 4px;vertical-align:top;}
   .hoja table.rejilla th{background:#f0ece2;font-weight:600;text-align:center;}
+  .cierre-linea{display:inline-flex;gap:6px;align-items:center;}
+  .cierre-linea input[type=date]{font-size:12px;padding:3px 5px;}
+  table.papel-aceite td{height:15px;}
+  table.papel-aceite th{font-size:8px;line-height:1.15;padding:2px 3px;vertical-align:middle;}
+  table.papel-aceite th.grupo-cab{background:#ddd6c6;letter-spacing:.3px;}
+  table.papel-aceite td.dia{background:#f4f1e9;font-weight:700;}
+  table.papel-aceite tr.con-datos td{background:#fffdf6;}
+  table.papel-aceite tr.con-datos td.dia{background:#efeade;}
   table.papel-lotes{table-layout:fixed;}
   table.papel-lotes th.banda{text-align:right;font-size:12px;letter-spacing:.5px;padding:5px 8px;background:#e6e0d2;}
   table.papel-lotes td{font-size:10px;padding:2px 4px;height:15px;}
@@ -2856,6 +2864,9 @@ async function cerrarLoteMP(id, idInputFecha){
     alert('La fecha de cierre no puede ser anterior a la de apertura ('+fmtDate(rec.fechaApertura)+').');
     return;
   }
+  /* Cerrar NO borra: el lote se queda para siempre en el registro de materias
+     primas (T1 · Traza 1-10) que se imprime para la inspección. Solo deja de
+     estar en la lista de lotes abiertos. */
   rec.fechaCierre = fecha;
   await saveModule('lotesMP');
   renderLotesAbiertos();
@@ -2940,7 +2951,10 @@ function renderLotesMPTable(){
   const rows = lista.map(r=>`<tr>
     <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td>
     <td class="mono">${fmtDate(r.fechaApertura)}</td><td class="mono">${r.fechaCierre?fmtDate(r.fechaCierre):'—'}</td>
-    <td><button class="btn danger small" onclick="removeRecord('lotesMP','${r.id}',()=>{renderLotesMPTable();renderLotesAbiertos();})">Borrar</button></td>
+    <td>${r.fechaCierre
+      ? '<span class="hint">Cerrado</span>'
+      : `<span class="cierre-linea"><input type="date" id="histCierre_${r.id}" value="${todayStr()}" min="${esc(r.fechaApertura||'')}">`
+        + `<button class="btn secondary small" onclick="cerrarLoteMP('${r.id}','histCierre_${r.id}')">Cerrar lote</button></span>`}</td>
   </tr>`);
   document.getElementById('lotesmp-table').innerHTML = table(['Producto','Lote','Semana','F. apertura','F. cierre',''], rows);
 }
@@ -3253,6 +3267,91 @@ function hojaProduccion(clave, mes, desde, hasta){
     <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
 }
 
+/* ---- Hoja mensual de aceite y desinfección de fruta (R.02.07) ----
+   Calcada del cuaderno: los 31 días en vertical y, a lo ancho, en temporada
+   (pestiños/torrijas), susos, bombas, tiempo y temperatura, el control visual de
+   acrilamida en tres casillas, el bloque de aceite (relleno, cambio, compuestos
+   polares, limpieza y quién lo hizo), la vigilancia y la desinfección de fruta. */
+function hojaAceite(mes, desde, hasta){
+  const [y,m] = mes.split('-').map(Number);
+  const nDias = daysInMonth(y,m);
+  const porDia = {};
+  (DATA.aceite||[]).forEach(r=>{
+    if(String(r.fecha||'').slice(0,7) !== mes) return;
+    if(!dentro(r.fecha, desde, hasta)) return;
+    const d = Number(String(r.fecha).slice(8,10));
+    (porDia[d] = porDia[d] || []).push(r);
+  });
+  if(!Object.keys(porDia).length) return '';
+
+  /* Si la freidora se usó dos veces el mismo día, los valores se juntan con "/",
+     igual que cuando en el papel se escriben dos cifras en la misma casilla. */
+  const junta = (regs, f)=>{
+    const vs = regs.map(f).map(v=> v===undefined||v===null ? '' : String(v).trim() ).filter(Boolean);
+    return [...new Set(vs)].join(' / ');
+  };
+  const equis = (regs, f)=> regs.some(f) ? '✕' : '';
+
+  let cuerpo = '';
+  for(let d=1; d<=nDias; d++){
+    const f = mes+'-'+String(d).padStart(2,'0');
+    const regs = porDia[d] || [];
+    const vacio = !regs.length;
+    const c = [
+      junta(regs, r=>r.pestinos), junta(regs, r=>r.torrijas),
+    ];
+    const acri = a => equis(regs, r=> String(r.acrilamida||'').toLowerCase() === a);
+    cuerpo += `<tr${vacio?'':' class="con-datos"'}>`
+      + `<td>${esc(c[0])}</td><td>${esc(c[1])}</td>`
+      + `<td class="n dia">${d}</td>`
+      + `<td class="n">${esc(junta(regs, r=>r.susos))}</td>`
+      + `<td class="n">${esc(junta(regs, r=>r.bombas))}</td>`
+      + `<td class="n">${esc(junta(regs, r=>r.tiempo))}</td>`
+      + `<td class="n">${esc(junta(regs, r=>r.temperatura))}</td>`
+      + `<td class="n">${acri('dorado claro')}</td>`
+      + `<td class="n">${acri('dorado amarillo')}</td>`
+      + `<td class="n">${acri('dorado marrón')}</td>`
+      + `<td class="n">${equis(regs, r=>r.relleno)}</td>`
+      + `<td class="n">${regs.some(r=>r.aceiteNuevo)?'SÍ':''}</td>`
+      + `<td class="n${regs.some(r=>r.estado==='CAMBIAR')?' malo':''}">${esc(junta(regs, r=>r.polares))}</td>`
+      + `<td class="n">${equis(regs, r=>r.limpiezaAparato)}</td>`
+      + `<td>${esc(junta(regs, r=>r.quienAccion))}</td>`
+      + `<td class="n">${esc(junta(regs, r=>r.vigilancia))}</td>`
+      + `<td>${esc(junta(regs, r=>r.quienVigila))}</td>`
+      + `<td>${esc(junta(regs, r=>r.fruta))}</td>`
+      + `<td class="n">${esc(junta(regs, r=>r.frutaHecho))}</td>`
+      + `<td>${esc(junta(regs, r=>r.quienFruta))}</td>`
+      + `</tr>`;
+  }
+  return `<section class="hoja ancha hoja-aceite">
+    ${cabeceraHoja('Registro de control de aceite y desinfección de fruta natural','R.02.07.2021', nombreMes(mes))}
+    <table class="rejilla papel-aceite">
+      <thead>
+        <tr>
+          <th colspan="2" class="grupo-cab">EN TEMPORADA</th>
+          <th rowspan="2">FECHA</th>
+          <th rowspan="2">SUSOS</th>
+          <th rowspan="2">BOMBAS</th>
+          <th rowspan="2">tiempo</th>
+          <th rowspan="2">Temp</th>
+          <th colspan="3" class="grupo-cab">ACRILAMIDA · CONTROL VISUAL</th>
+          <th colspan="5" class="grupo-cab">ACEITE</th>
+          <th colspan="2" class="grupo-cab">VIGILANCIA</th>
+          <th colspan="3" class="grupo-cab">FRUTA DESINFECCIÓN <span class="lim">(dilución 5 L · 2 cucharillas)</span></th>
+        </tr>
+        <tr>
+          <th>PESTIÑOS Y<br>BORRACHUELOS</th><th>TORRIJAS</th>
+          <th>DORADO<br>CLARO</th><th>DORADO<br>AMARILLO</th><th>DORADO<br>MARRÓN</th>
+          <th>RELLENO</th><th>CAMBIO<br>¿SÍ/NO?</th><th>COMP.<br>POLARES</th><th>LIMPIEZA<br>APARATO</th><th>QUIEN HACE<br>LA ACCIÓN</th>
+          <th>C/NC</th><th>QUIÉN</th>
+          <th>¿QUÉ FRUTA?</th><th>¿HECHO?<br>C/NC</th><th>QUIÉN</th>
+        </tr>
+      </thead>
+      <tbody>${cuerpo}</tbody>
+    </table>
+    <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
+}
+
 /* ---- Hoja de lotes de materias primas, calcada del cuaderno de papel ----
    En el papel cada producto ocupa una fila con cuatro casilleros de lote a lo
    ancho, y cada casillero son tres pisos: LOTE, "F. ABRO / F. CIERRO" y las dos
@@ -3409,6 +3508,7 @@ function generarDossier(){
   ['montaje','elaboraciones','masas'].forEach(k=>{
     meses.forEach(mes=>{ partes.push(hojaProduccion(k, mes, desde, hasta)); });
   });
+  meses.forEach(mes=>{ partes.push(hojaAceite(mes, desde, hasta)); });
 
   // listados
   // el registro de lotes va con la forma del cuaderno, no como listado
@@ -3418,7 +3518,6 @@ function generarDossier(){
     ['recepcion','Recepción de mercancías','T1 · Recepción'],
     ['limpieza','Limpieza y desinfección','T4 · Limpieza'],
     ['agua','Control de agua','T5 · Agua'],
-    ['aceite','Control de aceite y desinfección de fruta','R.02.07'],
     ['alergenos','Alérgenos por lote','T6 · Alérgenos'],
     ['alergenosTienda','Alérgenos en tienda','T6 · Alérgenos tienda'],
     ['trazabilidad','Trazabilidad y reparto','T2 · Trazabilidad'],
