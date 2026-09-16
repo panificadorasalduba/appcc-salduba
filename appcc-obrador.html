@@ -2606,29 +2606,47 @@ function lotesRecibidos(nombre){
     .map(key=>({...porLote[key], abiertos: abiertosPorLote[key]||0}))
     .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));   // el más antiguo primero (FIFO)
 }
-/** Tabla para elegir de qué lote recepcionado se abre el envase. */
+/** Tabla para elegir de qué lote se abre el envase, y cerrar los que sigan abiertos.
+
+    Ojo: los lotes que vinieron del cuaderno de papel llevan el nombre del papel
+    ("Laser mix muffin Ken") y las recepciones llevan el del albarán del proveedor
+    ("LASER MIX MUFFIN KEN 15 KG"). Por eso la tabla no se arma solo con lo
+    recepcionado: se juntan también los envases que están abiertos aunque no
+    tengan recepción que case, para poder cerrarlos igualmente. */
 function pintarRecepcionesDelProducto(nombre){
   const host = document.getElementById('loteRecepciones');
   if(!host) return;
   if(!nombre){ host.innerHTML=''; return; }
-  const lotes = lotesRecibidos(nombre);
-  if(!lotes.length){
-    host.innerHTML = `<p class="hint">No hay ninguna recepción registrada con lote para <strong>${esc(nombre)}</strong>. Escribe el número de lote a mano arriba.</p>`;
+  const clave = String(nombre).trim().toLowerCase();
+  const recibidos = lotesRecibidos(nombre);
+  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre &&
+      String(r.producto||'').trim().toLowerCase()===clave);
+
+  // una fila por lote: lo recepcionado, más los abiertos que no casen con ninguno
+  const filasLote = recibidos.slice();
+  const yaEstan = new Set(recibidos.map(l=>String(l.lote).trim().toLowerCase()));
+  abiertos.forEach(r=>{
+    const k = String(r.lote||'').trim().toLowerCase();
+    if(k && !yaEstan.has(k)){
+      yaEstan.add(k);
+      filasLote.push({lote:r.lote, cantidadRecibida:0, fecha:r.fechaApertura,
+                      caducidad:'', proveedor:'', abiertos:1, sinRecepcion:true});
+    }
+  });
+  if(!filasLote.length){
+    host.innerHTML = `<p class="hint">No hay ninguna recepción registrada con lote para <strong>${esc(nombre)}</strong>, ni ningún envase abierto. Escribe el número de lote a mano arriba.</p>`;
     return;
   }
-  const primeroDisponible = lotes.filter(l=>l.abiertos < l.cantidadRecibida)[0];
-  const clave = String(nombre).trim().toLowerCase();
-  const filas = lotes.map((l,i)=>{
+  filasLote.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
+  const primeroDisponible = filasLote.filter(l=>!l.sinRecepcion && l.abiertos < l.cantidadRecibida)[0];
+
+  const filas = filasLote.map((l,i)=>{
     const quedan = l.cantidadRecibida - l.abiertos;
-    const agotado = quedan <= 0;
+    const agotado = !l.sinRecepcion && quedan <= 0;
     const recomendado = primeroDisponible && l.lote === primeroDisponible.lote;
-    /* Envases de este lote que siguen abiertos en la app. A veces se acaban en
-       el obrador y nadie los cierra aquí: desde esta misma tabla se cierran. */
-    const abiertosAhora = DATA.lotesMP.filter(r=>
-      !r.fechaCierre &&
-      String(r.producto||'').trim().toLowerCase()===clave &&
+    const susAbiertos = abiertos.filter(r=>
       String(r.lote||'').trim().toLowerCase()===String(l.lote).trim().toLowerCase());
-    const cerrar = abiertosAhora.map((r,k)=>{
+    const cerrar = susAbiertos.map((r,k)=>{
       const idf = 'cierreFecha'+i+'_'+k;
       return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
         <span class="badge warn">abierto ${fmtDate(r.fechaApertura)}</span>
@@ -2636,19 +2654,20 @@ function pintarRecepcionesDelProducto(nombre){
         <button class="btn secondary small" type="button" onclick="cerrarLoteMP('${r.id}','${idf}')">Cerrar lote</button>
       </div>`;
     }).join('');
-    return `<tr${agotado && !abiertosAhora.length ?' style="opacity:.55"':''}>
+    return `<tr${agotado && !susAbiertos.length ?' style="opacity:.55"':''}>
       <td class="mono">${esc(l.lote)}${recomendado?' <span class="badge ok">usar este</span>':''}${agotado?' <span class="badge">agotado</span>':''}</td>
-      <td class="mono">${fmtDate(l.fecha)}</td>
+      <td class="mono">${fmtDate(l.fecha)}${l.sinRecepcion?' <span class="hint">(apertura)</span>':''}</td>
       <td class="mono">${l.caducidad?fmtDate(l.caducidad):'—'}</td>
       <td>${esc(l.proveedor)||'—'}</td>
-      <td class="mono">${quedan} de ${l.cantidadRecibida}</td>
+      <td class="mono">${l.sinRecepcion?'sin recepción':(quedan+' de '+l.cantidadRecibida)}</td>
       <td><button class="btn ${recomendado?'':'secondary'} small" type="button"
             onclick="elegirLoteRecibido('${esc(l.lote).replace(/'/g,"\\'")}')">Abrir este</button>${cerrar}</td>
     </tr>`;
   }).join('');
-  const nAbiertos = DATA.lotesMP.filter(r=>!r.fechaCierre && String(r.producto||'').trim().toLowerCase()===clave).length;
-  host.innerHTML = `<p class="hint" style="margin:0 0 6px;">Recepciones de <strong>${esc(nombre)}</strong> — ordenadas de la más antigua a la más nueva. Se gasta primero la de arriba (FIFO).`
-    + (nAbiertos ? ` Hay <strong>${nAbiertos}</strong> envase${nAbiertos===1?'':'s'} sin cerrar: si ya se acabó en el obrador, ciérralo aquí con la fecha que tocaba.` : '')
+
+  const nAb = abiertos.length;
+  host.innerHTML = `<p class="hint" style="margin:0 0 6px;">Lotes de <strong>${esc(nombre)}</strong> — de lo más antiguo a lo más nuevo. Se gasta primero el de arriba (FIFO).`
+    + (nAb ? ` Hay <strong>${nAb}</strong> envase${nAb===1?'':'s'} sin cerrar: si ya se acabó en el obrador, ciérralo aquí con la fecha que tocaba.` : '')
     + `</p>` + table(['Lote','Recibido','Caduca','Proveedor','Sin abrir',''], [filas]);
 }
 function elegirLoteRecibido(lote){
