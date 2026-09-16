@@ -223,12 +223,28 @@ const STORE_KEYS = {
   mantenimiento:'records:mantenimiento',
   noconformidades:'records:noconformidades',
   pedidosManual:'records:pedidosManual',
+  produccion:'records:produccion',
 };
 let CONFIG = null;
-let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],noconformidades:[],pedidosManual:[]};
+let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],noconformidades:[],pedidosManual:[],produccion:[]};
 
+/* Los cuadernos de papel del obrador, tal cual: cada registro con sus productos
+   agrupados igual que en la hoja impresa, para que quien los rellena reconozca
+   la lista de un vistazo. Se pueden añadir o quitar desde Ajustes. */
+const PRODUCCION_DEF = {
+  montaje: { titulo:'Montaje', traza:'Traza 2.3', ayuda:'Unidades que salen del obrador a tienda.', grupos:[{"grupo": "Producto externo", "productos": ["Croasán normal", "Croasán cereal", "Croasán francés (MTQ)", "Napolitanas", "Saladitos (mini \"chis\")", "Mini napolitanas", "Chapata"]}, {"grupo": "Salduba", "productos": ["Empanada horneada", "Buena mujer horneadas", "Hojaldre manzana horneado", "Caracolas", "Lazo de crema pastelera", "Caña chocolate horneada"]}] },
+  elaboraciones: { titulo:'Bollería y hojaldre', traza:'Traza 2.2', ayuda:'Unidades elaboradas.', grupos:[{"grupo": "Bollería", "productos": ["Bomba chocolate", "Bomba nata", "Bomba dulce de leche", "Bomba kínder", "Cuñas horneadas bilbao", "Cuñas (triángulo) suso frito", "Cuñas (triángulo) suso relleno", "Cuñas (triángulo) horno", "Cuñas (triángulo) horno relleno", "Triángulo nata-nutella"]}, {"grupo": "Hojaldre", "productos": ["Buena mujer manzanas gajo", "Cuadrado horno", "Triángulo horno", "Cuadrado chocolate", "Triángulo crema", "Cortadillo de cabello de ángel", "Hojaldre plancha horneado", "Milhojas chocolate", "Milhojas crema diplo y yema", "Milhojas crema", "Milhojas merengue", "Milhojas nata-crema", "Milhojas nata"]}, {"grupo": "Palmeras", "productos": ["Palmera clásica", "Palmera chocolate", "Palmera ferrero", "Palmera kínder", "Palmera nutella", "Palmera yema", "Palmera frutas (solo findes)", "Mini palmeritas", "Mini palmeritas integrales"]}, {"grupo": "Pan", "productos": ["Pan molde (anotar unds y lote)"]}] },
+  masas: { titulo:'Masas', traza:'Traza 2.1', ayuda:'Plastones y masas elaboradas.', grupos:[{"grupo": "Empanada y sablé", "productos": ["Empanada", "Masa sablé - tartas", "Masa sablé - tartaletas"]}, {"grupo": "Masa de bollería · plastones 5 kg", "productos": ["Bomba masa", "Lazo en masa", "Caracola en masa", "Cuña en masa (torta)", "Suso masa", "Triángulo nata-nutella masa"]}, {"grupo": "Masa de hojaldre · plastones 4 kg", "productos": ["Buena mujer masa", "Cortadillo cabello ángel (masa)", "Caña de chocolate (masa)", "Cuadrado hojaldre masa", "Triángulo hojaldre masa", "Hojaldre plancha (milhoja) masa", "Hojaldre manzana masa", "Palmera normal masa", "Palmera mediana masa", "Palmera gigante masa"]}] }
+};
+const CATALOGO_LOTES_DEF = {
+  pasteleria: ["Relleno empanada atún", "Relleno empanada pisto", "Aceite freír lata", "Almendra harina", "Almendra laminada", "Animales (Cohepa)", "Ambiante (sin lactosa) solo por encargo", "Azúcar blanquilla", "Azúcar antihumedad", "Azúcar glacé con almidón", "Almidón preparado", "Cacao polvo", "Cabello de ángel", "Canela molida", "Coco rallado", "Claraval", "Cremy 4x4", "Crema minuta", "Crocanti cacahuete", "Nueces mitades", "Chocolate fideos", "Choco blanco capricedecor", "Chocolat cobertura palmeras grandes", "Chocolate inyectable bombas (Filocrem 100 F)", "Chocovic horneable", "Nko Pro crema", "Belcolade blanca", "Coker fluid", "Coral milk 42", "Supercrem nutty", "Nutty dolciola blanca", "White SG", "Choco palleté blanco decoración tartas", "Choco canutos decoración", "Chocolate pepitas (gotas-pepitas)", "Dulce de leche", "Emulsionante", "Galleta pasta", "Gelatina caliente", "Gelatina fría", "Huevos frescos", "Huevo líquido", "Huevo yema líquida", "Laser mix muffin Ken", "Leche", "Maicena", "Mantequilla", "Margarina ámbar", "Margarina pingüino", "Miel", "Matalauva", "Nata CLA", "Nata asturiana", "Nata gold (vegetal)", "Nata mix decor", "Nueces mitad", "Obleas", "Palleté", "Pasas", "Pasta aroma café", "Pasta aroma fresa", "Pasta aroma limón", "Pasta aroma naranja", "Queso crema", "Supercrem fresa", "Fresa Novaservice", "Salduba choco negro logo", "Whippak", "Yema confitada crema", "Manzana", "Melocotón", "Kiwi", "Fresa", "Zanahoria", "Turrón", "Decor bronze", "Galleta María mini", "Chocolate sin azúcar cobertura", "Bizcocho plancha sin azúcar", "Estevia", "Acti-Fresh P014", "Bolas mini", "Cáscaras choco", "Virutas choco blanco", "Virutas choco negras", "Flor oblea pequeña", "Crema Lotus Biscoff"],
+  bajaRotacion: ["Colorante amarillo huevo", "Colorante azul", "Colorante burdeos", "Colorante rojo", "Colorante verde", "Decor bronze", "Perlas plata", "Oro decor", "Bicarbonato sódico", "Azúcar colores", "Cabello de ángel", "Platos oro nº32", "Platos cartón nº27 oro", "Bandeja oro nº6", "Bandeja oro nº13", "Bandeja oro nº14", "Bandeja oro nº8", "Papel confitero", "Bolsa granulado 165x60x25", "Funda blanca"],
+  materiales: ["Bolsas papel tiendas", "Bolsas plástico tiendas", "Cápsula magdalena", "Cápsula pergamino", "Cartonaje tiendas", "Muñecos décor (primera comunión, novios, etc.)", "Papel absorbente canastas pastel", "Papel marrón liar rulos", "Papel marrón en bobina", "Papel siliconado horno", "Papel parafinado bollos-pan", "Spray desmoldante", "Tinta uso alimentario (print)", "Papel confitero 60x40", "Bolsa transparente 28x62", "Bandeja cartón nº2", "Bandeja cartón nº4", "Bandeja cartón nº6", "Bandeja cartón nº8", "Bandeja cartón nº10", "Bandeja cartón nº12", "Bandeja cartón nº13 oro", "Bandeja cartón oro nº12", "Envases aluminio 1670"]
+};
 function defaultConfig(){
   return {
+    produccion: JSON.parse(JSON.stringify(PRODUCCION_DEF)),
+    catalogoLotes: JSON.parse(JSON.stringify(CATALOGO_LOTES_DEF)),
     empresa:{
       nombre:'Panificadora Salduba',
       obrador:'Obrador Plaza Toros',
@@ -361,6 +377,10 @@ async function loadAll(){
     const c = await Store.get(STORE_KEYS.config);
     CONFIG = c ? JSON.parse(c) : defaultConfig();
   }catch(e){ CONFIG = defaultConfig(); }
+  /* Ajustes guardados antes de que existieran estos cuadernos: se les añaden
+     los catálogos sin tocar nada de lo que ya tuviera configurado. */
+  if(!CONFIG.produccion) CONFIG.produccion = JSON.parse(JSON.stringify(PRODUCCION_DEF));
+  if(!CONFIG.catalogoLotes) CONFIG.catalogoLotes = JSON.parse(JSON.stringify(CATALOGO_LOTES_DEF));
   for(const mod of Object.keys(DATA)){
     try{
       const r = await Store.get(STORE_KEYS[mod]);
@@ -679,6 +699,7 @@ const VIEWS = [
   {id:'recepcion', label:'Recepción de mercancías', icon:'truck'},
   {id:'alergenos', label:'Alérgenos', icon:'wheat'},
   {id:'aceite', label:'Control de aceite', icon:'oil'},
+  {id:'produccion', label:'Producción diaria', icon:'wheat'},
   {id:'trazabilidad', label:'Trazabilidad y reparto', icon:'route'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
   {id:'mantenimiento', label:'Mantenimiento y plagas', icon:'wrench'},
@@ -921,8 +942,24 @@ function viewAceite(){
         <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
         <label class="field checkline"><input type="checkbox" name="aceiteNuevo"><span>Aceite nuevo</span></label>
         <label class="field"><span>Producto frito</span><input type="text" name="producto" placeholder="Ej: susos, pestiños"></label>
+        <label class="field"><span>Susos (uds)</span><input type="number" name="susos" placeholder="0"></label>
+        <label class="field"><span>Bombas (uds)</span><input type="number" name="bombas" placeholder="0"></label>
+        <label class="field"><span>Pestiños y borrachuelos (uds)</span><input type="number" name="pestinos" placeholder="solo en temporada"></label>
+        <label class="field"><span>Torrijas (uds)</span><input type="number" name="torrijas" placeholder="solo en temporada"></label>
+        <label class="field"><span>Tiempo de fritura (min)</span><input type="number" step="0.5" name="tiempo" placeholder="25"></label>
         <label class="field"><span>Temperatura fritura (°C)</span><input type="number" name="temperatura" placeholder="180"></label>
+        <label class="field"><span>Acrilamida · control visual</span><select name="acrilamida">
+          <option value="">—</option><option>Dorado claro</option><option>Dorado amarillo</option><option>Dorado marrón</option></select></label>
+        <label class="field checkline"><input type="checkbox" name="relleno"><span>Relleno de aceite</span></label>
         <label class="field"><span>Compuestos polares (%)</span><input type="number" step="0.1" name="polares" placeholder="&lt;24"></label>
+        <label class="field checkline"><input type="checkbox" name="limpiezaAparato"><span>Limpieza del aparato</span></label>
+        <label class="field"><span>Quién hace la acción</span><input type="text" name="quienAccion"></label>
+        <label class="field"><span>Vigilancia</span><select name="vigilancia"><option value="">—</option><option>C</option><option>NC</option></select></label>
+        <label class="field"><span>Vigilancia · quién</span><input type="text" name="quienVigila"></label>
+        <label class="field"><span>Fruta desinfectada</span><input type="text" name="fruta" placeholder="fresa, melocotón…"></label>
+        <label class="field"><span>Desinfección hecha (dilución 5 L · 2 cucharillas)</span><select name="frutaHecho">
+          <option value="">—</option><option>C</option><option>NC</option></select></label>
+        <label class="field"><span>Desinfección · quién</span><input type="text" name="quienFruta"></label>
         <label class="field"><span>Responsable</span><input type="text" name="responsable" required></label>
         <label class="field wide"><span>Observaciones</span><textarea name="observaciones"></textarea></label>
         <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
@@ -935,7 +972,12 @@ function viewAceite(){
     const f = new FormData(e.target);
     const polares = parseFloat(f.get('polares'));
     const rec = {id:uid(), fecha:f.get('fecha'), aceiteNuevo:f.get('aceiteNuevo')==='on', producto:f.get('producto'),
-      temperatura:f.get('temperatura'), polares: isFinite(polares)?polares:'',
+      susos:f.get('susos'), bombas:f.get('bombas'), pestinos:f.get('pestinos'), torrijas:f.get('torrijas'),
+      tiempo:f.get('tiempo'), temperatura:f.get('temperatura'),
+      acrilamida:f.get('acrilamida'), relleno:f.get('relleno')==='on',
+      polares: isFinite(polares)?polares:'', limpiezaAparato:f.get('limpiezaAparato')==='on',
+      quienAccion:f.get('quienAccion'), vigilancia:f.get('vigilancia'), quienVigila:f.get('quienVigila'),
+      fruta:f.get('fruta'), frutaHecho:f.get('frutaHecho'), quienFruta:f.get('quienFruta'),
       estado: isFinite(polares) ? (polares>24?'CAMBIAR':'OK') : 'OK',
       responsable:f.get('responsable'), observaciones:f.get('observaciones')};
     DATA.aceite.unshift(rec);
@@ -950,12 +992,17 @@ function viewAceite(){
 function renderAceiteTable(){
   const rows = DATA.aceite.map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td>${r.aceiteNuevo?'Sí':'No'}</td><td>${esc(r.producto)||'—'}</td>
-    <td class="mono">${r.temperatura?r.temperatura+'°C':'—'}</td><td class="mono">${r.polares!==''?r.polares+'%':'—'}</td>
+    <td class="mono">${[r.susos?'S '+r.susos:'', r.bombas?'B '+r.bombas:'', r.pestinos?'P '+r.pestinos:'', r.torrijas?'T '+r.torrijas:''].filter(Boolean).join(' · ')||'—'}</td>
+    <td class="mono">${r.tiempo?r.tiempo+' min':'—'}</td>
+    <td class="mono">${r.temperatura?r.temperatura+'°C':'—'}</td>
+    <td>${esc(r.acrilamida)||'—'}${r.relleno?' · relleno':''}</td>
+    <td class="mono">${r.polares!==''&&r.polares!==undefined?r.polares+'%':'—'}</td>
+    <td>${esc(r.fruta)||'—'}${r.frutaHecho?' ('+esc(r.frutaHecho)+')':''}</td>
     <td><span class="badge ${r.estado==='OK'?'ok':'danger'}">${r.estado}</span></td>
     <td>${esc(r.responsable)}</td>
     <td><button class="btn danger small" onclick="removeRecord('aceite','${r.id}',renderAceiteTable)">Borrar</button></td>
   </tr>`);
-  document.getElementById('aceite-table').innerHTML = table(['Fecha','Aceite nuevo','Producto','Temp.','Polares','Estado','Responsable',''], rows);
+  document.getElementById('aceite-table').innerHTML = table(['Fecha','Aceite nuevo','Producto','Unidades','Tiempo','Temp.','Acrilamida','Polares','Fruta desinf.','Estado','Responsable',''], rows);
 }
 
 /* ================= MANTENIMIENTO Y PLAGAS ================= */
@@ -1691,6 +1738,104 @@ function renderAlergTiendaTable(){
   document.getElementById('alerg-tienda-table').innerHTML = table(['Fecha','Tienda','Alergia comunicada','Producto','Cambio cruzada','Limpieza','Resultado','Atendió','Supervisor',''], rows);
 }
 
+/* ================= PRODUCCIÓN DIARIA (montaje, bollería/hojaldre, masas) =================
+   Réplica de los tres cuadernos mensuales del obrador. Cada casilla de la rejilla
+   es un registro con su propio id: así dos tablets pueden rellenar el mismo mes
+   sin pisarse, y un borrado no vuelve al sincronizar. */
+let prodRegistro = 'montaje';
+let prodMes = new Date().getMonth()+1;
+let prodAnio = new Date().getFullYear();
+
+function prodDef(){ return (CONFIG.produccion||{})[prodRegistro] || {titulo:'', grupos:[]}; }
+function prodClave(a,m,d){ return a+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function prodIndice(){
+  const ix = {};
+  DATA.produccion.forEach(r=>{ if(r.registro===prodRegistro) ix[r.producto+'|'+r.fecha] = r; });
+  return ix;
+}
+/* Escribir una casilla: crea, actualiza o borra el registro de ese producto y día. */
+async function setProdCell(producto, dia, valor){
+  const fecha = prodClave(prodAnio, prodMes, dia);
+  const v = String(valor==null?'':valor).trim();
+  const ex = DATA.produccion.filter(r=>r.registro===prodRegistro && r.producto===producto && r.fecha===fecha)[0];
+  if(!v){
+    if(ex){
+      DATA.produccion = DATA.produccion.filter(r=>r!==ex);
+      BAJAS[ex.id] = Date.now();
+      await guardarBajas();
+      await saveModule('produccion');
+    }
+    return;
+  }
+  if(ex){ ex.unidades = v; }
+  else DATA.produccion.push({id:uid(), registro:prodRegistro, producto, fecha, unidades:v, lote:''});
+  await saveModule('produccion');
+}
+async function setProdLote(producto, dia, lote){
+  const fecha = prodClave(prodAnio, prodMes, dia);
+  const ex = DATA.produccion.filter(r=>r.registro===prodRegistro && r.producto===producto && r.fecha===fecha)[0];
+  if(ex){ ex.lote = lote; await saveModule('produccion'); }
+}
+
+function viewProduccion(){
+  const regs = Object.keys(CONFIG.produccion||{});
+  document.getElementById('view-produccion').innerHTML = `
+    <div class="panel">
+      <h2>${icon('wheat')} Producción diaria</h2>
+      <p class="hint">Los tres cuadernos mensuales del obrador, con los mismos productos y en el mismo orden que en papel. Se escribe el número de unidades en la casilla del día y se guarda solo.</p>
+      <div class="filters">
+        <label class="field"><span>Cuaderno</span><select id="prodReg">${
+          regs.map(k=>`<option value="${k}">${esc(CONFIG.produccion[k].titulo)} · ${esc(CONFIG.produccion[k].traza||'')}</option>`).join('')}</select></label>
+        <label class="field"><span>Mes</span><select id="prodMesSel">${MESES.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}</select></label>
+        <label class="field"><span>Año</span><input type="number" id="prodAnioSel" class="small" style="width:100px;" value="${prodAnio}"></label>
+        <button class="btn secondary" id="prodCargar">Cargar</button>
+      </div>
+      <p class="hint" id="prodAyuda"></p>
+      <div class="table-wrap" id="prod-grid"></div>
+    </div>`;
+  document.getElementById('prodReg').value = prodRegistro;
+  document.getElementById('prodMesSel').value = prodMes;
+  document.getElementById('prodCargar').addEventListener('click', ()=>{
+    prodRegistro = document.getElementById('prodReg').value;
+    prodMes = parseInt(document.getElementById('prodMesSel').value,10);
+    prodAnio = parseInt(document.getElementById('prodAnioSel').value,10) || new Date().getFullYear();
+    renderProdGrid();
+  });
+  document.getElementById('prodReg').addEventListener('change', ()=>{
+    prodRegistro = document.getElementById('prodReg').value; renderProdGrid();
+  });
+  renderProdGrid();
+}
+
+function renderProdGrid(){
+  const def = prodDef();
+  const nDays = daysInMonth(prodAnio, prodMes);
+  const ix = prodIndice();
+  const conLote = prodRegistro === 'elaboraciones';
+  document.getElementById('prodAyuda').textContent = def.ayuda || '';
+  let head = '<tr><th style="min-width:230px">Producto</th>';
+  for(let d=1; d<=nDays; d++) head += `<th class="mono">${d}</th>`;
+  head += '<th class="mono">Total</th></tr>';
+  let body = '';
+  (def.grupos||[]).forEach(g=>{
+    body += `<tr><td colspan="${nDays+2}" style="background:var(--bg2);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase">${esc(g.grupo)}</td></tr>`;
+    g.productos.forEach(prod=>{
+      let total = 0, celdas = '';
+      for(let d=1; d<=nDays; d++){
+        const r = ix[prod+'|'+prodClave(prodAnio,prodMes,d)];
+        const v = r ? r.unidades : '';
+        const n = parseFloat(String(v).replace(',','.'));
+        if(isFinite(n)) total += n;
+        const lote = conLote && r && r.lote ? ` title="Lote: ${esc(r.lote)}"` : '';
+        celdas += `<td><input type="text" inputmode="numeric" value="${esc(v)}" style="width:44px;text-align:right${conLote&&r&&r.lote?';border-bottom:2px solid var(--ok)':''}"${lote}
+          onchange="setProdCell('${esc(prod).replace(/'/g,"\\'")}',${d},this.value)"></td>`;
+      }
+      body += `<tr><td>${esc(prod)}</td>${celdas}<td class="mono"><b>${total||''}</b></td></tr>`;
+    });
+  });
+  document.getElementById('prod-grid').innerHTML = `<table>${head}${body}</table>`;
+}
+
 /* ================= TRAZABILIDAD ================= */
 function viewTrazabilidad(){
   const tiendaOpts = CONFIG.tiendas.map(t=>`<label><input type="checkbox" name="tienda" value="${esc(t)}">${esc(t)}</label>`).join('');
@@ -1850,12 +1995,13 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Abrir nuevo lote</h2>
-      <p class="hint">Elige el producto de la lista (solo aparecen los que tienen stock disponible). Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
+      <p class="hint">Elige el producto. Arriba salen los que tienen stock registrado; debajo, el catálogo completo de los cuadernos de papel (pastelería, baja rotación y materiales de uso alimentario). Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
       <form class="record-form" id="form-lotesmp">
         <label class="field wide"><span>Producto</span>
           <select name="producto" id="loteProductoSel" required>
             <option value="" disabled selected>Selecciona un producto…</option>
             ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>`<option value="${esc(m.nombre)}">${esc(m.nombre)} (stock: ${m.stockActual} ${esc(m.unidad)})</option>`).join('')}
+            ${opcionesCatalogoLotes()}
           </select>
         </label>
         <label class="field wide"><span>Lote</span>
@@ -2252,6 +2398,23 @@ function enviarPedidoWhatsApp(proveedor){
     + lineas.join('\n')
     + '\n¿Podéis confirmarnos disponibilidad y fecha de entrega? Gracias.';
   window.open(`https://wa.me/${digits}?text=${encodeURIComponent(mensaje)}`, '_blank');
+}
+
+/* El catálogo tal y como viene impreso en los cuadernos: así el lote se abre
+   con el nombre exacto del papel y no cada uno con su propia manera de escribirlo. */
+function opcionesCatalogoLotes(){
+  const cat = CONFIG.catalogoLotes || {};
+  const conStock = new Set(CONFIG.materiasPrimas.filter(m=>m.stockActual>0).map(m=>m.nombre.trim().toLowerCase()));
+  const bloques = [
+    ['Pastelería · materias primas', cat.pasteleria||[]],
+    ['Obrador · baja rotación', cat.bajaRotacion||[]],
+    ['Materiales de uso alimentario', cat.materiales||[]]
+  ];
+  return bloques.map(([titulo, lista])=>{
+    const ops = lista.filter(n=>!conStock.has(String(n).trim().toLowerCase()))
+      .map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    return ops ? `<optgroup label="${esc(titulo)}">${ops}</optgroup>` : '';
+  }).join('');
 }
 
 /* ---- Lotes: abrir / cerrar ---- */
@@ -2903,7 +3066,7 @@ function updateSidebarFoot(){
 /* ---------- RENDERERS MAP & BOOT ---------- */
 const RENDERERS = {
   dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
-  recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, trazabilidad:viewTrazabilidad,
+  recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, produccion:viewProduccion, trazabilidad:viewTrazabilidad,
   materiasprimas:viewMateriasPrimas,
   mantenimiento:viewMantenimiento, noconformidades:viewNoConformidades, listeria:viewListeria,
   informes:viewInformes, ajustes:viewAjustes
