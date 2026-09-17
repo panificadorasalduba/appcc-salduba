@@ -1428,7 +1428,14 @@ async function llamarClaudeSinClave(base64){
   });
   let data;
   try{ data = await response.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+response.status+')'); }
-  if(!response.ok) throw new Error(data?.error?.message || ('HTTP '+response.status));
+  if(!response.ok){
+    const msg = data?.error?.message || ('HTTP '+response.status);
+    const err = new Error(msg);
+    if(response.status===503 || response.status===529 || response.status===500 || /overload|high demand|unavailable|try again later/i.test(msg)){
+      err.esSobrecarga = true;
+    }
+    throw err;
+  }
   const textBlock = (data.content||[]).find(b=>b.type==='text');
   if(!textBlock || !textBlock.text) throw new Error('La IA no ha devuelto texto legible.');
   return textBlock.text;
@@ -1450,7 +1457,11 @@ async function llamarClaudeConClave(base64, apiKey){
   if(!response.ok){
     let msg = data?.error?.message || ('HTTP '+response.status);
     if(response.status===401) msg += ' — revisa que la clave de Anthropic en Ajustes sea correcta';
-    throw new Error(msg);
+    const err = new Error(msg);
+    if(response.status===503 || response.status===529 || response.status===500 || /overload|high demand|unavailable|try again later/i.test(msg)){
+      err.esSobrecarga = true;
+    }
+    throw err;
   }
   const textBlock = (data.content||[]).find(b=>b.type==='text');
   if(!textBlock || !textBlock.text) throw new Error('La IA no ha devuelto texto legible.');
@@ -1488,11 +1499,34 @@ async function llamarGemini(base64, apiKey){
       err.retrySeconds = segundos || 60;
       err.esLimiteVelocidad = true;
     }
+    if(response.status===503 || response.status===500 || /overload|high demand|unavailable|try again later/i.test(msg)){
+      err.esSobrecarga = true;
+    }
     throw err;
   }
   const text = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || '';
   if(!text) throw new Error('La IA no ha devuelto texto legible.');
   return text;
+}
+// Reintenta automáticamente una llamada a la IA si el modelo está saturado (sobrecarga temporal),
+// antes de mostrar cualquier error al usuario. No afecta al límite de velocidad (ese ya tiene su propia cuenta atrás).
+async function llamarConReintentoSobrecarga(fn, estado, intentosMax, btn){
+  intentosMax = intentosMax || 3;
+  btn = btn || document.getElementById('albaranExtraerBtn');
+  let ultimoError;
+  for(let intento=1; intento<=intentosMax; intento++){
+    try{
+      return await fn();
+    }catch(err){
+      ultimoError = err;
+      if(!err.esSobrecarga || intento===intentosMax) throw err;
+      const espera = 3 * intento; // 3s, 6s, 9s...
+      if(estado) estado.textContent = `El modelo de IA está saturado en este momento. Reintentando automáticamente (${intento}/${intentosMax})… espera ${espera}s.`;
+      if(btn) btn.textContent = `Reintentando (${intento}/${intentosMax})…`;
+      await new Promise(r=>setTimeout(r, espera*1000));
+    }
+  }
+  throw ultimoError;
 }
 async function extraerAlbaran(){
   if(!recepcionFotoDataUrl) return;
@@ -1504,17 +1538,17 @@ async function extraerAlbaran(){
   try{
     const base64 = recepcionFotoDataUrl.split(',')[1];
     if(HAS_CLAUDE_STORAGE){
-      textoRespuesta = await llamarClaudeSinClave(base64);
+      textoRespuesta = await llamarConReintentoSobrecarga(()=>llamarClaudeSinClave(base64), estado);
     } else {
       const provider = getAIProvider();
       if(provider==='gemini'){
         const key = getGeminiKey();
         if(!key) throw new Error('Falta configurar la clave de API de Gemini en Ajustes → Configuración de IA');
-        textoRespuesta = await llamarGemini(base64, key);
+        textoRespuesta = await llamarConReintentoSobrecarga(()=>llamarGemini(base64, key), estado);
       } else {
         const key = getApiKey();
         if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
-        textoRespuesta = await llamarClaudeConClave(base64, key);
+        textoRespuesta = await llamarConReintentoSobrecarga(()=>llamarClaudeConClave(base64, key), estado);
       }
     }
     textoRespuesta = textoRespuesta.trim();
@@ -1540,11 +1574,15 @@ async function extraerAlbaran(){
       iniciarCuentaAtrasLimite(err.retrySeconds, btn, estado);
       return;
     }
-    estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
+    if(err.esSobrecarga){
+      estado.textContent = 'El modelo de IA está saturado ahora mismo y ya se ha reintentado varias veces automáticamente sin éxito. Espera un minuto y pulsa de nuevo "Extraer datos con IA", o añade los productos manualmente abajo.';
+    } else {
+      estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
+    }
     if(recepcionExtraidas.length===0){ recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''}); renderLineasExtraidas(); }
   }finally{
     if(!estado.dataset.limiteActivo) btn.disabled = false;
-    if(btn.textContent==='Leyendo albarán…') btn.textContent = 'Extraer datos con IA';
+    if(!estado.dataset.limiteActivo) btn.textContent = 'Extraer datos con IA';
   }
 }
 function iniciarCuentaAtrasLimite(segundos, btn, estado){
@@ -3460,7 +3498,7 @@ function hojasLotesMP(desde, hasta){
       (porProd[k] = porProd[k] || []).push(r);
     });
     Object.keys(porProd).forEach(k=> porProd[k].sort((a,b)=>
-      String(a.fechaApertura||'￿').localeCompare(String(b.fechaApertura||'￿')) ));
+      String(a.fechaApertura||' ').localeCompare(String(b.fechaApertura||' ')) ));
 
     // lotes de productos que no están en ningún catálogo: se añaden al final
     const sueltos = Object.keys(porProd).filter(k=> !enCatalogo[k]);
