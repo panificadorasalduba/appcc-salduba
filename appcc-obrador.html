@@ -2767,14 +2767,33 @@ function cantidadRecepcion(r){
   if(m){ const v = parseFloat(m[1].replace(',','.')); if(isFinite(v)&&v>0) return v; }
   return 1;
 }
+/** Quita acentos, pasa a minúsculas y limpia espacios, para poder comparar nombres
+    de producto aunque estén escritos de forma distinta (catálogo vs. albarán). */
+function normalizarNombreProducto(s){
+  return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
+}
+/** El catálogo llama a un producto de una forma ("Cabello de ángel") y el albarán del
+    proveedor puede llamarlo de otra ("CABELLO ANGEL BOTE 5KG"). En vez de exigir el
+    nombre exacto, se compara de forma flexible: igual, uno contenido en el otro, o
+    coincidiendo todas las palabras relevantes del nombre más corto. */
+function coincideProducto(a, b){
+  const na = normalizarNombreProducto(a), nb = normalizarNombreProducto(b);
+  if(!na || !nb) return false;
+  if(na===nb || na.includes(nb) || nb.includes(na)) return true;
+  const stop = new Set(['de','la','el','los','las','del','y','con','sin','para','en']);
+  const palabras = s => s.split(' ').filter(w=>w.length>2 && !stop.has(w));
+  const [cortas, larga] = na.length<=nb.length ? [palabras(na), nb] : [palabras(nb), na];
+  if(!cortas.length) return false;
+  return cortas.every(w=>larga.includes(w));
+}
 /** Todo lo recepcionado de un producto, agrupado por lote: cuánto entró, cuándo,
     de qué proveedor, cuándo caduca y cuántos envases de ese lote se han abierto ya. */
 function lotesRecibidos(nombre){
-  const key0 = String(nombre||'').trim().toLowerCase();
+  const key0 = String(nombre||'').trim();
   if(!key0) return [];
   const porLote = {};
   DATA.recepcion
-    .filter(r=>String(r.producto||'').trim().toLowerCase()===key0 && r.lote && String(r.lote).trim())
+    .filter(r=>coincideProducto(r.producto, key0) && r.lote && String(r.lote).trim())
     .forEach(r=>{
       const key = String(r.lote).trim().toLowerCase();
       if(!porLote[key]) porLote[key] = {lote:r.lote, cantidadRecibida:0, fecha:r.fecha,
@@ -2786,7 +2805,7 @@ function lotesRecibidos(nombre){
       }
     });
   const abiertosPorLote = {};
-  DATA.lotesMP.filter(r=>String(r.producto||'').trim().toLowerCase()===key0).forEach(r=>{
+  DATA.lotesMP.filter(r=>coincideProducto(r.producto, key0)).forEach(r=>{
     const key = String(r.lote||'').trim().toLowerCase();
     abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
   });
@@ -2805,10 +2824,8 @@ function pintarRecepcionesDelProducto(nombre){
   const host = document.getElementById('loteRecepciones');
   if(!host) return;
   if(!nombre){ host.innerHTML=''; return; }
-  const clave = String(nombre).trim().toLowerCase();
   const recibidos = lotesRecibidos(nombre);
-  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre &&
-      String(r.producto||'').trim().toLowerCase()===clave);
+  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre && coincideProducto(r.producto, nombre));
 
   // una fila por lote: lo recepcionado, más los abiertos que no casen con ninguno
   const filasLote = recibidos.slice();
@@ -2863,10 +2880,10 @@ function elegirLoteRecibido(lote){
   if(inp){ inp.value = lote; try{ inp.focus(); }catch(e){} }
 }
 function loteMasAntiguoDisponible(nombre){
-  const key0 = nombre.trim().toLowerCase();
+  const key0 = String(nombre||'').trim();
   const porLote = {};
   DATA.recepcion
-    .filter(r=>r.producto.trim().toLowerCase()===key0 && r.lote && r.lote.trim())
+    .filter(r=>coincideProducto(r.producto, key0) && r.lote && r.lote.trim())
     .forEach(r=>{
       const key = r.lote.trim().toLowerCase();
       const cant = cantidadRecepcion(r);
@@ -2875,7 +2892,7 @@ function loteMasAntiguoDisponible(nombre){
       if(r.fecha < porLote[key].fecha){ porLote[key].fecha = r.fecha; porLote[key].caducidad = r.caducidad; }
     });
   const abiertosPorLote = {};
-  DATA.lotesMP.filter(r=>r.producto.trim().toLowerCase()===key0).forEach(r=>{
+  DATA.lotesMP.filter(r=>coincideProducto(r.producto, key0)).forEach(r=>{
     const key = r.lote.trim().toLowerCase();
     abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
   });
