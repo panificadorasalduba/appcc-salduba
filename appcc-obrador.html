@@ -198,6 +198,8 @@
   .hoja table.rejilla{width:100%;border-collapse:collapse;font-size:11px;}
   .hoja table.rejilla th,.hoja table.rejilla td{border:1px solid #999;padding:3px 4px;vertical-align:top;}
   .hoja table.rejilla th{background:#f0ece2;font-weight:600;text-align:center;}
+  td.semanas{letter-spacing:.3px;}
+  table.papel-lotes td.celda-lote .sem{display:block;font-size:8px;color:#333;letter-spacing:.3px;margin-top:1px;}
   .cierre-linea{display:inline-flex;gap:6px;align-items:center;}
   .cierre-linea input[type=date]{font-size:12px;padding:3px 5px;}
   table.papel-aceite td{height:15px;}
@@ -474,6 +476,9 @@ async function loadAll(){
       DATA[mod] = r ? JSON.parse(r) : (mod==='temperaturas' ? {} : []);
     }catch(e){ DATA[mod] = (mod==='temperaturas' ? {} : []); }
   }
+  /* Los lotes que se pasaron del papel traían las semanas pegadas al código.
+     Se separan aquí; si ya vienen separados no se toca nada. */
+  if(normalizarLotes() > 0) await saveModuleLocal('lotesMP');
 }
 async function saveConfigLocal(){
   try{ await Store.set(STORE_KEYS.config, JSON.stringify(CONFIG)); }catch(e){ console.error(e); }
@@ -629,6 +634,9 @@ function mezclarTodo(remoto){
       : mezclarLista(DATA[mod], rData[mod]);
     if(JSON.stringify(DATA[mod]) !== antes) cambios = true;
   }
+  /* Un dispositivo con la versión antigua puede mandar lotes con las semanas
+     pegadas al código: se separan también al recibirlos. */
+  if(normalizarLotes() > 0) cambios = true;
   // Los ajustes (equipos, zonas, tiendas…) los cambia una sola persona: manda el más reciente.
   const tsRemoto = remoto.configTs || 0, tsLocal = CONFIG._ts || 0;
   if(remoto.config && tsRemoto > tsLocal){ CONFIG = remoto.config; cambios = true; }
@@ -2105,7 +2113,7 @@ function viewMateriasPrimas(){
         <label class="field wide"><span>Lote</span>
           <span style="display:flex;gap:8px;flex-wrap:wrap;">
             <input type="text" name="lote" id="loteInputLote" required style="flex:1;min-width:160px;">
-            <button class="btn secondary small" type="button" id="mismoLoteBtn" style="white-space:nowrap;" title="Rellena con el mismo número de lote que usasteis la última vez para este producto">Mismo lote (ML)</button>
+            <button class="btn secondary small" type="button" id="mismoLoteBtn" style="white-space:nowrap;" title="Rellena con el mismo número de lote que usasteis la última vez para este producto: si lo dejas igual, se le añade la semana en vez de crear un lote nuevo">Mismo lote (ML)</button>
           </span>
         </label>
         <label class="field"><span>Fecha apertura</span><input type="date" name="fechaApertura" id="loteFechaApertura" value="${todayStr()}" required></label>
@@ -2115,7 +2123,7 @@ function viewMateriasPrimas(){
             <input type="number" min="1" max="53" name="semana" id="loteSemanaDisplay" value="${getWeekNumber(todayStr())}" style="width:80px;" required>
           </span>
         </label>
-        <p class="hint wide" style="margin:-4px 0 0;">La semana se pone sola con la fecha de apertura, pero puedes cambiarla: en el cuaderno es la semana que lleva el propio lote (‑S17, ‑S18…), que no siempre coincide con el día en que se abre.</p>
+        <p class="hint wide" style="margin:-4px 0 0;">Escribe <strong>solo el número de lote</strong> (por ejemplo <code>260459454</code>), sin las semanas. La semana va aparte y se pone sola con la fecha, pero puedes cambiarla. <strong>Si vuelves a pedir el mismo lote</strong>, escríbelo igual: la app no lo duplica, le añade la semana nueva al lote que ya está — igual que en el cuaderno.</p>
         <div class="field wide" id="loteInfoProducto"></div>
         <div class="field wide" id="loteRecepciones"></div>
         <div class="form-actions"><button class="btn" type="submit">Abrir lote</button></div>
@@ -2412,7 +2420,10 @@ function abrirAjusteInventario(nombre){
     if(nuevoLote){
       const fApertura = document.getElementById('ajusteFechaApertura').value || todayStr();
       const yaCerrado = document.getElementById('ajusteYaCerrado').checked;
-      DATA.lotesMP.unshift({id:uid(), producto:nombre, lote:nuevoLote, fechaApertura:fApertura, fechaCierre: yaCerrado?fApertura:'', semana:getWeekNumber(fApertura)});
+      const par = partirLoteYSemanas(nuevoLote);
+      const sems = par.semanas.length ? par.semanas : [getWeekNumber(fApertura)];
+      DATA.lotesMP.unshift({id:uid(), producto:nombre, lote:par.codigo||nuevoLote, fechaApertura:fApertura,
+                            fechaCierre: yaCerrado?fApertura:'', semana:sems[0], semanas:sems});
       await saveModule('lotesMP');
     }
     await saveConfig();
@@ -2667,6 +2678,70 @@ function opcionesCatalogoLotes(){
 }
 
 /* ---- Lotes: abrir / cerrar ---- */
+/* ---- LOTE Y SEMANAS SON DOS COSAS DISTINTAS ----
+   En el cuaderno, cuando se vuelve a pedir el MISMO lote se le va apuntando al
+   lado la semana en que se pidió: "260459454 -S15 -S16 -S18…". El número de lote
+   sigue siendo 260459454; lo demás son las semanas. Aquí se guardan separados:
+   `lote` es el código limpio y `semanas` es la lista de semanas de ese lote. */
+
+/** Separa un texto de lote en {codigo, semanas}, quitando las -S## del final. */
+function partirLoteYSemanas(texto){
+  let t = String(texto==null ? '' : texto).trim();
+  const semanas = [];
+  /* Solo se quitan del FINAL y solo si la S lleva número detrás: así un código
+     que termine en "-S" o que lleve una S por medio no se toca. */
+  const cola = /[\s\-–/]*S[\s\-/]*(\d{1,2})\s*$/i;
+  let m;
+  while((m = t.match(cola))){
+    semanas.unshift(parseInt(m[1], 10));
+    t = t.slice(0, t.length - m[0].length).trim();
+  }
+  return {codigo: t.replace(/[\s\-–/]+$/, '').trim(), semanas};
+}
+/** Las semanas de un lote, ordenadas y sin repetir. */
+function semanasDeLote(r){
+  const out = [];
+  const mete = v=>{
+    const n = parseInt(v, 10);
+    if(isFinite(n) && n>=1 && n<=53 && out.indexOf(n)<0) out.push(n);
+  };
+  (r.semanas || []).forEach(mete);
+  if(!out.length){
+    mete(r.semana);
+    if(!out.length && r.fechaApertura) mete(getWeekNumber(r.fechaApertura));
+  }
+  return out.sort((a,b)=>a-b);
+}
+/** "S15 · S16 · S18" para enseñarlo en tablas e informes. */
+function textoSemanas(r, sep){
+  const s = semanasDeLote(r);
+  return s.length ? s.map(n=>'S'+n).join(sep===undefined ? ' · ' : sep) : '';
+}
+/** Pasa los lotes viejos (con las semanas pegadas al código) al formato nuevo.
+    Es idempotente: sobre un lote ya limpio no cambia nada. */
+function normalizarLotes(){
+  let tocados = 0;
+  (DATA.lotesMP || []).forEach(r=>{
+    const {codigo, semanas} = partirLoteYSemanas(r.lote);
+    const previas = Array.isArray(r.semanas) ? r.semanas.slice() : [];
+    const juntas = [];
+    const mete = v=>{ const n=parseInt(v,10); if(isFinite(n)&&n>=1&&n<=53&&juntas.indexOf(n)<0) juntas.push(n); };
+    previas.forEach(mete);
+    semanas.forEach(mete);
+    if(!juntas.length) mete(r.semana);
+    if(!juntas.length && r.fechaApertura) mete(getWeekNumber(r.fechaApertura));
+    juntas.sort((a,b)=>a-b);
+    const cambia = (codigo !== r.lote) || juntas.join(',') !== previas.slice().sort((a,b)=>a-b).join(',');
+    if(cambia){
+      if(codigo) r.lote = codigo;
+      r.semanas = juntas;
+      if(juntas.length) r.semana = juntas[0];
+      tocados++;
+    }
+  });
+  return tocados;
+}
+
 function getWeekNumber(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
@@ -2855,6 +2930,50 @@ function mostrarInfoProductoLote(){
   info.innerHTML = html;
 }
 async function abrirLoteMP(producto, lote, fechaApertura, semana){
+  const par = partirLoteYSemanas(lote);
+  const codigo = par.codigo || String(lote||'').trim();
+  let sem = (semana===undefined || semana===null || String(semana).trim()==='')
+            ? getWeekNumber(fechaApertura) : parseInt(semana,10);
+  if(!isFinite(sem)) sem = getWeekNumber(fechaApertura);
+  const sems = [];
+  const mete = v=>{ const n=parseInt(v,10); if(isFinite(n)&&n>=1&&n<=53&&sems.indexOf(n)<0) sems.push(n); };
+  par.semanas.forEach(mete); mete(sem);
+  sems.sort((a,b)=>a-b);
+
+  const mismoCodigo = r => String(r.producto||'').trim().toLowerCase()===producto.trim().toLowerCase()
+                        && String(r.lote||'').trim().toLowerCase()===codigo.toLowerCase();
+
+  /* MISMO LOTE OTRA VEZ. En el cuaderno no se abre un casillero nuevo: se le
+     apunta al lado la semana en que se ha vuelto a pedir. Aquí igual: se añade
+     la semana al lote que ya existe y no se duplica el registro. */
+  const yaRegistrado = DATA.lotesMP.find(r=>mismoCodigo(r) && !r.fechaCierre)
+                    || DATA.lotesMP.find(mismoCodigo);
+  if(yaRegistrado){
+    const antes = semanasDeLote(yaRegistrado);
+    const nuevas = sems.filter(n=>antes.indexOf(n)<0);
+    const juntas = antes.concat(nuevas).sort((a,b)=>a-b);
+    const cerrado = !!yaRegistrado.fechaCierre;
+    const aviso = 'El lote ' + codigo + ' de "' + producto + '" ya está registrado'
+      + (cerrado ? ' y se cerró el ' + fmtDate(yaRegistrado.fechaCierre) : '')
+      + ' con ' + (antes.length ? 'la' + (antes.length>1?'s':'') + ' semana' + (antes.length>1?'s':'') + ' ' + antes.map(n=>'S'+n).join(' ') : 'sin semanas')
+      + '.\n\n'
+      + (nuevas.length
+          ? 'Aceptar: es el mismo lote y le añado ' + (nuevas.length>1?'las semanas ':'la semana ') + nuevas.map(n=>'S'+n).join(' ') + (cerrado ? ' y lo vuelvo a abrir.' : '.') 
+          : 'Esa semana ya la tiene apuntada.')
+      + '\n\nCancelar: es un lote distinto y lo registro aparte.';
+    if(confirm(aviso)){
+      yaRegistrado.semanas = juntas;
+      yaRegistrado.semana = juntas[0] !== undefined ? juntas[0] : yaRegistrado.semana;
+      if(cerrado) yaRegistrado.fechaCierre = '';
+      await saveModule('lotesMP');
+      const ix = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
+      if(ix>=0){ CONFIG.materiasPrimas[ix].stockActual = Math.max(0, CONFIG.materiasPrimas[ix].stockActual - 1); await saveConfig(); }
+      viewMateriasPrimas();
+      renderDashboard();
+      return;
+    }
+  }
+
   const abierto = DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===producto.trim().toLowerCase());
   if(abierto){
     if(confirm(`Ya hay un lote abierto para "${producto}" (lote ${abierto.lote}). ¿Cerrarlo hoy y abrir el nuevo?`)){
@@ -2863,10 +2982,8 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana){
       return;
     }
   }
-  const sem = (semana===undefined || semana===null || String(semana).trim()==='')
-    ? getWeekNumber(fechaApertura) : parseInt(semana,10);
-  DATA.lotesMP.unshift({id:uid(), producto, lote, fechaApertura, fechaCierre:'',
-                        semana: isFinite(sem) ? sem : getWeekNumber(fechaApertura)});
+  DATA.lotesMP.unshift({id:uid(), producto, lote:codigo, fechaApertura, fechaCierre:'',
+                        semana: sems[0], semanas: sems});
   await saveModule('lotesMP');
   /* Un producto escrito a mano se queda en el catálogo: la próxima vez sale en la
      lista y todo el mundo lo abre con el mismo nombre. */
@@ -2934,9 +3051,9 @@ function filtraLotes(lista, idBuscar, idProducto){
    "Abrir nuevo lote": cada línea es un lote con su producto, su número, su semana
    y el día que se abrió, para poder elegirlo sin tener que escribir nada. */
 function etiquetaLoteAbierto(r){
-  const sem = (r.semana!==undefined && r.semana!=='') ? r.semana : getWeekNumber(r.fechaApertura);
+  const sem = textoSemanas(r, ' ');
   return String(r.producto||'') + ' — ' + String(r.lote||'sin lote')
-       + (sem!=='' && sem!==undefined && sem!==null ? ' · S'+sem : '')
+       + (sem ? ' · ' + sem : '')
        + (r.fechaApertura ? ' · abierto ' + fmtDate(r.fechaApertura) : '');
 }
 function poblarSelectLotesAbiertos(abiertos, texto){
@@ -2983,11 +3100,11 @@ function renderLotesAbiertos(){
     return;
   }
   const rows = abiertos.map(r=>`<tr>
-    <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td><td class="mono">${fmtDate(r.fechaApertura)}</td>
+    <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono semanas">${esc(textoSemanas(r,' '))}</td><td class="mono">${fmtDate(r.fechaApertura)}</td>
     <td><span class="cierre-linea"><input type="date" id="abCierre_${esc(r.id)}" value="${todayStr()}" min="${esc(r.fechaApertura||'')}">
       <button class="btn secondary small" onclick="cerrarLoteMP('${r.id}','abCierre_${r.id}')">Cerrar lote</button></span></td>
   </tr>`);
-  host.innerHTML = table(['Producto','Lote','Semana','F. apertura',''], rows);
+  host.innerHTML = table(['Producto','Lote','Semanas','F. apertura',''], rows);
 }
 function renderLotesMPTable(){
   const b = document.getElementById('lotesHistBuscar');
@@ -3013,14 +3130,14 @@ function renderLotesMPTable(){
     return;
   }
   const rows = lista.map(r=>`<tr>
-    <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td>
+    <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono semanas">${esc(textoSemanas(r,' '))}</td>
     <td class="mono">${fmtDate(r.fechaApertura)}</td><td class="mono">${r.fechaCierre?fmtDate(r.fechaCierre):'—'}</td>
     <td>${r.fechaCierre
       ? '<span class="hint">Cerrado</span>'
       : `<span class="cierre-linea"><input type="date" id="histCierre_${r.id}" value="${todayStr()}" min="${esc(r.fechaApertura||'')}">`
         + `<button class="btn secondary small" onclick="cerrarLoteMP('${r.id}','histCierre_${r.id}')">Cerrar lote</button></span>`}</td>
   </tr>`);
-  document.getElementById('lotesmp-table').innerHTML = table(['Producto','Lote','Semana','F. apertura','F. cierre',''], rows);
+  document.getElementById('lotesmp-table').innerHTML = table(['Producto','Lote','Semanas','F. apertura','F. cierre',''], rows);
 }
 async function registrarEntradaStock(nombre, proveedor, cantidadStr){
   if(!nombre || !nombre.trim()) return null;
@@ -3137,11 +3254,8 @@ const MODULE_META = {
     row:r=>[fmtDate(r.fecha),r.aceiteNuevo?'Sí':'No',r.producto||'',r.temperatura||'',r.polares,r.estado,r.responsable]},
   trazabilidad:{label:'Trazabilidad', headers:['Fecha','Lote','Producto','Cantidad','Materias primas','Tiendas','Responsable'],
     row:r=>[fmtDate(r.fecha),r.lote,r.producto,r.cantidad+' '+r.unidad,r.materiasPrimas,r.tiendas.join(' / '),r.responsable]},
-  lotesMP:{label:'Lotes de materias primas', headers:['Producto','Lote','Semana','Fecha apertura','Fecha cierre'],
-    row:r=>{
-      const sem = (r.semana!==undefined && r.semana!=='') ? r.semana : (r.fechaApertura ? getWeekNumber(r.fechaApertura) : '');
-      return [r.producto, r.lote, sem===''?'':'S'+sem, r.fechaApertura?fmtDate(r.fechaApertura):'', r.fechaCierre?fmtDate(r.fechaCierre):''];
-    }},
+  lotesMP:{label:'Lotes de materias primas', headers:['Producto','Lote','Semanas','Fecha apertura','Fecha cierre'],
+    row:r=>[r.producto, r.lote, textoSemanas(r, ' '), r.fechaApertura?fmtDate(r.fechaApertura):'', r.fechaCierre?fmtDate(r.fechaCierre):'']},
   mantenimiento:{label:'Mantenimiento y plagas', headers:['Fecha','Tipo','Empresa','Descripción','Estado','Responsable'],
     row:r=>[fmtDate(r.fecha),r.tipo,r.empresa||'',r.descripcion,r.resuelto?'Resuelto':'Pendiente',r.responsable]},
   noconformidades:{label:'Incidencias', headers:['Fecha','Plan','Descripción','Acción correctora','Estado','Cierre','Responsable'],
@@ -3199,7 +3313,11 @@ function viewInformes(){
     const desde = document.getElementById('informeDesde').value;
     const hasta = document.getElementById('informeHasta').value;
     const meta = mod==='temperaturas' ? tempMeta : MODULE_META[mod];
-    const filtered = mod==='temperaturas' ? flattenTemperaturas(desde,hasta) : DATA[mod].filter(r=> (!desde || r.fecha>=desde) && (!hasta || r.fecha<=hasta) );
+    /* Los lotes no tienen "fecha": se filtran por la de apertura, si no el
+       listado salía siempre vacío. */
+    const fechaDe = r => mod==='lotesMP' ? (r.fechaApertura || r.fechaCierre || '') : (r.fecha || '');
+    const filtered = mod==='temperaturas' ? flattenTemperaturas(desde,hasta)
+      : DATA[mod].filter(r=>{ const f = fechaDe(r); return (!desde || f>=desde) && (!hasta || f<=hasta); });
     const rows = filtered.map(r=>`<tr>${meta.row(r).map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`);
     document.getElementById('informe-table').innerHTML = table(meta.headers, rows);
     document.getElementById('informeCSV').onclick = ()=>downloadCSV(meta, filtered, mod);
@@ -3432,28 +3550,43 @@ function ddmm(f){
   const p = String(f||'').split('-');
   return p.length===3 ? p[2]+'/'+p[1] : '';
 }
-/** El papel escribe la semana pegada al lote ("03P061 S15", "L26P134-S17-S18"). */
-function loteConSemana(r){
-  let t = String(r.lote||'').trim();
-  /* En el cuaderno la semana se escribe pegada al lote ("-S15 -S20") y se va
-     añadiendo cada vez que se reabre. Si el código ya trae semanas apuntadas se
-     respeta tal cual; solo se le añade la semana a los lotes que no la llevan. */
-  if(/s\s*-?\s*\d{1,2}(\D|$)/i.test(t)) return t;
-  let s = (r.semana!==undefined && r.semana!=='') ? r.semana
-        : (r.fechaApertura ? getWeekNumber(r.fechaApertura) : '');
-  if(s===''||s===undefined||s===null) return t;
-  return t ? t+' S'+s : 'S'+s;
+/* Un casillero por número de lote, como en el cuaderno: si el mismo lote se ha
+   vuelto a pedir varias veces, no se abre otro casillero — se juntan sus semanas,
+   se pone la primera fecha de apertura y solo se da por cerrado cuando lo están
+   todas sus entradas. */
+function agruparPorLote(lotes){
+  const orden = [];
+  const porCodigo = {};
+  lotes.forEach(r=>{
+    const k = String(r.lote||'').trim().toLowerCase() || ('__sin__'+r.id);
+    if(!porCodigo[k]){ porCodigo[k] = {lote:String(r.lote||''), semanas:[], aperturas:[], cierres:[], abierto:false}; orden.push(k); }
+    const g = porCodigo[k];
+    semanasDeLote(r).forEach(n=>{ if(g.semanas.indexOf(n)<0) g.semanas.push(n); });
+    if(r.fechaApertura) g.aperturas.push(String(r.fechaApertura));
+    if(r.fechaCierre) g.cierres.push(String(r.fechaCierre)); else g.abierto = true;
+  });
+  return orden.map(k=>{
+    const g = porCodigo[k];
+    g.semanas.sort((a,b)=>a-b);
+    g.aperturas.sort(); g.cierres.sort();
+    return {lote:g.lote, semanas:g.semanas,
+            fechaApertura: g.aperturas[0] || '',
+            fechaCierre: g.abierto ? '' : (g.cierres[g.cierres.length-1] || '')};
+  }).sort((a,b)=> String(a.fechaApertura||'\uffff').localeCompare(String(b.fechaApertura||'\uffff')));
 }
-function casilleroLote(r){
-  if(!r) return {lote:'', abro:'', cierro:''};
-  return {lote:loteConSemana(r), abro:ddmm(r.fechaApertura), cierro:ddmm(r.fechaCierre)};
+function casilleroLote(g){
+  if(!g) return {lote:'', semanas:'', abro:'', cierro:''};
+  return {lote:String(g.lote||''),
+          semanas:(g.semanas||[]).map(n=>'S'+n).join(' '),
+          abro:ddmm(g.fechaApertura), cierro:ddmm(g.fechaCierre)};
 }
 /** Las tres filas que ocupa un producto (o más, si tiene más de cuatro lotes). */
 function filasProductoLote(nombre, lotes, bloques){
   let f1='', f2='', f3='';
   for(let i=0; i<bloques; i++){
     const c = casilleroLote(lotes[i]);
-    f1 += `<td colspan="2" class="celda-lote">LOTE: <span class="ml">${esc(c.lote)}</span></td>`;
+    f1 += `<td colspan="2" class="celda-lote">LOTE: <span class="ml">${esc(c.lote)}</span>`
+        + (c.semanas ? `<span class="sem">${esc(c.semanas)}</span>` : '') + `</td>`;
     f2 += `<td class="rot">F. ABRO:</td><td class="rot">F. CIERRO:</td>`;
     f3 += `<td class="fec">${esc(c.abro)}</td><td class="fec">${esc(c.cierro)}</td>`;
   }
@@ -3506,10 +3639,12 @@ function hojasLotesMP(desde, hasta){
       if(!lista.length) return;
       /* La hoja se ensancha sola: tantos casilleros a lo ancho como lotes tenga el
          producto que más haya gastado, con el mínimo del cuaderno impreso (4). */
+      const casilleros = {};
+      lista.forEach(p=>{ casilleros[normTxt(p)] = agruparPorLote(porProd[normTxt(p)] || []); });
       let bloques = LOTES_BLOQUES;
-      lista.forEach(p=>{ const n = (porProd[normTxt(p)]||[]).length; if(n > bloques) bloques = n; });
-      const cuerpo = lista.map(p=> filasProductoLote(p, porProd[normTxt(p)] || [], bloques) ).join('');
-      const usados = lista.reduce((n,p)=> n + ((porProd[normTxt(p)]||[]).length), 0);
+      lista.forEach(p=>{ const n = casilleros[normTxt(p)].length; if(n > bloques) bloques = n; });
+      const cuerpo = lista.map(p=> filasProductoLote(p, casilleros[normTxt(p)], bloques) ).join('');
+      const usados = lista.reduce((n,p)=> n + casilleros[normTxt(p)].length, 0);
       const ancha = bloques > LOTES_BLOQUES ? ' ancha' : '';   // apaisada si no cabe de pie
       out.push(`<section class="hoja hoja-lotes${ancha}" data-bloques="${bloques}">
         ${cabeceraHoja('Materias primas · registro de lotes','T1 · Traza 1-10','Año '+anio+' · '+titulo)}
@@ -3517,7 +3652,7 @@ function hojasLotesMP(desde, hasta){
           <thead><tr><th colspan="${1+2*bloques}" class="banda">${esc(titulo.toUpperCase())}</th></tr></thead>
           ${cuerpo}
         </table>
-        <p class="pie-nota">${usados} lote${usados===1?'':'s'} anotado${usados===1?'':'s'} en esta hoja. Las casillas en blanco son las del cuaderno que aún no se han usado.</p>
+        <p class="pie-nota">${usados} lote${usados===1?'':'s'} anotado${usados===1?'':'s'} en esta hoja. Cada casillero es un número de lote con todas las semanas en que se pidió. Las casillas en blanco son las del cuaderno que aún no se han usado.</p>
         <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`);
     });
   });
