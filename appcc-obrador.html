@@ -1798,9 +1798,62 @@ function renderRecepTable(){
     <td><span class="badge ${r.aceptado?'ok':'danger'}">${r.aceptado?'Aceptado':'Rechazado'}</span></td>
     <td>${esc(r.responsable)}</td>
     <td>${r.fotoId?`<button class="btn secondary small" onclick="verFotoAlbaran('${r.fotoId}')">Ver</button>`:'—'}</td>
-    <td><button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button></td>
+    <td style="white-space:nowrap;">
+      <button class="btn secondary small" onclick="editarRecepcion('${r.id}')">Editar</button>
+      <button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button>
+    </td>
   </tr>`);
   document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Nº albarán','Producto','Lote','Cantidad','Temp.','Envase','Caduca','Estado','Responsable','Foto',''], rows);
+}
+/** Corrige una recepción ya guardada (fecha mal leída, lote equivocado, etc.) sin
+    tener que borrarla y volver a meterla entera a mano. */
+function editarRecepcion(id){
+  const r = DATA.recepcion.find(x=>x.id===id);
+  if(!r) return;
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,16,12,0.78);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;overflow:auto;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-width:560px;width:100%;margin:20px 0;" onclick="event.stopPropagation()">
+      <h2 style="margin-bottom:4px;">${icon('truck')} Corregir recepción</h2>
+      <p class="hint">Cambia solo lo que esté mal (por ejemplo, un año equivocado) y guarda.</p>
+      <div class="record-form">
+        <label class="field"><span>Fecha</span><input type="date" id="editRecFecha" value="${esc(r.fecha)}"></label>
+        <label class="field"><span>Hora</span><input type="time" id="editRecHora" value="${esc(r.hora)||''}"></label>
+        <label class="field"><span>Proveedor</span><input type="text" id="editRecProveedor" value="${esc(r.proveedor)||''}"></label>
+        <label class="field"><span>Nº de albarán</span><input type="text" id="editRecNumAlbaran" value="${esc(r.numAlbaran)||''}"></label>
+        <label class="field wide"><span>Producto</span><input type="text" id="editRecProducto" value="${esc(r.producto)||''}"></label>
+        <label class="field"><span>Lote</span><input type="text" id="editRecLote" value="${esc(r.lote)||''}"></label>
+        <label class="field"><span>Cantidad</span><input type="text" id="editRecCantidad" value="${esc(r.cantidad)||''}"></label>
+        <label class="field"><span>Caducidad</span><input type="date" id="editRecCaducidad" value="${esc(r.caducidad)||''}"></label>
+        <label class="field"><span>Temperatura llegada (°C)</span><input type="number" step="0.1" id="editRecTemp" value="${r.tempLlegada!==undefined?esc(r.tempLlegada):''}"></label>
+        <label class="field"><span>Responsable</span><input type="text" id="editRecResponsable" value="${esc(r.responsable)||''}"></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn secondary" id="editRecCancelar" type="button">Cancelar</button>
+        <button class="btn" id="editRecGuardar" type="button">Guardar corrección</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', ()=>overlay.remove());
+  document.body.appendChild(overlay);
+  document.getElementById('editRecCancelar').addEventListener('click', ()=>overlay.remove());
+  document.getElementById('editRecGuardar').addEventListener('click', async ()=>{
+    r.fecha = document.getElementById('editRecFecha').value || r.fecha;
+    r.hora = document.getElementById('editRecHora').value || r.hora;
+    r.proveedor = document.getElementById('editRecProveedor').value.trim();
+    r.numAlbaran = document.getElementById('editRecNumAlbaran').value.trim();
+    r.producto = document.getElementById('editRecProducto').value.trim();
+    r.lote = document.getElementById('editRecLote').value.trim();
+    r.cantidad = document.getElementById('editRecCantidad').value.trim();
+    r.caducidad = document.getElementById('editRecCaducidad').value;
+    const temp = document.getElementById('editRecTemp').value;
+    r.tempLlegada = temp===''? '' : parseFloat(temp);
+    r.responsable = document.getElementById('editRecResponsable').value.trim();
+    await saveModule('recepcion');
+    overlay.remove();
+    renderRecepTable();
+    renderInventario();
+    alert('Recepción corregida.');
+  });
 }
 
 /* ================= ALERGENOS ================= */
