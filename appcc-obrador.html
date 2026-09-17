@@ -263,6 +263,7 @@
   }
   @page apaisada{size:A4 landscape;margin:9mm;}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -1290,13 +1291,45 @@ function compressImage(file, maxWidth, quality){
     reader.readAsDataURL(file);
   });
 }
+let pdfjsListo = false;
+function asegurarPdfJs(){
+  if(pdfjsListo) return;
+  if(window['pdfjs-dist/build/pdf']) window.pdfjsLib = window['pdfjs-dist/build/pdf'];
+  if(window.pdfjsLib){
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsListo = true;
+  }
+}
+// Convierte la primera página de un PDF (albarán escaneado o exportado) en una imagen,
+// para poder tratarlo igual que una foto: guardarlo y pasarlo a la IA de lectura.
+async function pdfPrimeraPaginaAImagen(file, maxWidth){
+  asegurarPdfJs();
+  if(!window.pdfjsLib) throw new Error('No se pudo cargar el lector de PDF. Revisa la conexión a internet e inténtalo de nuevo.');
+  const buffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({data: buffer}).promise;
+  const page = await pdf.getPage(1);
+  const viewportBase = page.getViewport({scale: 1});
+  const escala = Math.min(2.5, (maxWidth||1400) / viewportBase.width);
+  const viewport = page.getViewport({scale: Math.max(escala, 0.5)});
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext: ctx, viewport}).promise;
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+function esArchivoPdf(file){
+  return file.type==='application/pdf' || /\.pdf$/i.test(file.name||'');
+}
 function viewRecepcion(){
   document.getElementById('view-recepcion').innerHTML = `
     <div class="panel">
       <h2>${icon('truck')} Escanear albarán</h2>
-      <p class="hint">Haz una foto del albarán al recepcionar la mercancía. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
+      <p class="hint">Haz una foto del albarán al recepcionar la mercancía, o adjúntalo en PDF. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
       <div class="filters">
-        <label class="field"><span>Subir fotos (una o varias)</span><input type="file" id="albaranFile" accept="image/*" multiple></label>
+        <label class="field"><span>Subir fotos o PDF (uno o varios)</span><input type="file" id="albaranFile" accept="image/*,.pdf,application/pdf" multiple></label>
         <button class="btn secondary" id="albaranCamBtn" type="button">📷 Abrir cámara</button>
         <button class="btn secondary" id="albaranExtraerBtn" disabled>Extraer datos con IA</button>
       </div>
@@ -1347,13 +1380,20 @@ function viewRecepcion(){
     const files = Array.from(e.target.files||[]);
     if(!files.length) return;
     const estado = document.getElementById('albaranEstado');
-    estado.textContent = files.length>1 ? `Procesando ${files.length} fotos…` : 'Procesando foto…';
+    estado.textContent = files.length>1 ? `Procesando ${files.length} archivos…` : 'Procesando archivo…';
     try{
       const yaGuardadas = fotosYaRegistradas();
       const nuevas = [];
-      let repetidasEnCola = 0, repetidasGuardadas = 0;
+      let repetidasEnCola = 0, repetidasGuardadas = 0, errores = 0;
       for(const file of files){
-        const dataUrl = await compressImage(file, 1100, 0.72);
+        let dataUrl;
+        try{
+          dataUrl = esArchivoPdf(file) ? await pdfPrimeraPaginaAImagen(file, 1400) : await compressImage(file, 1100, 0.72);
+        }catch(err){
+          console.error(err);
+          errores++;
+          continue;
+        }
         const h = huellaFoto(dataUrl);
         if(yaGuardadas.has(h)){ repetidasGuardadas++; continue; }
         if(albaranQueueHash.indexOf(h)>=0 || nuevas.some(x=>x.h===h)){ repetidasEnCola++; continue; }
@@ -1376,9 +1416,13 @@ function viewRecepcion(){
       } else {
         avisoAlbaran('');
       }
-      if(!nuevas.length && descartadas) estado.textContent = 'Todas las fotos elegidas estaban repetidas.';
+      if(!nuevas.length && descartadas) estado.textContent = 'Todos los archivos elegidos estaban repetidos.';
+      if(errores){
+        const previo = document.getElementById('albaranAviso').innerHTML;
+        avisoAlbaran((previo?previo+'<br>':'')+'<b>'+errores+' archivo'+(errores>1?'s':'')+' no se '+(errores>1?'han':'ha')+' podido leer'+(errores>1?'':'')+'</b> (puede que el PDF esté dañado o protegido). Prueba a hacerle una foto en su lugar.');
+      }
     }catch(err){
-      estado.textContent = 'No se han podido procesar las fotos.';
+      estado.textContent = 'No se han podido procesar los archivos.';
     }
   });
   document.getElementById('albaranCamBtn').addEventListener('click', abrirCamara);
