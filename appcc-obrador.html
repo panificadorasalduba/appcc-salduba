@@ -263,7 +263,6 @@
   }
   @page apaisada{size:A4 landscape;margin:9mm;}
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -271,7 +270,6 @@
     <div class="sidebar-head">
       <div class="logo-frame"><img src="logo-salduba.png" alt="Salduba"></div>
       <div class="brand" style="margin-top:6px;"><small>Sistema APPCC</small></div>
-      <div class="hint" style="font-size:10px;opacity:.6;margin-top:2px;">v2026-09-17-14:00</div>
     </div>
     <nav class="navlist" id="navlist"></nav>
     <div class="sidebar-foot" id="sidebarFoot">Cargando datos de la empresa…</div>
@@ -1292,45 +1290,13 @@ function compressImage(file, maxWidth, quality){
     reader.readAsDataURL(file);
   });
 }
-let pdfjsListo = false;
-function asegurarPdfJs(){
-  if(pdfjsListo) return;
-  if(window['pdfjs-dist/build/pdf']) window.pdfjsLib = window['pdfjs-dist/build/pdf'];
-  if(window.pdfjsLib){
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    pdfjsListo = true;
-  }
-}
-// Convierte la primera página de un PDF (albarán escaneado o exportado) en una imagen,
-// para poder tratarlo igual que una foto: guardarlo y pasarlo a la IA de lectura.
-async function pdfPrimeraPaginaAImagen(file, maxWidth){
-  asegurarPdfJs();
-  if(!window.pdfjsLib) throw new Error('No se pudo cargar el lector de PDF. Revisa la conexión a internet e inténtalo de nuevo.');
-  const buffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({data: buffer}).promise;
-  const page = await pdf.getPage(1);
-  const viewportBase = page.getViewport({scale: 1});
-  const escala = Math.min(2.5, (maxWidth||1400) / viewportBase.width);
-  const viewport = page.getViewport({scale: Math.max(escala, 0.5)});
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(viewport.width);
-  canvas.height = Math.round(viewport.height);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  await page.render({canvasContext: ctx, viewport}).promise;
-  return canvas.toDataURL('image/jpeg', 0.85);
-}
-function esArchivoPdf(file){
-  return file.type==='application/pdf' || /\.pdf$/i.test(file.name||'');
-}
 function viewRecepcion(){
   document.getElementById('view-recepcion').innerHTML = `
     <div class="panel">
       <h2>${icon('truck')} Escanear albarán</h2>
-      <p class="hint">Haz una foto del albarán al recepcionar la mercancía, o adjúntalo en PDF. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
+      <p class="hint">Haz una foto del albarán al recepcionar la mercancía. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
       <div class="filters">
-        <label class="field"><span>Subir fotos o PDF (uno o varios)</span><input type="file" id="albaranFile" accept="image/*,.pdf,application/pdf" multiple></label>
+        <label class="field"><span>Subir fotos (una o varias)</span><input type="file" id="albaranFile" accept="image/*" multiple></label>
         <button class="btn secondary" id="albaranCamBtn" type="button">📷 Abrir cámara</button>
         <button class="btn secondary" id="albaranExtraerBtn" disabled>Extraer datos con IA</button>
       </div>
@@ -1381,20 +1347,13 @@ function viewRecepcion(){
     const files = Array.from(e.target.files||[]);
     if(!files.length) return;
     const estado = document.getElementById('albaranEstado');
-    estado.textContent = files.length>1 ? `Procesando ${files.length} archivos…` : 'Procesando archivo…';
+    estado.textContent = files.length>1 ? `Procesando ${files.length} fotos…` : 'Procesando foto…';
     try{
       const yaGuardadas = fotosYaRegistradas();
       const nuevas = [];
-      let repetidasEnCola = 0, repetidasGuardadas = 0, errores = 0;
+      let repetidasEnCola = 0, repetidasGuardadas = 0;
       for(const file of files){
-        let dataUrl;
-        try{
-          dataUrl = esArchivoPdf(file) ? await pdfPrimeraPaginaAImagen(file, 1400) : await compressImage(file, 1100, 0.72);
-        }catch(err){
-          console.error(err);
-          errores++;
-          continue;
-        }
+        const dataUrl = await compressImage(file, 1100, 0.72);
         const h = huellaFoto(dataUrl);
         if(yaGuardadas.has(h)){ repetidasGuardadas++; continue; }
         if(albaranQueueHash.indexOf(h)>=0 || nuevas.some(x=>x.h===h)){ repetidasEnCola++; continue; }
@@ -1417,13 +1376,9 @@ function viewRecepcion(){
       } else {
         avisoAlbaran('');
       }
-      if(!nuevas.length && descartadas) estado.textContent = 'Todos los archivos elegidos estaban repetidos.';
-      if(errores){
-        const previo = document.getElementById('albaranAviso').innerHTML;
-        avisoAlbaran((previo?previo+'<br>':'')+'<b>'+errores+' archivo'+(errores>1?'s':'')+' no se '+(errores>1?'han':'ha')+' podido leer'+(errores>1?'':'')+'</b> (puede que el PDF esté dañado o protegido). Prueba a hacerle una foto en su lugar.');
-      }
+      if(!nuevas.length && descartadas) estado.textContent = 'Todas las fotos elegidas estaban repetidas.';
     }catch(err){
-      estado.textContent = 'No se han podido procesar los archivos.';
+      estado.textContent = 'No se han podido procesar las fotos.';
     }
   });
   document.getElementById('albaranCamBtn').addEventListener('click', abrirCamara);
@@ -1473,14 +1428,7 @@ async function llamarClaudeSinClave(base64){
   });
   let data;
   try{ data = await response.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+response.status+')'); }
-  if(!response.ok){
-    const msg = data?.error?.message || ('HTTP '+response.status);
-    const err = new Error(msg);
-    if(response.status===503 || response.status===529 || response.status===500 || /overload|high demand|unavailable|try again later/i.test(msg)){
-      err.esSobrecarga = true;
-    }
-    throw err;
-  }
+  if(!response.ok) throw new Error(data?.error?.message || ('HTTP '+response.status));
   const textBlock = (data.content||[]).find(b=>b.type==='text');
   if(!textBlock || !textBlock.text) throw new Error('La IA no ha devuelto texto legible.');
   return textBlock.text;
@@ -1502,11 +1450,7 @@ async function llamarClaudeConClave(base64, apiKey){
   if(!response.ok){
     let msg = data?.error?.message || ('HTTP '+response.status);
     if(response.status===401) msg += ' — revisa que la clave de Anthropic en Ajustes sea correcta';
-    const err = new Error(msg);
-    if(response.status===503 || response.status===529 || response.status===500 || /overload|high demand|unavailable|try again later/i.test(msg)){
-      err.esSobrecarga = true;
-    }
-    throw err;
+    throw new Error(msg);
   }
   const textBlock = (data.content||[]).find(b=>b.type==='text');
   if(!textBlock || !textBlock.text) throw new Error('La IA no ha devuelto texto legible.');
@@ -1544,34 +1488,11 @@ async function llamarGemini(base64, apiKey){
       err.retrySeconds = segundos || 60;
       err.esLimiteVelocidad = true;
     }
-    if(response.status===503 || response.status===500 || /overload|high demand|unavailable|try again later/i.test(msg)){
-      err.esSobrecarga = true;
-    }
     throw err;
   }
   const text = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || '';
   if(!text) throw new Error('La IA no ha devuelto texto legible.');
   return text;
-}
-// Reintenta automáticamente una llamada a la IA si el modelo está saturado (sobrecarga temporal),
-// antes de mostrar cualquier error al usuario. No afecta al límite de velocidad (ese ya tiene su propia cuenta atrás).
-async function llamarConReintentoSobrecarga(fn, estado, intentosMax, btn){
-  intentosMax = intentosMax || 3;
-  btn = btn || document.getElementById('albaranExtraerBtn');
-  let ultimoError;
-  for(let intento=1; intento<=intentosMax; intento++){
-    try{
-      return await fn();
-    }catch(err){
-      ultimoError = err;
-      if(!err.esSobrecarga || intento===intentosMax) throw err;
-      const espera = 3 * intento; // 3s, 6s, 9s...
-      if(estado) estado.textContent = `El modelo de IA está saturado en este momento. Reintentando automáticamente (${intento}/${intentosMax})… espera ${espera}s.`;
-      if(btn) btn.textContent = `Reintentando (${intento}/${intentosMax})…`;
-      await new Promise(r=>setTimeout(r, espera*1000));
-    }
-  }
-  throw ultimoError;
 }
 async function extraerAlbaran(){
   if(!recepcionFotoDataUrl) return;
@@ -1583,17 +1504,17 @@ async function extraerAlbaran(){
   try{
     const base64 = recepcionFotoDataUrl.split(',')[1];
     if(HAS_CLAUDE_STORAGE){
-      textoRespuesta = await llamarConReintentoSobrecarga(()=>llamarClaudeSinClave(base64), estado);
+      textoRespuesta = await llamarClaudeSinClave(base64);
     } else {
       const provider = getAIProvider();
       if(provider==='gemini'){
         const key = getGeminiKey();
         if(!key) throw new Error('Falta configurar la clave de API de Gemini en Ajustes → Configuración de IA');
-        textoRespuesta = await llamarConReintentoSobrecarga(()=>llamarGemini(base64, key), estado);
+        textoRespuesta = await llamarGemini(base64, key);
       } else {
         const key = getApiKey();
         if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
-        textoRespuesta = await llamarConReintentoSobrecarga(()=>llamarClaudeConClave(base64, key), estado);
+        textoRespuesta = await llamarClaudeConClave(base64, key);
       }
     }
     textoRespuesta = textoRespuesta.trim();
@@ -1619,15 +1540,11 @@ async function extraerAlbaran(){
       iniciarCuentaAtrasLimite(err.retrySeconds, btn, estado);
       return;
     }
-    if(err.esSobrecarga){
-      estado.textContent = 'El modelo de IA está saturado ahora mismo y ya se ha reintentado varias veces automáticamente sin éxito. Espera un minuto y pulsa de nuevo "Extraer datos con IA", o añade los productos manualmente abajo.';
-    } else {
-      estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
-    }
+    estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
     if(recepcionExtraidas.length===0){ recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''}); renderLineasExtraidas(); }
   }finally{
     if(!estado.dataset.limiteActivo) btn.disabled = false;
-    if(!estado.dataset.limiteActivo) btn.textContent = 'Extraer datos con IA';
+    if(btn.textContent==='Leyendo albarán…') btn.textContent = 'Extraer datos con IA';
   }
 }
 function iniciarCuentaAtrasLimite(segundos, btn, estado){
@@ -1799,62 +1716,9 @@ function renderRecepTable(){
     <td><span class="badge ${r.aceptado?'ok':'danger'}">${r.aceptado?'Aceptado':'Rechazado'}</span></td>
     <td>${esc(r.responsable)}</td>
     <td>${r.fotoId?`<button class="btn secondary small" onclick="verFotoAlbaran('${r.fotoId}')">Ver</button>`:'—'}</td>
-    <td style="white-space:nowrap;">
-      <button class="btn secondary small" onclick="editarRecepcion('${r.id}')">Editar</button>
-      <button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button>
-    </td>
+    <td><button class="btn danger small" onclick="removeRecord('recepcion','${r.id}',renderRecepTable)">Borrar</button></td>
   </tr>`);
   document.getElementById('recep-table').innerHTML = table(['Fecha','Hora','Proveedor','Nº albarán','Producto','Lote','Cantidad','Temp.','Envase','Caduca','Estado','Responsable','Foto',''], rows);
-}
-/** Corrige una recepción ya guardada (fecha mal leída, lote equivocado, etc.) sin
-    tener que borrarla y volver a meterla entera a mano. */
-function editarRecepcion(id){
-  const r = DATA.recepcion.find(x=>x.id===id);
-  if(!r) return;
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,16,12,0.78);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;overflow:auto;';
-  overlay.innerHTML = `
-    <div class="panel" style="max-width:560px;width:100%;margin:20px 0;" onclick="event.stopPropagation()">
-      <h2 style="margin-bottom:4px;">${icon('truck')} Corregir recepción</h2>
-      <p class="hint">Cambia solo lo que esté mal (por ejemplo, un año equivocado) y guarda.</p>
-      <div class="record-form">
-        <label class="field"><span>Fecha</span><input type="date" id="editRecFecha" value="${esc(r.fecha)}"></label>
-        <label class="field"><span>Hora</span><input type="time" id="editRecHora" value="${esc(r.hora)||''}"></label>
-        <label class="field"><span>Proveedor</span><input type="text" id="editRecProveedor" value="${esc(r.proveedor)||''}"></label>
-        <label class="field"><span>Nº de albarán</span><input type="text" id="editRecNumAlbaran" value="${esc(r.numAlbaran)||''}"></label>
-        <label class="field wide"><span>Producto</span><input type="text" id="editRecProducto" value="${esc(r.producto)||''}"></label>
-        <label class="field"><span>Lote</span><input type="text" id="editRecLote" value="${esc(r.lote)||''}"></label>
-        <label class="field"><span>Cantidad</span><input type="text" id="editRecCantidad" value="${esc(r.cantidad)||''}"></label>
-        <label class="field"><span>Caducidad</span><input type="date" id="editRecCaducidad" value="${esc(r.caducidad)||''}"></label>
-        <label class="field"><span>Temperatura llegada (°C)</span><input type="number" step="0.1" id="editRecTemp" value="${r.tempLlegada!==undefined?esc(r.tempLlegada):''}"></label>
-        <label class="field"><span>Responsable</span><input type="text" id="editRecResponsable" value="${esc(r.responsable)||''}"></label>
-      </div>
-      <div class="form-actions">
-        <button class="btn secondary" id="editRecCancelar" type="button">Cancelar</button>
-        <button class="btn" id="editRecGuardar" type="button">Guardar corrección</button>
-      </div>
-    </div>`;
-  overlay.addEventListener('click', ()=>overlay.remove());
-  document.body.appendChild(overlay);
-  document.getElementById('editRecCancelar').addEventListener('click', ()=>overlay.remove());
-  document.getElementById('editRecGuardar').addEventListener('click', async ()=>{
-    r.fecha = document.getElementById('editRecFecha').value || r.fecha;
-    r.hora = document.getElementById('editRecHora').value || r.hora;
-    r.proveedor = document.getElementById('editRecProveedor').value.trim();
-    r.numAlbaran = document.getElementById('editRecNumAlbaran').value.trim();
-    r.producto = document.getElementById('editRecProducto').value.trim();
-    r.lote = document.getElementById('editRecLote').value.trim();
-    r.cantidad = document.getElementById('editRecCantidad').value.trim();
-    r.caducidad = document.getElementById('editRecCaducidad').value;
-    const temp = document.getElementById('editRecTemp').value;
-    r.tempLlegada = temp===''? '' : parseFloat(temp);
-    r.responsable = document.getElementById('editRecResponsable').value.trim();
-    await saveModule('recepcion');
-    overlay.remove();
-    renderRecepTable();
-    renderInventario();
-    alert('Recepción corregida.');
-  });
 }
 
 /* ================= ALERGENOS ================= */
@@ -2215,7 +2079,7 @@ function viewMateriasPrimas(){
       <p class="hint">Un bote/cubo/saco abierto y todavía en uso. Ciérralo el día que se termine.</p>
       <div class="filters">
         <label class="field"><span>Buscar</span><input type="text" id="lotesAbBuscar" placeholder="Producto o número de lote…"></label>
-        <label class="field"><span>Producto</span><select id="lotesAbProducto"><option value="">Elige un producto…</option></select></label>
+        <label class="field wide"><span>Lote abierto</span><select id="lotesAbProducto"><option value="">Selecciona un lote…</option></select></label>
       </div>
       <div id="lotes-abiertos-table"></div>
     </div>
@@ -2297,21 +2161,10 @@ function viewMateriasPrimas(){
       <div id="fichasmp-table"></div>
     </div>
   `;
-  /* Cada sección se renderiza de forma aislada: si una falla (p.ej. por un dato
-     raro en algún registro), las demás siguen mostrándose igualmente en vez de
-     dejar la pantalla en blanco sin ningún aviso. */
-  function renderSeccionSegura(fn, nombreSeccion, idHostSiFalla){
-    try{ fn(); }
-    catch(err){
-      console.error('Error al renderizar '+nombreSeccion+':', err);
-      const host = idHostSiFalla ? document.getElementById(idHostSiFalla) : null;
-      if(host) host.innerHTML = `<p class="hint" style="color:var(--danger,#b00);">No se ha podido mostrar esta sección (${esc(nombreSeccion)}). Error: ${esc(err.message||err)}</p>`;
-    }
-  }
-  renderSeccionSegura(renderInventario, 'Inventario', 'inventario-table');
-  document.getElementById('inventarioSearch').addEventListener('input', ()=>renderSeccionSegura(renderInventario, 'Inventario', 'inventario-table'));
-  renderSeccionSegura(renderCatalogoMP, 'Catálogo de materias primas', 'catalogo-mp-table');
-  renderSeccionSegura(renderTelefonosProveedores, 'Teléfonos de proveedores', 'telefonos-proveedores');
+  renderInventario();
+  document.getElementById('inventarioSearch').addEventListener('input', renderInventario);
+  renderCatalogoMP();
+  renderTelefonosProveedores();
   document.getElementById('add-mp-btn').addEventListener('click', async ()=>{
     CONFIG.materiasPrimas.push({nombre:'Nueva materia prima', categoria:'', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
     await saveConfig();
@@ -2319,8 +2172,8 @@ function viewMateriasPrimas(){
   });
   document.getElementById('autocompletar-proveedores-btn').addEventListener('click', autocompletarProveedores);
   document.getElementById('recalcular-proveedores-btn').addEventListener('click', recalcularProveedoresDesdeRecepciones);
-  renderSeccionSegura(renderLotesAbiertos, 'Lotes abiertos actualmente', 'lotes-abiertos-table');
-  renderSeccionSegura(renderLotesMPTable, 'Historial de lotes', 'lotesmp-table');
+  renderLotesAbiertos();
+  renderLotesMPTable();
   ['lotesAbBuscar','lotesAbProducto'].forEach(id=>{
     const el = document.getElementById(id);
     if(el){ el.addEventListener('input', renderLotesAbiertos); el.addEventListener('change', renderLotesAbiertos); }
@@ -2466,37 +2319,23 @@ async function autocompletarProveedores(){
 
 /* ---- Catálogo y stock ---- */
 function loteAbiertoDe(nombre){
-  return DATA.lotesMP.find(r=>!r.fechaCierre && coincideProducto(r.producto, nombre)) || null;
+  const key = nombre.trim().toLowerCase();
+  return DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===key) || null;
 }
 function entradasDe(nombre){
-  const lotesDeEste = DATA.lotesMP.filter(r=>coincideProducto(r.producto, nombre));
+  const key = nombre.trim().toLowerCase();
   const lotesPorClave = {};
-  lotesDeEste.forEach(r=>{
+  DATA.lotesMP.filter(r=>r.producto.trim().toLowerCase()===key).forEach(r=>{
     const k = (r.lote||'').trim().toLowerCase();
     if(k) lotesPorClave[k] = r;
   });
-  return DATA.recepcion.filter(r=>coincideProducto(r.producto, nombre))
+  return DATA.recepcion.filter(r=>r.producto.trim().toLowerCase()===key)
     .map(r=>{
       const loteInfo = r.lote ? lotesPorClave[r.lote.trim().toLowerCase()] : null;
       const estadoLote = loteInfo ? (loteInfo.fechaCierre ? 'Cerrado' : 'Abierto') : 'En stock (sin abrir)';
       return {fecha:r.fecha, lote:r.lote, caducidad:r.caducidad, cantidad:r.cantidad, proveedor:r.proveedor, estadoLote};
     })
     .sort((a,b)=> a.fecha.localeCompare(b.fecha));
-}
-/** Recepciones cuyo nombre de producto no casa con ningún producto del catálogo de
-    materias primas — para poder verlas también en el Inventario y darlas de alta.
-    Se agrupan por nombre normalizado, para no repetir el mismo producto si viene
-    escrito con alguna pequeña diferencia entre albaranes. */
-function recepcionesSinCatalogar(){
-  const porClave = {};
-  DATA.recepcion.forEach(r=>{
-    const n = String(r.producto||'').trim();
-    if(!n) return;
-    if(CONFIG.materiasPrimas.some(m=>coincideProducto(m.nombre, n))) return;
-    const clave = normalizarNombreProducto(n);
-    if(!porClave[clave]) porClave[clave] = n;
-  });
-  return Object.values(porClave).sort((a,b)=>a.localeCompare(b,'es'));
 }
 function renderInventario(){
   const el = document.getElementById('inventario-table');
@@ -2518,15 +2357,13 @@ function renderInventario(){
           <td><span class="badge ${en.estadoLote==='Abierto'?'warn':'ok'}">${en.estadoLote}</span></td>
         </tr>`)
       : ['<tr class="empty-row"><td colspan="6">Sin recepciones registradas todavía para este producto.</td></tr>'];
-    const nombreJs = esc(m.nombre).replace(/'/g,"\\'");
     return `<details class="inv-folder">
       <summary>
         <span class="inv-folder-title"><span class="inv-arrow">▸</span> 📁 ${esc(m.nombre)} <span class="hint" style="font-weight:400;">(${esc(m.categoria)||'sin categoría'})</span></span>
         <span class="inv-folder-meta">
           <span class="mono">${m.stockActual} ${esc(m.unidad)}</span>
           <span class="badge ${m.stockActual<=m.stockMinimo?'danger':'ok'}">${m.stockActual<=m.stockMinimo?'Bajo mínimo':'OK'}</span>
-          <button class="btn small" title="Abre directamente el lote recibido más antiguo que todavía no se ha abierto (FIFO)" onclick="event.preventDefault();event.stopPropagation();abrirLoteFifoDesdeInventario('${nombreJs}')">📦 Abrir lote (FIFO)</button>
-          <button class="btn secondary small" onclick="event.preventDefault();event.stopPropagation();abrirAjusteInventario('${nombreJs}')">Ajustar</button>
+          <button class="btn secondary small" onclick="event.preventDefault();event.stopPropagation();abrirAjusteInventario('${esc(m.nombre).replace(/'/g,"\\'")}')">Ajustar</button>
         </span>
       </summary>
       <div class="inv-folder-body">
@@ -2534,33 +2371,6 @@ function renderInventario(){
       </div>
     </details>`;
   }).join('');
-  const sueltos = q ? [] : recepcionesSinCatalogar();
-  if(sueltos.length){
-    el.innerHTML += `<p class="hint" style="margin:16px 0 6px;"><strong>Recepciones sin dar de alta en el catálogo</strong> — llegaron por albarán pero todavía no tienen su propia ficha de materia prima:</p>` +
-      sueltos.map(nombre=>{
-        const entradas = entradasDe(nombre);
-        const filas = entradas.map(en=>`<tr>
-            <td class="mono">${fmtDate(en.fecha)}</td>
-            <td class="mono">${esc(en.lote)||'—'}</td>
-            <td class="mono">${en.caducidad ? fmtDate(en.caducidad) : '—'}</td>
-            <td class="mono">${esc(en.cantidad)||'—'}</td>
-            <td>${esc(en.proveedor)||'—'}</td>
-            <td><span class="badge ${en.estadoLote==='Abierto'?'warn':'ok'}">${en.estadoLote}</span></td>
-          </tr>`).join('');
-        const nombreJs = esc(nombre).replace(/'/g,"\\'");
-        return `<details class="inv-folder">
-          <summary>
-            <span class="inv-folder-title"><span class="inv-arrow">▸</span> 📁 ${esc(nombre)} <span class="hint" style="font-weight:400;">(sin catalogar)</span></span>
-            <span class="inv-folder-meta">
-              <button class="btn small" title="Da de alta este producto en el catálogo y abre de una vez su lote más antiguo (FIFO)" onclick="event.preventDefault();event.stopPropagation();agregarYAbrirLoteDesdeSuelto('${nombreJs}')">📦 Añadir y abrir lote (FIFO)</button>
-            </span>
-          </summary>
-          <div class="inv-folder-body">
-            ${table(['F. entrada','Lote','Caduca','Cantidad','Proveedor','Estado'], filas)}
-          </div>
-        </details>`;
-      }).join('');
-  }
 }
 function abrirAjusteInventario(nombre){
   const m = CONFIG.materiasPrimas.find(x=>x.nombre===nombre);
@@ -2875,33 +2685,14 @@ function cantidadRecepcion(r){
   if(m){ const v = parseFloat(m[1].replace(',','.')); if(isFinite(v)&&v>0) return v; }
   return 1;
 }
-/** Quita acentos, pasa a minúsculas y limpia espacios, para poder comparar nombres
-    de producto aunque estén escritos de forma distinta (catálogo vs. albarán). */
-function normalizarNombreProducto(s){
-  return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim().replace(/\s+/g,' ');
-}
-/** El catálogo llama a un producto de una forma ("Cabello de ángel") y el albarán del
-    proveedor puede llamarlo de otra ("CABELLO ANGEL BOTE 5KG"). En vez de exigir el
-    nombre exacto, se compara de forma flexible: igual, uno contenido en el otro, o
-    coincidiendo todas las palabras relevantes del nombre más corto. */
-function coincideProducto(a, b){
-  const na = normalizarNombreProducto(a), nb = normalizarNombreProducto(b);
-  if(!na || !nb) return false;
-  if(na===nb || na.includes(nb) || nb.includes(na)) return true;
-  const stop = new Set(['de','la','el','los','las','del','y','con','sin','para','en']);
-  const palabras = s => s.split(' ').filter(w=>w.length>2 && !stop.has(w));
-  const [cortas, larga] = na.length<=nb.length ? [palabras(na), nb] : [palabras(nb), na];
-  if(!cortas.length) return false;
-  return cortas.every(w=>larga.includes(w));
-}
 /** Todo lo recepcionado de un producto, agrupado por lote: cuánto entró, cuándo,
     de qué proveedor, cuándo caduca y cuántos envases de ese lote se han abierto ya. */
 function lotesRecibidos(nombre){
-  const key0 = String(nombre||'').trim();
+  const key0 = String(nombre||'').trim().toLowerCase();
   if(!key0) return [];
   const porLote = {};
   DATA.recepcion
-    .filter(r=>coincideProducto(r.producto, key0) && r.lote && String(r.lote).trim())
+    .filter(r=>String(r.producto||'').trim().toLowerCase()===key0 && r.lote && String(r.lote).trim())
     .forEach(r=>{
       const key = String(r.lote).trim().toLowerCase();
       if(!porLote[key]) porLote[key] = {lote:r.lote, cantidadRecibida:0, fecha:r.fecha,
@@ -2913,7 +2704,7 @@ function lotesRecibidos(nombre){
       }
     });
   const abiertosPorLote = {};
-  DATA.lotesMP.filter(r=>coincideProducto(r.producto, key0)).forEach(r=>{
+  DATA.lotesMP.filter(r=>String(r.producto||'').trim().toLowerCase()===key0).forEach(r=>{
     const key = String(r.lote||'').trim().toLowerCase();
     abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
   });
@@ -2932,8 +2723,10 @@ function pintarRecepcionesDelProducto(nombre){
   const host = document.getElementById('loteRecepciones');
   if(!host) return;
   if(!nombre){ host.innerHTML=''; return; }
+  const clave = String(nombre).trim().toLowerCase();
   const recibidos = lotesRecibidos(nombre);
-  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre && coincideProducto(r.producto, nombre));
+  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre &&
+      String(r.producto||'').trim().toLowerCase()===clave);
 
   // una fila por lote: lo recepcionado, más los abiertos que no casen con ninguno
   const filasLote = recibidos.slice();
@@ -2988,10 +2781,10 @@ function elegirLoteRecibido(lote){
   if(inp){ inp.value = lote; try{ inp.focus(); }catch(e){} }
 }
 function loteMasAntiguoDisponible(nombre){
-  const key0 = String(nombre||'').trim();
+  const key0 = nombre.trim().toLowerCase();
   const porLote = {};
   DATA.recepcion
-    .filter(r=>coincideProducto(r.producto, key0) && r.lote && r.lote.trim())
+    .filter(r=>r.producto.trim().toLowerCase()===key0 && r.lote && r.lote.trim())
     .forEach(r=>{
       const key = r.lote.trim().toLowerCase();
       const cant = cantidadRecepcion(r);
@@ -3000,7 +2793,7 @@ function loteMasAntiguoDisponible(nombre){
       if(r.fecha < porLote[key].fecha){ porLote[key].fecha = r.fecha; porLote[key].caducidad = r.caducidad; }
     });
   const abiertosPorLote = {};
-  DATA.lotesMP.filter(r=>coincideProducto(r.producto, key0)).forEach(r=>{
+  DATA.lotesMP.filter(r=>r.producto.trim().toLowerCase()===key0).forEach(r=>{
     const key = r.lote.trim().toLowerCase();
     abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
   });
@@ -3086,31 +2879,6 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana){
   viewMateriasPrimas();
   renderDashboard();
 }
-/** Desde el Inventario: abre directamente el lote recibido más antiguo (FIFO) de un
-    producto que ya está en el catálogo, sin tener que ir a "Abrir nuevo lote" a buscarlo. */
-async function abrirLoteFifoDesdeInventario(nombre){
-  const antiguo = loteMasAntiguoDisponible(nombre);
-  if(!antiguo){
-    alert('No hay ningún lote sin abrir disponible para "'+nombre+'". O ya están todos abiertos, o no hay ninguna recepción con lote registrada — revisa "Recepción de mercancías".');
-    return;
-  }
-  const detalle = 'Lote: '+antiguo.lote+'\nRecibido: '+fmtDate(antiguo.fecha)+
-    (antiguo.caducidad?'\nCaduca: '+fmtDate(antiguo.caducidad):'')+
-    '\nProveedor: '+(antiguo.proveedor||'—');
-  if(!confirm('Se va a abrir el lote más antiguo disponible de "'+nombre+'" con la fecha de hoy:\n\n'+detalle+'\n\n¿Confirmas?')) return;
-  await abrirLoteMP(nombre, antiguo.lote, todayStr());
-}
-/** Desde el Inventario, para una recepción que llegó por albarán pero todavía no tiene
-    ficha propia en el catálogo de materias primas: la da de alta (igual que se haría
-    desde "Otro producto" al abrir un lote) y de paso abre ya su lote más antiguo. */
-async function agregarYAbrirLoteDesdeSuelto(nombre){
-  const yaEsta = CONFIG.materiasPrimas.some(m=>coincideProducto(m.nombre, nombre));
-  if(!yaEsta){
-    CONFIG.materiasPrimas.push({nombre: nombre.trim(), categoria:'', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
-    await saveConfig();
-  }
-  await abrirLoteFifoDesdeInventario(nombre);
-}
 async function cerrarLoteMP(id, idInputFecha){
   const rec = DATA.lotesMP.find(r=>r.id===id);
   if(!rec) return;
@@ -3162,29 +2930,64 @@ function filtraLotes(lista, idBuscar, idProducto){
     return ((r.producto||'')+' '+(r.lote||'')).toLowerCase().includes(q);
   });
 }
+/* El desplegable de lotes abiertos enseña la lista entera de una vez, como el de
+   "Abrir nuevo lote": cada línea es un lote con su producto, su número, su semana
+   y el día que se abrió, para poder elegirlo sin tener que escribir nada. */
+function etiquetaLoteAbierto(r){
+  const sem = (r.semana!==undefined && r.semana!=='') ? r.semana : getWeekNumber(r.fechaApertura);
+  return String(r.producto||'') + ' — ' + String(r.lote||'sin lote')
+       + (sem!=='' && sem!==undefined && sem!==null ? ' · S'+sem : '')
+       + (r.fechaApertura ? ' · abierto ' + fmtDate(r.fechaApertura) : '');
+}
+function poblarSelectLotesAbiertos(abiertos, texto){
+  const sel = document.getElementById('lotesAbProducto');
+  if(!sel) return;
+  const previo = sel.value;
+  const q = (texto||'').trim().toLowerCase();
+  const casa = r => !q || String(r.producto||'').toLowerCase().includes(q)
+                      || String(r.lote||'').toLowerCase().includes(q);
+  const lista = abiertos.filter(casa).sort((a,b)=>{
+    const p = String(a.producto||'').localeCompare(String(b.producto||''),'es');
+    return p !== 0 ? p : String(b.fechaApertura||'').localeCompare(String(a.fechaApertura||''));
+  });
+  const cabecera = q
+    ? `<option value="">${lista.length} lote${lista.length===1?'':'s'} con «${esc(texto.trim())}»</option>`
+    : `<option value="">Selecciona un lote…  (${lista.length} abiertos)</option>`;
+  sel.innerHTML = cabecera + lista.map(r=>`<option value="${esc(r.id)}">${esc(etiquetaLoteAbierto(r))}</option>`).join('');
+  sel.value = lista.some(r=>r.id===previo) ? previo : '';
+}
 function renderLotesAbiertos(){
   const todos = DATA.lotesMP.filter(r=>!r.fechaCierre);
   const b = document.getElementById('lotesAbBuscar');
   const q = b ? b.value.trim() : '';
-  poblarSelectProductosLote('lotesAbProducto', todos, q);
+  poblarSelectLotesAbiertos(todos, q);
+  const pr = document.getElementById('lotesAbProducto');
+  const elegido = pr ? pr.value : '';
   const host = document.getElementById('lotes-abiertos-table');
-  if(!todos.length){
-    if(host) host.innerHTML = '<p class="hint">No hay ningún lote abierto ahora mismo.</p>';
+  if(!host) return;
+
+  let abiertos;
+  if(elegido){
+    abiertos = todos.filter(r=>r.id===elegido);          // el desplegable manda
+  } else if(q){
+    const k = q.toLowerCase();
+    abiertos = todos.filter(r=> String(r.producto||'').toLowerCase().includes(k)
+                             || String(r.lote||'').toLowerCase().includes(k));
+  } else {
+    host.innerHTML = `<p class="hint">Hay <strong>${todos.length}</strong> lotes abiertos. Despliega la lista de arriba y elige uno, o escribe el producto (o su número de lote) para acotarla.</p>`;
     return;
   }
-  const abiertos = filtraLotes(todos, 'lotesAbBuscar', 'lotesAbProducto')
-    .sort((a,b2)=>String(b2.fechaApertura||'').localeCompare(String(a.fechaApertura||'')));
+  abiertos = abiertos.slice().sort((a,b2)=>String(b2.fechaApertura||'').localeCompare(String(a.fechaApertura||'')));
   if(!abiertos.length){
-    if(host) host.innerHTML = `<p class="hint">Ningún lote abierto con esa búsqueda (hay <strong>${todos.length}</strong> en total).</p>`;
+    host.innerHTML = '<p class="hint">Ningún lote abierto con esa búsqueda.</p>';
     return;
   }
   const rows = abiertos.map(r=>`<tr>
     <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td><td class="mono">${fmtDate(r.fechaApertura)}</td>
-    <td><button class="btn secondary small" onclick="cerrarLoteMP('${r.id}')">Cerrar lote (hoy)</button></td>
+    <td><span class="cierre-linea"><input type="date" id="abCierre_${esc(r.id)}" value="${todayStr()}" min="${esc(r.fechaApertura||'')}">
+      <button class="btn secondary small" onclick="cerrarLoteMP('${r.id}','abCierre_${r.id}')">Cerrar lote</button></span></td>
   </tr>`);
-  document.getElementById('lotes-abiertos-table').innerHTML =
-    (q || document.getElementById('lotesAbProducto')?.value ? `<p class="hint" style="margin-bottom:6px;">${abiertos.length} de ${todos.length} lotes abiertos.</p>` : '') +
-    table(['Producto','Lote','Semana','F. apertura',''], rows);
+  host.innerHTML = table(['Producto','Lote','Semana','F. apertura',''], rows);
 }
 function renderLotesMPTable(){
   const b = document.getElementById('lotesHistBuscar');
@@ -3692,7 +3495,7 @@ function hojasLotesMP(desde, hasta){
       (porProd[k] = porProd[k] || []).push(r);
     });
     Object.keys(porProd).forEach(k=> porProd[k].sort((a,b)=>
-      String(a.fechaApertura||' ').localeCompare(String(b.fechaApertura||' ')) ));
+      String(a.fechaApertura||'￿').localeCompare(String(b.fechaApertura||'￿')) ));
 
     // lotes de productos que no están en ningún catálogo: se añaden al final
     const sueltos = Object.keys(porProd).filter(k=> !enCatalogo[k]);
