@@ -3153,26 +3153,26 @@ function filtraLotes(lista, idBuscar, idProducto){
 function renderLotesAbiertos(){
   const todos = DATA.lotesMP.filter(r=>!r.fechaCierre);
   const b = document.getElementById('lotesAbBuscar');
-  const pr = document.getElementById('lotesAbProducto');
   const q = b ? b.value.trim() : '';
   poblarSelectProductosLote('lotesAbProducto', todos, q);
   const host = document.getElementById('lotes-abiertos-table');
-  /* Sin búsqueda no se vuelca la lista entera: se busca el producto y ya. */
-  if(!q && !(pr && pr.value)){
-    if(host) host.innerHTML = `<p class="hint">Hay <strong>${todos.length}</strong> lotes abiertos. Escribe el producto (o su número de lote) arriba, o elígelo en el desplegable, para ver los suyos.</p>`;
+  if(!todos.length){
+    if(host) host.innerHTML = '<p class="hint">No hay ningún lote abierto ahora mismo.</p>';
     return;
   }
   const abiertos = filtraLotes(todos, 'lotesAbBuscar', 'lotesAbProducto')
     .sort((a,b2)=>String(b2.fechaApertura||'').localeCompare(String(a.fechaApertura||'')));
   if(!abiertos.length){
-    if(host) host.innerHTML = '<p class="hint">Ningún lote abierto con esa búsqueda.</p>';
+    if(host) host.innerHTML = `<p class="hint">Ningún lote abierto con esa búsqueda (hay <strong>${todos.length}</strong> en total).</p>`;
     return;
   }
   const rows = abiertos.map(r=>`<tr>
     <td>${esc(r.producto)}</td><td class="mono">${esc(r.lote)}</td><td class="mono">S${r.semana!==undefined&&r.semana!==''?r.semana:getWeekNumber(r.fechaApertura)}</td><td class="mono">${fmtDate(r.fechaApertura)}</td>
     <td><button class="btn secondary small" onclick="cerrarLoteMP('${r.id}')">Cerrar lote (hoy)</button></td>
   </tr>`);
-  document.getElementById('lotes-abiertos-table').innerHTML = table(['Producto','Lote','Semana','F. apertura',''], rows);
+  document.getElementById('lotes-abiertos-table').innerHTML =
+    (q || document.getElementById('lotesAbProducto')?.value ? `<p class="hint" style="margin-bottom:6px;">${abiertos.length} de ${todos.length} lotes abiertos.</p>` : '') +
+    table(['Producto','Lote','Semana','F. apertura',''], rows);
 }
 function renderLotesMPTable(){
   const b = document.getElementById('lotesHistBuscar');
