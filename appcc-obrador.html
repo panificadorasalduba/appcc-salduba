@@ -2296,10 +2296,21 @@ function viewMateriasPrimas(){
       <div id="fichasmp-table"></div>
     </div>
   `;
-  renderInventario();
-  document.getElementById('inventarioSearch').addEventListener('input', renderInventario);
-  renderCatalogoMP();
-  renderTelefonosProveedores();
+  /* Cada sección se renderiza de forma aislada: si una falla (p.ej. por un dato
+     raro en algún registro), las demás siguen mostrándose igualmente en vez de
+     dejar la pantalla en blanco sin ningún aviso. */
+  function renderSeccionSegura(fn, nombreSeccion, idHostSiFalla){
+    try{ fn(); }
+    catch(err){
+      console.error('Error al renderizar '+nombreSeccion+':', err);
+      const host = idHostSiFalla ? document.getElementById(idHostSiFalla) : null;
+      if(host) host.innerHTML = `<p class="hint" style="color:var(--danger,#b00);">No se ha podido mostrar esta sección (${esc(nombreSeccion)}). Error: ${esc(err.message||err)}</p>`;
+    }
+  }
+  renderSeccionSegura(renderInventario, 'Inventario', 'inventario-table');
+  document.getElementById('inventarioSearch').addEventListener('input', ()=>renderSeccionSegura(renderInventario, 'Inventario', 'inventario-table'));
+  renderSeccionSegura(renderCatalogoMP, 'Catálogo de materias primas', 'catalogo-mp-table');
+  renderSeccionSegura(renderTelefonosProveedores, 'Teléfonos de proveedores', 'telefonos-proveedores');
   document.getElementById('add-mp-btn').addEventListener('click', async ()=>{
     CONFIG.materiasPrimas.push({nombre:'Nueva materia prima', categoria:'', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
     await saveConfig();
@@ -2307,8 +2318,8 @@ function viewMateriasPrimas(){
   });
   document.getElementById('autocompletar-proveedores-btn').addEventListener('click', autocompletarProveedores);
   document.getElementById('recalcular-proveedores-btn').addEventListener('click', recalcularProveedoresDesdeRecepciones);
-  renderLotesAbiertos();
-  renderLotesMPTable();
+  renderSeccionSegura(renderLotesAbiertos, 'Lotes abiertos actualmente', 'lotes-abiertos-table');
+  renderSeccionSegura(renderLotesMPTable, 'Historial de lotes', 'lotesmp-table');
   ['lotesAbBuscar','lotesAbProducto'].forEach(id=>{
     const el = document.getElementById(id);
     if(el){ el.addEventListener('input', renderLotesAbiertos); el.addEventListener('change', renderLotesAbiertos); }
