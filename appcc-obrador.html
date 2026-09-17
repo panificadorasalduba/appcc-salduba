@@ -2401,23 +2401,37 @@ async function autocompletarProveedores(){
 
 /* ---- Catálogo y stock ---- */
 function loteAbiertoDe(nombre){
-  const key = nombre.trim().toLowerCase();
-  return DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===key) || null;
+  return DATA.lotesMP.find(r=>!r.fechaCierre && coincideProducto(r.producto, nombre)) || null;
 }
 function entradasDe(nombre){
-  const key = nombre.trim().toLowerCase();
+  const lotesDeEste = DATA.lotesMP.filter(r=>coincideProducto(r.producto, nombre));
   const lotesPorClave = {};
-  DATA.lotesMP.filter(r=>r.producto.trim().toLowerCase()===key).forEach(r=>{
+  lotesDeEste.forEach(r=>{
     const k = (r.lote||'').trim().toLowerCase();
     if(k) lotesPorClave[k] = r;
   });
-  return DATA.recepcion.filter(r=>r.producto.trim().toLowerCase()===key)
+  return DATA.recepcion.filter(r=>coincideProducto(r.producto, nombre))
     .map(r=>{
       const loteInfo = r.lote ? lotesPorClave[r.lote.trim().toLowerCase()] : null;
       const estadoLote = loteInfo ? (loteInfo.fechaCierre ? 'Cerrado' : 'Abierto') : 'En stock (sin abrir)';
       return {fecha:r.fecha, lote:r.lote, caducidad:r.caducidad, cantidad:r.cantidad, proveedor:r.proveedor, estadoLote};
     })
     .sort((a,b)=> a.fecha.localeCompare(b.fecha));
+}
+/** Recepciones cuyo nombre de producto no casa con ningún producto del catálogo de
+    materias primas — para poder verlas también en el Inventario y darlas de alta.
+    Se agrupan por nombre normalizado, para no repetir el mismo producto si viene
+    escrito con alguna pequeña diferencia entre albaranes. */
+function recepcionesSinCatalogar(){
+  const porClave = {};
+  DATA.recepcion.forEach(r=>{
+    const n = String(r.producto||'').trim();
+    if(!n) return;
+    if(CONFIG.materiasPrimas.some(m=>coincideProducto(m.nombre, n))) return;
+    const clave = normalizarNombreProducto(n);
+    if(!porClave[clave]) porClave[clave] = n;
+  });
+  return Object.values(porClave).sort((a,b)=>a.localeCompare(b,'es'));
 }
 function renderInventario(){
   const el = document.getElementById('inventario-table');
@@ -2439,13 +2453,15 @@ function renderInventario(){
           <td><span class="badge ${en.estadoLote==='Abierto'?'warn':'ok'}">${en.estadoLote}</span></td>
         </tr>`)
       : ['<tr class="empty-row"><td colspan="6">Sin recepciones registradas todavía para este producto.</td></tr>'];
+    const nombreJs = esc(m.nombre).replace(/'/g,"\\'");
     return `<details class="inv-folder">
       <summary>
         <span class="inv-folder-title"><span class="inv-arrow">▸</span> 📁 ${esc(m.nombre)} <span class="hint" style="font-weight:400;">(${esc(m.categoria)||'sin categoría'})</span></span>
         <span class="inv-folder-meta">
           <span class="mono">${m.stockActual} ${esc(m.unidad)}</span>
           <span class="badge ${m.stockActual<=m.stockMinimo?'danger':'ok'}">${m.stockActual<=m.stockMinimo?'Bajo mínimo':'OK'}</span>
-          <button class="btn secondary small" onclick="event.preventDefault();event.stopPropagation();abrirAjusteInventario('${esc(m.nombre).replace(/'/g,"\\'")}')">Ajustar</button>
+          <button class="btn small" title="Abre directamente el lote recibido más antiguo que todavía no se ha abierto (FIFO)" onclick="event.preventDefault();event.stopPropagation();abrirLoteFifoDesdeInventario('${nombreJs}')">📦 Abrir lote (FIFO)</button>
+          <button class="btn secondary small" onclick="event.preventDefault();event.stopPropagation();abrirAjusteInventario('${nombreJs}')">Ajustar</button>
         </span>
       </summary>
       <div class="inv-folder-body">
@@ -2453,6 +2469,33 @@ function renderInventario(){
       </div>
     </details>`;
   }).join('');
+  const sueltos = q ? [] : recepcionesSinCatalogar();
+  if(sueltos.length){
+    el.innerHTML += `<p class="hint" style="margin:16px 0 6px;"><strong>Recepciones sin dar de alta en el catálogo</strong> — llegaron por albarán pero todavía no tienen su propia ficha de materia prima:</p>` +
+      sueltos.map(nombre=>{
+        const entradas = entradasDe(nombre);
+        const filas = entradas.map(en=>`<tr>
+            <td class="mono">${fmtDate(en.fecha)}</td>
+            <td class="mono">${esc(en.lote)||'—'}</td>
+            <td class="mono">${en.caducidad ? fmtDate(en.caducidad) : '—'}</td>
+            <td class="mono">${esc(en.cantidad)||'—'}</td>
+            <td>${esc(en.proveedor)||'—'}</td>
+            <td><span class="badge ${en.estadoLote==='Abierto'?'warn':'ok'}">${en.estadoLote}</span></td>
+          </tr>`).join('');
+        const nombreJs = esc(nombre).replace(/'/g,"\\'");
+        return `<details class="inv-folder">
+          <summary>
+            <span class="inv-folder-title"><span class="inv-arrow">▸</span> 📁 ${esc(nombre)} <span class="hint" style="font-weight:400;">(sin catalogar)</span></span>
+            <span class="inv-folder-meta">
+              <button class="btn small" title="Da de alta este producto en el catálogo y abre de una vez su lote más antiguo (FIFO)" onclick="event.preventDefault();event.stopPropagation();agregarYAbrirLoteDesdeSuelto('${nombreJs}')">📦 Añadir y abrir lote (FIFO)</button>
+            </span>
+          </summary>
+          <div class="inv-folder-body">
+            ${table(['F. entrada','Lote','Caduca','Cantidad','Proveedor','Estado'], filas)}
+          </div>
+        </details>`;
+      }).join('');
+  }
 }
 function abrirAjusteInventario(nombre){
   const m = CONFIG.materiasPrimas.find(x=>x.nombre===nombre);
@@ -2977,6 +3020,31 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana){
   if(idx>=0){ CONFIG.materiasPrimas[idx].stockActual = Math.max(0, CONFIG.materiasPrimas[idx].stockActual - 1); await saveConfig(); }
   viewMateriasPrimas();
   renderDashboard();
+}
+/** Desde el Inventario: abre directamente el lote recibido más antiguo (FIFO) de un
+    producto que ya está en el catálogo, sin tener que ir a "Abrir nuevo lote" a buscarlo. */
+async function abrirLoteFifoDesdeInventario(nombre){
+  const antiguo = loteMasAntiguoDisponible(nombre);
+  if(!antiguo){
+    alert('No hay ningún lote sin abrir disponible para "'+nombre+'". O ya están todos abiertos, o no hay ninguna recepción con lote registrada — revisa "Recepción de mercancías".');
+    return;
+  }
+  const detalle = 'Lote: '+antiguo.lote+'\nRecibido: '+fmtDate(antiguo.fecha)+
+    (antiguo.caducidad?'\nCaduca: '+fmtDate(antiguo.caducidad):'')+
+    '\nProveedor: '+(antiguo.proveedor||'—');
+  if(!confirm('Se va a abrir el lote más antiguo disponible de "'+nombre+'" con la fecha de hoy:\n\n'+detalle+'\n\n¿Confirmas?')) return;
+  await abrirLoteMP(nombre, antiguo.lote, todayStr());
+}
+/** Desde el Inventario, para una recepción que llegó por albarán pero todavía no tiene
+    ficha propia en el catálogo de materias primas: la da de alta (igual que se haría
+    desde "Otro producto" al abrir un lote) y de paso abre ya su lote más antiguo. */
+async function agregarYAbrirLoteDesdeSuelto(nombre){
+  const yaEsta = CONFIG.materiasPrimas.some(m=>coincideProducto(m.nombre, nombre));
+  if(!yaEsta){
+    CONFIG.materiasPrimas.push({nombre: nombre.trim(), categoria:'', proveedor:'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
+    await saveConfig();
+  }
+  await abrirLoteFifoDesdeInventario(nombre);
 }
 async function cerrarLoteMP(id, idInputFecha){
   const rec = DATA.lotesMP.find(r=>r.id===id);
