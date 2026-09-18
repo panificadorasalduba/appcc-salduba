@@ -2084,7 +2084,7 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Lotes abiertos actualmente</h2>
-      <p class="hint">Un bote/cubo/saco abierto y todavía en uso. Ciérralo el día que se termine.</p>
+      <p class="hint">Un bote/cubo/saco abierto y todavía en uso. Ciérralo el día que se termine: la app te preguntará si abres el siguiente, y te dirá cuál toca por orden de recepción (el más antiguo primero).</p>
       <div class="filters">
         <label class="field"><span>Buscar</span><input type="text" id="lotesAbBuscar" placeholder="Producto o número de lote…"></label>
         <label class="field wide"><span>Lote abierto</span><select id="lotesAbProducto"><option value="">Selecciona un lote…</option></select></label>
@@ -2929,7 +2929,7 @@ function mostrarInfoProductoLote(){
   }
   info.innerHTML = html;
 }
-async function abrirLoteMP(producto, lote, fechaApertura, semana){
+async function abrirLoteMP(producto, lote, fechaApertura, semana, sinPreguntar){
   const par = partirLoteYSemanas(lote);
   const codigo = par.codigo || String(lote||'').trim();
   let sem = (semana===undefined || semana===null || String(semana).trim()==='')
@@ -2961,7 +2961,7 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana){
           ? 'Aceptar: es el mismo lote y le añado ' + (nuevas.length>1?'las semanas ':'la semana ') + nuevas.map(n=>'S'+n).join(' ') + (cerrado ? ' y lo vuelvo a abrir.' : '.') 
           : 'Esa semana ya la tiene apuntada.')
       + '\n\nCancelar: es un lote distinto y lo registro aparte.';
-    if(confirm(aviso)){
+    if(sinPreguntar || confirm(aviso)){
       yaRegistrado.semanas = juntas;
       yaRegistrado.semana = juntas[0] !== undefined ? juntas[0] : yaRegistrado.semana;
       if(cerrado) yaRegistrado.fechaCierre = '';
@@ -2996,6 +2996,53 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana){
   viewMateriasPrimas();
   renderDashboard();
 }
+/* ---- AL CERRAR UN LOTE, ABRIR EL SIGUIENTE ----
+   Cuando se termina un envase, lo normal es coger otro ahí mismo. La app propone
+   cuál toca por orden de recepción (el más antiguo primero, FIFO): si del mismo
+   lote quedan envases sin abrir, ese; y si no, el lote que se recibió antes. */
+function siguienteEnvase(producto, loteCerrado){
+  const recibidos = lotesRecibidos(producto);          // ya viene ordenado por fecha, FIFO
+  if(!recibidos.length) return null;
+  const k = String(loteCerrado||'').trim().toLowerCase();
+
+  /* 1) ¿Quedan envases sin abrir del MISMO lote? Entonces es el mismo lote otra vez. */
+  const mismo = recibidos.find(x=>String(x.lote).trim().toLowerCase()===k);
+  if(mismo){
+    const restantes = mismo.cantidadRecibida - mismo.abiertos;
+    if(restantes > 0) return {tipo:'mismo', restantes, ...mismo};
+  }
+  /* 2) Si no, el lote recibido más antiguo que todavía no se ha abierto nunca. */
+  const nuevo = recibidos.find(x=>x.abiertos===0 && String(x.lote).trim().toLowerCase()!==k);
+  if(nuevo) return {tipo:'nuevo', restantes: nuevo.cantidadRecibida, ...nuevo,
+                    otros: recibidos.filter(x=>x.abiertos===0 && String(x.lote).trim().toLowerCase()!==k).length - 1};
+  return null;
+}
+/** Pregunta si se abre el siguiente envase justo después de cerrar uno. */
+async function proponerSiguienteEnvase(producto, loteCerrado){
+  const sig = siguienteEnvase(producto, loteCerrado);
+  if(!sig) return;
+  const hoy = todayStr();
+  const caducado = sig.caducidad && String(sig.caducidad) < hoy;
+  const linea = [
+    'Lote ' + sig.lote,
+    sig.fecha ? 'recibido el ' + fmtDate(sig.fecha) : null,
+    sig.caducidad ? (caducado ? '¡CADUCADO el ' + fmtDate(sig.caducidad) + '!' : 'caduca el ' + fmtDate(sig.caducidad)) : null,
+    sig.proveedor ? 'de ' + sig.proveedor : null
+  ].filter(Boolean).join(' · ');
+
+  const cabecera = sig.tipo === 'mismo'
+    ? 'Acabas de cerrar el lote ' + loteCerrado + ' de "' + producto + '".\n\n'
+      + 'Todavía quedan ' + sig.restantes + ' sin abrir de ESE MISMO lote.'
+    : 'Acabas de cerrar el lote ' + loteCerrado + ' de "' + producto + '".\n\n'
+      + 'El siguiente que toca por fecha de recepción es:';
+  const cola = (sig.tipo === 'nuevo' && sig.otros > 0)
+    ? '\n\n(Hay ' + sig.otros + ' lote' + (sig.otros===1?'':'s') + ' más sin abrir; este es el más antiguo.)' : '';
+
+  if(!confirm(cabecera + '\n\n' + linea + cola + '\n\n¿Lo abro ahora con fecha de hoy?')) return;
+  if(caducado && !confirm('OJO: ese lote figura como caducado el ' + fmtDate(sig.caducidad) + '.\n\n¿Aun así quieres abrirlo?')) return;
+  await abrirLoteMP(producto, sig.lote, hoy, getWeekNumber(hoy), true);
+}
+
 async function cerrarLoteMP(id, idInputFecha){
   const rec = DATA.lotesMP.find(r=>r.id===id);
   if(!rec) return;
@@ -3020,6 +3067,8 @@ async function cerrarLoteMP(id, idInputFecha){
   const sel = document.getElementById('loteProductoSel');
   if(sel) pintarRecepcionesDelProducto(productoLoteElegido());
   renderDashboard();
+  /* Se acaba un envase: se pregunta ahí mismo si se abre el siguiente. */
+  await proponerSiguienteEnvase(rec.producto, rec.lote);
 }
 /** Rellena el desplegable con los productos que de verdad tienen lotes.
     Lo que se escribe en la casilla de buscar va acotando la lista, para no
