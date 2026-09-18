@@ -200,6 +200,9 @@
   .hoja table.rejilla th{background:#f0ece2;font-weight:600;text-align:center;}
   td.semanas{letter-spacing:.3px;}
   table.papel-lotes td.celda-lote .sem{display:block;font-size:8px;color:#333;letter-spacing:.3px;margin-top:1px;}
+  .alb-dias{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+  .alb-dia{font-size:11.5px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;}
+  .alb-dia strong{margin-right:5px;}
   .cierre-linea{display:inline-flex;gap:6px;align-items:center;}
   .cierre-linea input[type=date]{font-size:12px;padding:3px 5px;}
   table.papel-aceite td{height:15px;}
@@ -1347,6 +1350,16 @@ function viewRecepcion(){
         <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
       </form>
     </div>
+    <div class="panel">
+      <h2>${icon('truck')} Albaranes registrados</h2>
+      <p class="hint">Las recepciones se guardan línea a línea, pero aquí salen agrupadas por albarán, para repasar de un vistazo cuáles están metidos y ver si falta alguno.</p>
+      <div id="alb-resumen"></div>
+      <div class="filters">
+        <label class="field"><span>Buscar</span><input type="text" id="albBuscar" placeholder="Proveedor, nº de albarán o producto…"></label>
+        <label class="field wide"><span>Albarán</span><select id="albSel"><option value="">Selecciona un albarán…</option></select></label>
+      </div>
+      <div id="alb-detalle"></div>
+    </div>
     <div class="panel"><h2>${icon('truck')} Histórico de recepciones</h2><div id="recep-table"></div></div>
   `;
   recepcionExtraidas = []; recepcionFotoDataUrl = null; albaranQueue = []; albaranQueueHash = []; albaranQueueIndex = 0;
@@ -1416,9 +1429,15 @@ function viewRecepcion(){
     document.getElementById('form-recepcion').querySelector('input[name=aceptado]').checked = true;
     document.getElementById('form-recepcion').querySelector('input[name=cantidad]').value = 1;
     renderRecepTable();
+    renderAlbaranes();
     renderDashboard();
   });
+  ['albBuscar','albSel'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){ el.addEventListener('input', renderAlbaranes); el.addEventListener('change', renderAlbaranes); }
+  });
   renderRecepTable();
+  renderAlbaranes();
 }
 const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
 
@@ -1715,6 +1734,93 @@ async function verFotoAlbaran(fotoId){
     document.body.appendChild(overlay);
   }catch(e){ alert('No se pudo cargar la foto.'); }
 }
+/* ---- ALBARANES REGISTRADOS ----
+   Las recepciones se guardan línea a línea (un producto por línea), pero el papel
+   que llega es un albarán entero. Aquí se vuelven a juntar por albarán para poder
+   repasar de un vistazo cuáles están metidos y ver si falta alguno. */
+function albaranesRegistrados(){
+  const grupos = {};
+  (DATA.recepcion||[]).forEach(r=>{
+    const num = String(r.numAlbaran||'').trim();
+    const clave = r.fotoId ? 'f:'+r.fotoId
+                : (num ? 'n:'+normTxt(r.proveedor)+'|'+normTxt(num)
+                       : 'p:'+normTxt(r.proveedor)+'|'+String(r.fecha||''));
+    if(!grupos[clave]) grupos[clave] = {clave, proveedor:r.proveedor||'', numAlbaran:num,
+                                        fecha:r.fecha||'', hora:r.hora||'', fotoId:r.fotoId||'', lineas:[]};
+    const g = grupos[clave];
+    if(!g.numAlbaran && num) g.numAlbaran = num;
+    if(!g.fotoId && r.fotoId) g.fotoId = r.fotoId;
+    if(String(r.fecha||'') < String(g.fecha||'') || !g.fecha) g.fecha = r.fecha||g.fecha;
+    g.lineas.push(r);
+  });
+  return Object.keys(grupos).map(k=>grupos[k])
+    .sort((a,b)=> String(b.fecha||'').localeCompare(String(a.fecha||''))
+                  || String(a.proveedor||'').localeCompare(String(b.proveedor||''),'es'));
+}
+function etiquetaAlbaran(g){
+  return (g.fecha ? fmtDate(g.fecha) : 'sin fecha')
+       + ' · ' + (g.proveedor || 'sin proveedor')
+       + ' · ' + (g.numAlbaran ? 'albarán ' + g.numAlbaran : 'SIN Nº DE ALBARÁN')
+       + ' · ' + g.lineas.length + ' línea' + (g.lineas.length===1?'':'s');
+}
+function poblarSelectAlbaranes(){
+  const sel = document.getElementById('albSel');
+  if(!sel) return [];
+  const b = document.getElementById('albBuscar');
+  const q = normTxt(b ? b.value : '');
+  let lista = albaranesRegistrados();
+  if(q) lista = lista.filter(g=> normTxt(g.proveedor).indexOf(q)>=0
+                              || normTxt(g.numAlbaran).indexOf(q)>=0
+                              || (g.fecha && fmtDate(g.fecha).indexOf(b.value.trim())>=0)
+                              || g.lineas.some(l=>normTxt(l.producto).indexOf(q)>=0) );
+  const previo = sel.value;
+  sel.innerHTML = `<option value="">${q ? lista.length+(lista.length===1?' albarán':' albaranes')+' con esa búsqueda' : 'Selecciona un albarán…  ('+lista.length+' registrados)'}</option>`
+    + lista.map(g=>`<option value="${esc(g.clave)}">${esc(etiquetaAlbaran(g))}</option>`).join('');
+  sel.value = lista.some(g=>g.clave===previo) ? previo : '';
+  return lista;
+}
+function renderAlbaranes(){
+  const host = document.getElementById('alb-detalle');
+  const resumen = document.getElementById('alb-resumen');
+  if(!host) return;
+  const lista = poblarSelectAlbaranes();
+  const todos = albaranesRegistrados();
+
+  if(resumen){
+    /* Un repaso rápido por día, para cazar de un vistazo el día que falta. */
+    const porDia = {};
+    todos.forEach(g=>{ const f=g.fecha||'sin fecha'; (porDia[f]=porDia[f]||[]).push(g); });
+    const dias = Object.keys(porDia).sort().reverse().slice(0,10);
+    const sinNumero = todos.filter(g=>!g.numAlbaran).length;
+    resumen.innerHTML = `<p class="hint" style="margin:0 0 6px;">
+        <strong>${todos.length}</strong> albaranes registrados · <strong>${(DATA.recepcion||[]).length}</strong> líneas en total
+        ${sinNumero ? ' · <span style="color:var(--warn);">'+sinNumero+' sin número de albarán</span>' : ''}</p>`
+      + '<div class="alb-dias">' + dias.map(f=>`<span class="alb-dia"><strong>${f==='sin fecha'?'sin fecha':fmtDate(f)}</strong> ${porDia[f].map(g=>esc(g.proveedor||'?')).join(', ')}</span>`).join('') + '</div>';
+  }
+
+  const sel = document.getElementById('albSel');
+  const elegido = sel ? sel.value : '';
+  if(!elegido){
+    host.innerHTML = '<p class="hint">Despliega la lista de arriba y elige un albarán para ver sus líneas.</p>';
+    return;
+  }
+  const g = lista.find(x=>x.clave===elegido) || todos.find(x=>x.clave===elegido);
+  if(!g){ host.innerHTML = '<p class="hint">Ese albarán ya no está.</p>'; return; }
+  const filas = g.lineas.slice()
+    .sort((a,b)=>String(a.producto||'').localeCompare(String(b.producto||''),'es'))
+    .map(l=>`<tr>
+      <td>${esc(l.producto)}</td><td class="mono">${esc(l.lote)||'—'}</td>
+      <td class="mono">${l.cantidad?esc(l.cantidad):'—'}</td>
+      <td class="mono">${l.caducidad?fmtDate(l.caducidad):'—'}</td>
+      <td><span class="badge ${l.aceptado?'ok':'danger'}">${l.aceptado?'Aceptado':'Rechazado'}</span></td>
+    </tr>`);
+  host.innerHTML = `<p class="hint" style="margin:0 0 8px;">
+      <strong>${esc(g.proveedor||'sin proveedor')}</strong> · ${g.numAlbaran?('albarán '+esc(g.numAlbaran)):'<span style="color:var(--warn);">sin número de albarán</span>'}
+      · ${g.fecha?fmtDate(g.fecha):'sin fecha'}${g.hora?' a las '+esc(g.hora):''}
+      ${g.fotoId?` <button class="btn secondary small" onclick="verFotoAlbaran('${g.fotoId}')">Ver la foto</button>`:''}</p>`
+    + table(['Producto','Lote','Cantidad','Caduca','Estado'], filas);
+}
+
 function renderRecepTable(){
   const rows = DATA.recepcion.map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td class="mono">${esc(r.numAlbaran)||'—'}</td><td>${esc(r.producto)}</td>
