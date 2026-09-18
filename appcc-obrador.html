@@ -2762,12 +2762,25 @@ function cantidadRecepcion(r){
 }
 /** Todo lo recepcionado de un producto, agrupado por lote: cuánto entró, cuándo,
     de qué proveedor, cuándo caduca y cuántos envases de ese lote se han abierto ya. */
+/* Los nombres del cuaderno son cortos ("Nata asturiana") y los del albarán son
+   los del proveedor ("NATA ASTURIANA UHT 35.1 % MG 1X6 LIT"). Se consideran el
+   mismo producto si uno contiene al otro entero, palabra por palabra. Se exige
+   que el nombre corto tenga al menos dos palabras para no casar por casualidad. */
+function mismoProducto(a, b){
+  const x = normTxt(a), y = normTxt(b);
+  if(!x || !y) return false;
+  if(x === y) return true;
+  const corto = x.length <= y.length ? x : y;
+  const largo = x.length <= y.length ? y : x;
+  if(corto.split(' ').length < 2) return false;
+  return (' '+largo+' ').indexOf(' '+corto+' ') >= 0;
+}
 function lotesRecibidos(nombre){
   const key0 = String(nombre||'').trim().toLowerCase();
   if(!key0) return [];
   const porLote = {};
   DATA.recepcion
-    .filter(r=>String(r.producto||'').trim().toLowerCase()===key0 && r.lote && String(r.lote).trim())
+    .filter(r=>mismoProducto(r.producto, nombre) && r.lote && String(r.lote).trim())
     .forEach(r=>{
       const key = String(r.lote).trim().toLowerCase();
       if(!porLote[key]) porLote[key] = {lote:r.lote, cantidadRecibida:0, fecha:r.fecha,
@@ -2779,7 +2792,7 @@ function lotesRecibidos(nombre){
       }
     });
   const abiertosPorLote = {};
-  DATA.lotesMP.filter(r=>String(r.producto||'').trim().toLowerCase()===key0).forEach(r=>{
+  DATA.lotesMP.filter(r=>mismoProducto(r.producto, nombre)).forEach(r=>{
     const key = String(r.lote||'').trim().toLowerCase();
     abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
   });
