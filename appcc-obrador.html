@@ -200,9 +200,6 @@
   .hoja table.rejilla th{background:#f0ece2;font-weight:600;text-align:center;}
   td.semanas{letter-spacing:.3px;}
   table.papel-lotes td.celda-lote .sem{display:block;font-size:8px;color:#333;letter-spacing:.3px;margin-top:1px;}
-  .alb-dias{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
-  .alb-dia{font-size:11.5px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 8px;}
-  .alb-dia strong{margin-right:5px;}
   .cierre-linea{display:inline-flex;gap:6px;align-items:center;}
   .cierre-linea input[type=date]{font-size:12px;padding:3px 5px;}
   table.papel-aceite td{height:15px;}
@@ -1352,11 +1349,11 @@ function viewRecepcion(){
     </div>
     <div class="panel">
       <h2>${icon('truck')} Albaranes registrados</h2>
-      <p class="hint">Las recepciones se guardan línea a línea, pero aquí salen agrupadas por albarán, para repasar de un vistazo cuáles están metidos y ver si falta alguno.</p>
+      <p class="hint">Un albarán por línea, del más reciente al más antiguo. Despliega y repasa cuáles están metidos; eliges uno y ves sus productos.</p>
       <div id="alb-resumen"></div>
       <div class="filters">
         <label class="field"><span>Buscar</span><input type="text" id="albBuscar" placeholder="Proveedor, nº de albarán o producto…"></label>
-        <label class="field wide"><span>Albarán</span><select id="albSel"><option value="">Selecciona un albarán…</option></select></label>
+        <label class="field wide"><span>Albarán</span><select id="albSel" size="1"><option value="">Selecciona un albarán…</option></select></label>
       </div>
       <div id="alb-detalle"></div>
     </div>
@@ -1787,15 +1784,10 @@ function renderAlbaranes(){
   const todos = albaranesRegistrados();
 
   if(resumen){
-    /* Un repaso rápido por día, para cazar de un vistazo el día que falta. */
-    const porDia = {};
-    todos.forEach(g=>{ const f=g.fecha||'sin fecha'; (porDia[f]=porDia[f]||[]).push(g); });
-    const dias = Object.keys(porDia).sort().reverse().slice(0,10);
     const sinNumero = todos.filter(g=>!g.numAlbaran).length;
-    resumen.innerHTML = `<p class="hint" style="margin:0 0 6px;">
+    resumen.innerHTML = `<p class="hint" style="margin:0 0 8px;">
         <strong>${todos.length}</strong> albaranes registrados · <strong>${(DATA.recepcion||[]).length}</strong> líneas en total
-        ${sinNumero ? ' · <span style="color:var(--warn);">'+sinNumero+' sin número de albarán</span>' : ''}</p>`
-      + '<div class="alb-dias">' + dias.map(f=>`<span class="alb-dia"><strong>${f==='sin fecha'?'sin fecha':fmtDate(f)}</strong> ${porDia[f].map(g=>esc(g.proveedor||'?')).join(', ')}</span>`).join('') + '</div>';
+        ${sinNumero ? ' · <span style="color:var(--warn);">'+sinNumero+' sin número de albarán</span>' : ''}</p>`;
   }
 
   const sel = document.getElementById('albSel');
