@@ -3031,9 +3031,44 @@ function siguienteEnvase(producto, loteCerrado){
   return null;
 }
 /** Pregunta si se abre el siguiente envase justo después de cerrar uno. */
+/** Deja el formulario de "Abrir nuevo lote" preparado con el producto puesto. */
+function prepararAltaLoteManual(producto){
+  const sel = document.getElementById('loteProductoSel');
+  if(!sel) return false;
+  const opcion = [...sel.options].find(o=>o.value && o.value!=='__otro__' && normTxt(o.value)===normTxt(producto));
+  if(opcion){
+    sel.value = opcion.value;
+  } else {
+    sel.value = '__otro__';
+    mostrarInfoProductoLote();
+    const otroInput = document.getElementById('loteOtroNombre');
+    if(otroInput) otroInput.value = producto;
+  }
+  mostrarInfoProductoLote();
+  const loteInput = document.getElementById('loteInputLote');
+  const form = document.getElementById('form-lotesmp') || (loteInput && loteInput.closest('.panel'));
+  if(form) form.scrollIntoView({behavior:'smooth', block:'center'});
+  if(loteInput){ loteInput.value = ''; setTimeout(()=>{ try{ loteInput.focus(); }catch(e){} }, 400); }
+  return true;
+}
 async function proponerSiguienteEnvase(producto, loteCerrado){
   const sig = siguienteEnvase(producto, loteCerrado);
-  if(!sig) return;
+  /* Sin recepción pendiente: o se apunta el lote a mano, o se espera al albarán. */
+  if(!sig){
+    const hayAlgo = lotesRecibidos(producto).length > 0;
+    const aviso = 'Has cerrado el lote ' + loteCerrado + ' de "' + producto + '".\n\n'
+      + (hayAlgo
+          ? 'No queda ninguna recepción de este producto sin abrir.'
+          : 'No hay ninguna recepción registrada de este producto.')
+      + '\n\nAceptar: apunto el lote nuevo a mano ahora (te dejo el formulario preparado).'
+      + '\nCancelar: se queda sin lote abierto hasta que se registre el albarán.';
+    if(confirm(aviso)){
+      if(!prepararAltaLoteManual(producto)){
+        alert('Abre el lote desde "Abrir nuevo lote", en esta misma pantalla.');
+      }
+    }
+    return;
+  }
   const hoy = todayStr();
   const caducado = sig.caducidad && String(sig.caducidad) < hoy;
   const linea = [
