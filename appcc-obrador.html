@@ -782,6 +782,28 @@ function nowStr(){ const d=new Date(); return String(d.getHours()).padStart(2,'0
 function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(d){ if(!d) return '—'; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
 function within(v,min,max){ return v>=min && v<=max; }
+// --- candado de fechas: una recepción no puede ser de hace meses ni del futuro ---
+const DIAS_ATRAS_MAX = 60;
+const DIAS_ADELANTE_MAX = 1;
+function diasDesdeHoy(f){
+  if(!f || !/^\d{4}-\d{2}-\d{2}$/.test(String(f))) return null;
+  const hoy = new Date(todayStr()+'T00:00:00');
+  const d = new Date(String(f)+'T00:00:00');
+  if(isNaN(d.getTime())) return null;
+  return Math.round((d - hoy)/86400000);
+}
+function fechaSospechosa(f){
+  const n = diasDesdeHoy(f);
+  if(n === null) return false;
+  return n > DIAS_ADELANTE_MAX || n < -DIAS_ATRAS_MAX;
+}
+function motivoFechaSospechosa(f){
+  const n = diasDesdeHoy(f);
+  if(n === null) return '';
+  if(n > DIAS_ADELANTE_MAX) return 'es una fecha futura';
+  if(n < -DIAS_ATRAS_MAX) return 'es de hace ' + Math.abs(n) + ' días';
+  return '';
+}
 
 /* ---------- ICONS ---------- */
 const ICONS = {
@@ -1235,6 +1257,20 @@ function avisoAlbaran(html){
   el.innerHTML = html;
   el.style.display = 'block';
 }
+function pintarAvisoFechaAlbaran(fechaLeidaMal){
+  const el = document.getElementById('albaranAvisoFecha');
+  if(!el) return;
+  if(!fechaLeidaMal){ el.style.display='none'; el.innerHTML=''; return; }
+  el.innerHTML = '<b>Ojo con la fecha.</b> En el albarán he leído <b>'+esc(fmtDate(fechaLeidaMal))+
+    '</b>, y eso no cuadra ('+esc(motivoFechaSospechosa(fechaLeidaMal))+'). He puesto la de hoy, <b>'+
+    fmtDate(todayStr())+'</b>. Si la del papel es otra, cámbiala abajo antes de guardar.';
+  el.style.display = 'block';
+}
+function confirmarFechaRara(fecha){
+  if(!fechaSospechosa(fecha)) return true;
+  return confirm('La fecha de recepción es '+fmtDate(fecha)+' y '+motivoFechaSospechosa(fecha)+'.\n\n'+
+    '¿Seguro que quieres guardarla así? Si no, pulsa Cancelar y corrígela.');
+}
 let camaraStream = null;
 async function abrirCamara(){
   const estado = document.getElementById('albaranEstado');
@@ -1344,6 +1380,7 @@ function viewRecepcion(){
       <div id="albaranPreview" style="margin-bottom:10px;"></div>
       <div id="albaranAviso" style="display:none;margin-bottom:12px;padding:12px 14px;border:1px solid #c0392b;border-left-width:4px;border-radius:8px;background:#fdecea;color:#7d2018;font-size:14px;line-height:1.5;"></div>
       <p id="albaranEstado" class="hint" style="margin-bottom:14px;"></p>
+      <div id="albaranAvisoFecha" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #b7791f;border-left-width:4px;border-radius:8px;background:#fdf6e3;color:#7a5200;font-size:14px;line-height:1.5;"></div>
       <div class="record-form" style="margin-bottom:14px;">
         <label class="field"><span>Proveedor</span><input type="text" id="albaranProveedor"></label>
         <label class="field"><span>Nº de albarán</span><input type="text" id="albaranNumero" placeholder="El de la esquina del papel"></label>
@@ -1379,6 +1416,11 @@ function viewRecepcion(){
       <h2>${icon('truck')} Productos por identificar</h2>
       <p class="hint">Cada proveedor escribe los productos a su manera. Si un nombre no se reconoce, ese producto no se enlaza con su lote y no sale en la trazabilidad. Aquí aparecen los que faltan por revisar.</p>
       <div id="aviso-nombres"></div>
+    </div>
+    <div id="panel-fechas-raras" class="panel" style="display:none;">
+      <h2>${icon('truck')} Fechas que no cuadran</h2>
+      <p class="hint">Recepciones guardadas con una fecha muy vieja o del futuro. Suele ser que la fecha del albarán se leyó mal en la foto. Corrígelas aquí y se arregla también en los informes.</p>
+      <div id="aviso-fechas"></div>
     </div>
     <div class="panel">
       <h2>${icon('truck')} Albaranes registrados</h2>
@@ -1444,6 +1486,7 @@ function viewRecepcion(){
   document.getElementById('form-recepcion').addEventListener('submit', async e=>{
     e.preventDefault();
     const f = new FormData(e.target);
+    if(!confirmarFechaRara(f.get('fecha'))) return;
     const rec = {id:uid(), fecha:f.get('fecha'), hora:f.get('hora'), proveedor:f.get('proveedor'), producto:f.get('producto'),
       lote:f.get('lote'), cantidad:f.get('cantidad'), tempLlegada:f.get('tempLlegada'), estadoEnvase:f.get('estadoEnvase'), caducidad:f.get('caducidad'),
       aceptado:f.get('aceptado')==='on', responsable:f.get('responsable'), observaciones:f.get('observaciones'), fotoId:null};
@@ -1460,7 +1503,7 @@ function viewRecepcion(){
     document.getElementById('form-recepcion').querySelector('input[name=cantidad]').value = 1;
     renderRecepTable();
     renderAlbaranes();
-    renderAvisoNombres();
+    renderAvisoNombres(); renderAvisoFechas();
     renderDashboard();
   });
   ['albBuscar','albSel'].forEach(id=>{
@@ -1469,9 +1512,9 @@ function viewRecepcion(){
   });
   renderRecepTable();
   renderAlbaranes();
-  renderAvisoNombres();
+  renderAvisoNombres(); renderAvisoFechas();
 }
-const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
+const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán, y es la fecha de entrega o de emisión del albarán, nunca una fecha de caducidad, de lote ni de un pedido anterior. Si el año no se lee con claridad, deja la fecha vacía "" en vez de inventarlo; es preferible dejarla en blanco a poner un año equivocado. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
 
 async function llamarClaudeSinClave(base64){
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1589,7 +1632,16 @@ async function extraerAlbaran(){
     document.getElementById('albaranProveedor').value = parsed.proveedor||'';
     const campoNum = document.getElementById('albaranNumero');
     if(campoNum) campoNum.value = parsed.numAlbaran||'';
-    if(parsed.fecha) document.getElementById('albaranFecha').value = parsed.fecha;
+    let fechaLeidaMal = '';
+    if(parsed.fecha){
+      if(fechaSospechosa(parsed.fecha)){
+        fechaLeidaMal = parsed.fecha;
+        document.getElementById('albaranFecha').value = todayStr();
+      }else{
+        document.getElementById('albaranFecha').value = parsed.fecha;
+      }
+    }
+    pintarAvisoFechaAlbaran(fechaLeidaMal);
     avisarSiYaRegistrado();
     renderLineasExtraidas();
     estado.textContent = recepcionExtraidas.some(l=>l.producto) ? 'Datos leídos. Revisa y corrige cualquier campo antes de guardar.' : 'No se detectó ningún producto claro en la foto. Añádelos manualmente abajo.';
@@ -1693,6 +1745,7 @@ async function confirmarRecepcionFoto(){
   const proveedor = document.getElementById('albaranProveedor').value;
   const numAlbaran = ((document.getElementById('albaranNumero')||{}).value || '').trim();
   const fecha = document.getElementById('albaranFecha').value || todayStr();
+  if(!confirmarFechaRara(fecha)) return;
   const hora = document.getElementById('albaranHora').value || nowStr();
   const tempLlegada = document.getElementById('albaranTemp').value;
   const estadoEnvase = document.getElementById('albaranEnvase').value;
@@ -1750,6 +1803,7 @@ async function confirmarRecepcionFoto(){
     const numSig = document.getElementById('albaranNumero'); if(numSig) numSig.value = '';
     document.getElementById('albaranFecha').value = todayStr();
     document.getElementById('albaranHora').value = nowStr();
+    pintarAvisoFechaAlbaran('');
   } else {
     viewRecepcion();
   }
@@ -1831,6 +1885,49 @@ function productosSinIdentificar(){
   return Object.keys(vistos).map(k=>vistos[k])
     .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
 }
+function gruposFechaRara(){
+  const g = {};
+  (DATA.recepcion||[]).forEach(r=>{
+    if(!fechaSospechosa(r.fecha)) return;
+    const k = String(r.fecha)+'|'+String(r.proveedor||'')+'|'+String(r.numAlbaran||'');
+    if(!g[k]) g[k] = {fecha:r.fecha, proveedor:r.proveedor||'', numAlbaran:r.numAlbaran||'', ids:[], productos:[]};
+    g[k].ids.push(r.id);
+    if(r.producto) g[k].productos.push(r.producto);
+  });
+  return Object.values(g).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+}
+function renderAvisoFechas(){
+  const panel = document.getElementById('panel-fechas-raras');
+  const host = document.getElementById('aviso-fechas');
+  if(!panel || !host) return;
+  const grupos = gruposFechaRara();
+  if(!grupos.length){ panel.style.display='none'; host.innerHTML=''; return; }
+  panel.style.display = '';
+  host.innerHTML = '<table class="tabla"><thead><tr><th>Fecha guardada</th><th>Proveedor</th><th>Albarán</th><th>Productos</th><th>Fecha correcta</th></tr></thead><tbody>'+
+    grupos.map((g,i)=>`<tr>
+      <td class="mono" style="color:#b7791f;font-weight:600;">${fmtDate(g.fecha)}</td>
+      <td>${esc(g.proveedor)||'—'}</td>
+      <td class="mono">${esc(g.numAlbaran)||'—'}</td>
+      <td>${esc(g.productos.slice(0,3).join(', '))}${g.productos.length>3?(' y '+(g.productos.length-3)+' más'):''}</td>
+      <td><span class="cierre-linea">
+        <input type="date" id="fixfecha${i}" value="${todayStr()}">
+        <button class="btn small" type="button" onclick="corregirFechaRecepcion(${i})">Corregir</button>
+      </span></td>
+    </tr>`).join('')+'</tbody></table>';
+}
+async function corregirFechaRecepcion(i){
+  const g = gruposFechaRara()[i];
+  if(!g) return;
+  const campo = document.getElementById('fixfecha'+i);
+  const nueva = campo ? campo.value : '';
+  if(!nueva){ alert('Elige la fecha correcta.'); return; }
+  if(fechaSospechosa(nueva) && !confirm('Esa fecha tampoco cuadra ('+motivoFechaSospechosa(nueva)+'). ¿La pongo igual?')) return;
+  let n = 0;
+  (DATA.recepcion||[]).forEach(r=>{ if(g.ids.indexOf(r.id)>=0){ r.fecha = nueva; n++; } });
+  await saveModule('recepcion');
+  renderAvisoFechas(); renderRecepTable(); renderAlbaranes(); renderDashboard();
+  alert('Corregidas '+n+' línea(s) a '+fmtDate(nueva)+'.');
+}
 function renderAvisoNombres(){
   const host = document.getElementById('aviso-nombres');
   if(!host) return;
@@ -1866,7 +1963,7 @@ async function guardarAliasProducto(descripcion, idSelect){
   CONFIG.aliasProductos = CONFIG.aliasProductos || {};
   CONFIG.aliasProductos[normTxt(limpiaCodigoProveedor(descripcion))] = sel.value;
   await saveConfig();
-  renderAvisoNombres(); renderAlbaranes();
+  renderAvisoNombres(); renderAvisoFechas(); renderAlbaranes();
 }
 /** Da de alta la descripción como producto nuevo del cuaderno. */
 async function guardarProductoNuevo(descripcion){
@@ -1875,7 +1972,7 @@ async function guardarProductoNuevo(descripcion){
   const limpio = limpiaCodigoProveedor(descripcion);
   if(!cat.pasteleria.some(n=>normTxt(n)===normTxt(limpio))) cat.pasteleria.push(limpio);
   await saveConfig();
-  renderAvisoNombres(); renderAlbaranes();
+  renderAvisoNombres(); renderAvisoFechas(); renderAlbaranes();
 }
 /** Producto que no lleva registro de lote (velas, material de oficina…). */
 async function ignorarProducto(descripcion){
@@ -1883,7 +1980,7 @@ async function ignorarProducto(descripcion){
   const k = normTxt(limpiaCodigoProveedor(descripcion));
   if(CONFIG.productosSinLote.indexOf(k) < 0) CONFIG.productosSinLote.push(k);
   await saveConfig();
-  renderAvisoNombres();
+  renderAvisoNombres(); renderAvisoFechas();
 }
 
 function renderAlbaranes(){
