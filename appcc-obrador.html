@@ -2173,7 +2173,7 @@ function viewMateriasPrimas(){
 
     <div class="panel">
       <h2>${icon('box')} Abrir nuevo lote</h2>
-      <p class="hint">Elige el producto. Arriba salen los que tienen stock registrado; debajo, el catálogo completo de los cuadernos de papel. Si no está en la lista, elige <strong>«Otro producto»</strong> y escríbelo: se guardará en el catálogo para la próxima vez. Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
+      <p class="hint">Elige el producto y <strong>justo debajo salen sus recepciones</strong>, de la más antigua a la más nueva: pulsa «Usar este» en la que toque y el número de lote se rellena solo. Arriba salen los productos con stock registrado; debajo, el catálogo completo de los cuadernos. Si no está en la lista, elige <strong>«Otro producto»</strong> y escríbelo. Si ya había un lote abierto para ese producto, se te ofrecerá cerrarlo con la fecha de hoy.</p>
       <form class="record-form" id="form-lotesmp">
         <label class="field wide"><span>Buscar producto</span>
           <input type="text" id="loteBuscarProducto" placeholder="Escribe parte del nombre: almendra, bandeja, nata…">
@@ -2189,6 +2189,8 @@ function viewMateriasPrimas(){
         <label class="field wide" id="loteOtroWrap" hidden><span>Nombre del producto</span>
           <input type="text" id="loteOtroNombre" placeholder="Escríbelo igual que en el cuaderno">
         </label>
+        <div class="field wide" id="loteInfoProducto"></div>
+        <div class="field wide" id="loteRecepciones"></div>
         <label class="field wide"><span>Lote</span>
           <span style="display:flex;gap:8px;flex-wrap:wrap;">
             <input type="text" name="lote" id="loteInputLote" required style="flex:1;min-width:160px;">
@@ -2203,8 +2205,6 @@ function viewMateriasPrimas(){
           </span>
         </label>
         <p class="hint wide" style="margin:-4px 0 0;">Escribe <strong>solo el número de lote</strong> (por ejemplo <code>260459454</code>), sin las semanas. La semana va aparte y se pone sola con la fecha, pero puedes cambiarla. <strong>Si vuelves a pedir el mismo lote</strong>, escríbelo igual: la app no lo duplica, le añade la semana nueva al lote que ya está — igual que en el cuaderno.</p>
-        <div class="field wide" id="loteInfoProducto"></div>
-        <div class="field wide" id="loteRecepciones"></div>
         <div class="form-actions"><button class="btn" type="submit">Abrir lote</button></div>
       </form>
       ${CONFIG.materiasPrimas.filter(m=>m.stockActual>0).length===0 ? '<p class="hint">No hay ningún producto con stock disponible ahora mismo. Registra una recepción primero.</p>' : ''}
