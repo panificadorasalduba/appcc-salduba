@@ -470,6 +470,19 @@ async function loadAll(){
     CONFIG.catalogoLotes = JSON.parse(JSON.stringify(CATALOGO_LOTES_DEF));
     CONFIG.catalogoLotesVer = LOTES_VER;
   }
+  /* Equivalencias de nombres y productos nuevos, revisados con Berta. Se añaden
+     sin pisar lo que ella haya cambiado a mano después. */
+  if((CONFIG.aliasVer||0) < ALIAS_VER){
+    CONFIG.aliasProductos = Object.assign({}, ALIAS_PRODUCTOS_DEF, CONFIG.aliasProductos||{});
+    const cat = CONFIG.catalogoLotes = CONFIG.catalogoLotes || {pasteleria:[], bajaRotacion:[], materiales:[]};
+    Object.keys(CATALOGO_NUEVOS_DEF).forEach(seccion=>{
+      cat[seccion] = cat[seccion] || [];
+      CATALOGO_NUEVOS_DEF[seccion].forEach(n=>{
+        if(!cat[seccion].some(x=>normTxt(x)===normTxt(n))) cat[seccion].push(n);
+      });
+    });
+    CONFIG.aliasVer = ALIAS_VER;
+  }
   for(const mod of Object.keys(DATA)){
     try{
       const r = await Store.get(STORE_KEYS[mod]);
@@ -2875,8 +2888,89 @@ function cantidadRecepcion(r){
    los del proveedor ("NATA ASTURIANA UHT 35.1 % MG 1X6 LIT"). Se consideran el
    mismo producto si uno contiene al otro entero, palabra por palabra. Se exige
    que el nombre corto tenga al menos dos palabras para no casar por casualidad. */
+/* ---- EQUIVALENCIAS DE NOMBRES ----
+   El cuaderno y el albarán llaman a lo mismo de maneras distintas. Esta tabla la
+   revisó Berta producto por producto el 19/09/2026: a la izquierda el nombre tal
+   como viene en el albarán, a la derecha el nombre bueno, el del cuaderno. */
+const ALIAS_VER = 1;
+const ALIAS_PRODUCTOS_DEF = {
+  // harinas San Lorenzo
+  'recia 25 kg harina panific de trigo duro': 'RECIA (37) 25 Kg. Harina panif. de trigo duro',
+  'integral in 25 kg harina panif de trigo': 'INTEGRAL (I3) 25 Kg. Harina panif. de trigo',
+  // erratas y formatos
+  'ambar supreme hojal pl 6x2 kg': 'AMBAR SUPREME HOJAL FL 6x2 Kg',
+  'cabello angel fama 1 x 28 kg': 'Cabello de ángel',
+  'pasas sultanas 1 x 5 kg': 'Pasas',
+  'nuez trozos 5 kg la piedra': 'Nueces trozos',
+  'claraval 1 kg': 'Claraval',
+  'azucar crystal cristalco sc 25 kg': 'AZUCAR CRYSTAL CRISTALCO 50/25 kg',
+  'supercrem nutty white sg cubo 14kg rspo segregated': 'Supercrem Nutty White SG Cubo 14Kg (RSPO Segregad',
+  'cover fluid white caja 10kg': 'Chocolate blanco cobertura Cover Fluid',
+  'bandeja carton n 02 10x17 100 ud': 'Bandeja cartón nº2',
+  'bandeja carton oro n 08 100 ud': 'Bandeja oro nº8',
+  'platos carton oro 32 cm 50 ud': 'Platos cartón nº32 oro',
+  'manteq bq crema ville 10 x 1 k': 'Mantequilla',
+  'bobina kraft 40 cm 18 kg': 'Papel marrón en bobina',
+  'bobina papel generico 62 cm 8 kg': 'Papel marrón en bobina',
+  'azucar glass 1 x 10 kg': 'Azúcar glacé con almidón preparado',
+  'lasemix muffins sc 15 kg': 'Laser mix muffin Ken',
+  // los tres nombres de la minuta son el mismo producto
+  'minuta suprema 25 kg': 'Crema minuta',
+  'minalita suprema 25 kg': 'Crema minuta',
+  // almidón y fécula de maíz son lo mismo
+  'almidon de maiz 1 x 25 kg': 'Almidón de maíz',
+  'fecula de maiz 25 kg': 'Almidón de maíz',
+  // las cápsulas se clasifican por número
+  'capsula sup ext n 8 2500 unid': 'Cápsula nº8',
+  'caps belga sta n 8 p 4000': 'Cápsula nº8',
+  'caps belga stand n 10 4000 un': 'Cápsula nº10',
+  // bandejas, platos y cápsulas: explícitos, que es donde más fácil es confundirse
+  'bandeja carton oro n 13 50 ud': 'Bandeja cartón oro nº13',
+  'bandeja carton oro n 14 25 ud': 'Bandeja oro nº14',
+  'bandeja carton oro n 12 50 ud': 'Bandeja cartón oro nº12',
+  'bandeja carton oro n 35 100 ud': 'Bandeja cartón oro nº35',
+  'bandeja carton n 04 14x21 100 ud': 'Bandeja cartón nº4',
+  'bandeja carton n 06 18x25 100 ud': 'Bandeja cartón nº6',
+  'platos carton oro 30 cm 100 ud': 'Platos cartón nº30 oro',
+  // materiales que tocan el producto
+  'aros madera 11x4': 'Aro de madera 11x4',
+  'aro de madera base 11x4cm 220 und': 'Aro de madera 11x4',
+  'flor obl rosa c 100 un og82f': 'Flor oblea rosa',
+};
+/* Productos que estaban en los albaranes y no en el cuaderno. Berta confirmó que
+   entran en el registro de lotes. Las velas quedan fuera a propósito: no tocan
+   el producto. */
+const CATALOGO_NUEVOS_DEF = {
+  pasteleria: ['DEXTROSA 1 X 25 KG', 'NATA OMEGA BRIC 1 L.', 'GAMMA PAN NATUR 20 KG.',
+    'PROKORN 25 KG.', 'SESAMO DORADO 25 KG.', 'CREMA YEMA DE HUEVO INDIPAN c./ 7 kg. (SIN GLUTEN)',
+    'PAILLETE CAJA 3 KG. DPN', 'NKO PRO GRANELLA PISTACHO 2/4 LABO b./ 1 kg.(PP054',
+    'NUPPY PISTACHO PIU, Cu-6 kg', 'IMPULSOR POWER TURBO LABORA, 5 kg.',
+    'Goal Direct Plus Saco 25Kg', 'Brillo Facil Cubo 25Kg', 'SANDWICH PASTE 12 KG.',
+    'PANILIFE SARRACENO ALGAS 15 KG.', 'SEMILLA DE LINAZA 25 KG.', 'COPOS DE AVENA 25 KG.',
+    'QUESO CREMA NATURAL 26%, Cu-5 Kg.', 'DUBOR AEROSOL PR100, B-600 ml.', 'Almidón de maíz'],
+  materiales: ['Cápsula nº8', 'Cápsula nº10', 'Aro de madera 11x4', 'Flor oblea rosa',
+    'Bandeja cartón oro nº35', 'Platos cartón nº30 oro'],
+};
+/* Los albaranes traen a veces el código del proveedor delante ("416117 AMBAR…").
+   No forma parte del nombre. */
+function limpiaCodigoProveedor(t){
+  return String(t==null?'':t).replace(/^\s*\d{4,8}\s+/, '').trim();
+}
+/** Nombre bueno de un producto: si está en la tabla de equivalencias, el suyo. */
+function resolverNombreProducto(t){
+  const alias = (CONFIG && CONFIG.aliasProductos) || {};
+  const k = normTxt(limpiaCodigoProveedor(t));
+  return alias[k] || String(t==null?'':t).trim();
+}
+
 function mismoProducto(a, b){
-  const x = normTxt(a), y = normTxt(b);
+  /* Primero la tabla de equivalencias, que es la que revisó Berta. Si alguno de
+     los dos tiene nombre bueno asignado, manda eso y no se adivina nada más. */
+  const ra = resolverNombreProducto(a), rb = resolverNombreProducto(b);
+  const alias = (CONFIG && CONFIG.aliasProductos) || {};
+  const tieneAlias = t => !!alias[normTxt(limpiaCodigoProveedor(t))];
+  if(tieneAlias(a) || tieneAlias(b)) return normTxt(ra) === normTxt(rb);
+  const x = normTxt(limpiaCodigoProveedor(a)), y = normTxt(limpiaCodigoProveedor(b));
   if(!x || !y) return false;
   if(x === y) return true;
   const corto = (x.length <= y.length ? x : y).split(' ').filter(Boolean);
