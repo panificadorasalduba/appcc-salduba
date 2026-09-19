@@ -972,8 +972,19 @@ function viewLimpieza(){
   });
   renderCleanTable();
 }
+/* Los históricos se guardan en el orden en que van entrando y, al mezclarse con
+   lo que llega de Drive, ese orden deja de tener sentido: un registro de hoy podía
+   acabar en mitad de la lista. Todos los históricos se ordenan por fecha (y hora),
+   lo último arriba. No se toca DATA: se ordena una copia. */
+function porFechaDesc(lista){
+  return (lista||[]).slice().sort((a,b)=>{
+    const f = String(b.fecha||'').localeCompare(String(a.fecha||''));
+    if(f !== 0) return f;
+    return String(b.hora||'').localeCompare(String(a.hora||''));
+  });
+}
 function renderCleanTable(){
-  const rows = DATA.limpieza.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.limpieza).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.area)}</td><td>${esc(r.elemento)}</td><td>${esc(r.frecuencia)}</td>
     <td><span class="badge ${r.realizado?'ok':'danger'}">${r.realizado?'Sí':'No'}</span></td>
     <td>${esc(r.responsable)}</td><td>${esc(r.supervisor)||'—'}</td><td>${esc(r.observaciones)||'—'}</td>
@@ -1017,7 +1028,7 @@ function viewAgua(){
   renderAguaTable();
 }
 function renderAguaTable(){
-  const rows = DATA.agua.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.agua).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.cloro} mg/l</td>
     <td><span class="badge ${r.organolepticos?'ok':'danger'}">${r.organolepticos?'Normales':'Anómalos'}</span></td>
     <td><span class="badge ${r.estado==='OK'?'ok':'danger'}">${r.estado}</span></td>
@@ -1085,7 +1096,7 @@ function viewAceite(){
   renderAceiteTable();
 }
 function renderAceiteTable(){
-  const rows = DATA.aceite.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.aceite).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td>${r.aceiteNuevo?'Sí':'No'}</td><td>${esc(r.producto)||'—'}</td>
     <td class="mono">${[r.susos?'S '+r.susos:'', r.bombas?'B '+r.bombas:'', r.pestinos?'P '+r.pestinos:'', r.torrijas?'T '+r.torrijas:''].filter(Boolean).join(' · ')||'—'}</td>
     <td class="mono">${r.tiempo?r.tiempo+' min':'—'}</td>
@@ -1130,7 +1141,7 @@ function viewMantenimiento(){
   renderMantTable();
 }
 function renderMantTable(){
-  const rows = DATA.mantenimiento.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.mantenimiento).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.tipo)}</td><td>${esc(r.empresa)||'—'}</td><td>${esc(r.descripcion)}</td>
     <td><span class="badge ${r.resuelto?'ok':'warn'}">${r.resuelto?'Resuelto':'Pendiente'}</span></td>
     <td>${esc(r.responsable)}</td>
@@ -1814,7 +1825,7 @@ function renderAlbaranes(){
 }
 
 function renderRecepTable(){
-  const rows = DATA.recepcion.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.recepcion).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td class="mono">${esc(r.numAlbaran)||'—'}</td><td>${esc(r.producto)}</td>
     <td class="mono">${esc(r.lote)||'—'}</td><td class="mono">${r.cantidad?esc(r.cantidad):'—'}</td>
     <td class="mono">${r.tempLlegada!==''&&r.tempLlegada!==undefined?r.tempLlegada+'°C':'—'}</td>
@@ -1911,7 +1922,7 @@ function viewAlergenos(){
   renderAlergTiendaTable();
 }
 function renderAlergTable(){
-  const rows = DATA.alergenos.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.alergenos).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${esc(r.lote)}</td><td>${esc(r.producto)}</td>
     <td>${r.alergenos.map(esc).join(', ')}</td>
     <td><span class="badge ${r.etiquetado?'ok':'danger'}">${r.etiquetado?'Verificado':'Pendiente'}</span></td>
@@ -1921,7 +1932,7 @@ function renderAlergTable(){
   document.getElementById('alerg-table').innerHTML = table(['Fecha','Lote','Producto','Alérgenos','Etiquetado','Responsable',''], rows);
 }
 function renderAlergTiendaTable(){
-  const rows = DATA.alergenosTienda.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.alergenosTienda).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.tienda)}</td><td>${esc(r.alergiaComunicada)}</td><td>${esc(r.producto)||'—'}</td>
     <td>${r.cambioContaminacion?'Sí':'No'}</td><td>${r.limpiezaAparato?'Sí':'No'}</td>
     <td><span class="badge ${r.resultado==='Venta correcta'?'ok':'danger'}">${esc(r.resultado)}</span></td>
@@ -2064,7 +2075,7 @@ function viewTrazabilidad(){
   renderTrazaTable();
 }
 function renderTrazaTable(){
-  const rows = DATA.trazabilidad.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.trazabilidad).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${esc(r.lote)}</td><td>${esc(r.producto)}</td>
     <td class="mono">${r.cantidad} ${esc(r.unidad)}</td><td>${esc(r.materiasPrimas)||'—'}</td>
     <td>${r.tiendas.length?r.tiendas.map(esc).join(', '):'—'}</td><td>${esc(r.responsable)}</td>
@@ -2117,7 +2128,7 @@ async function toggleNC(id){
   renderDashboard();
 }
 function renderNCTable(){
-  const rows = DATA.noconformidades.map(r=>`<tr>
+  const rows = porFechaDesc(DATA.noconformidades).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td>${esc(r.plan)}</td><td>${esc(r.descripcion)}</td>
     <td>${esc(r.accionCorrectiva)||'—'}</td>
     <td><span class="badge ${r.estado==='Cerrada'?'ok':'warn'}">${r.estado}</span></td>
