@@ -2879,17 +2879,67 @@ function mismoProducto(a, b){
   const x = normTxt(a), y = normTxt(b);
   if(!x || !y) return false;
   if(x === y) return true;
+  const corto = (x.length <= y.length ? x : y).split(' ').filter(Boolean);
+  const largo = (x.length <= y.length ? y : x).split(' ').filter(Boolean);
+  /* Dos palabras como mínimo y alguna de verdad (no "de", "1kg"…), para no
+     emparejar productos distintos por casualidad. */
+  if(corto.length < 2) return false;
+  if(!corto.some(w=>w.length >= 4)) return false;
+  /* El nombre del cuaderno es corto ("Nko Pro crema blanca") y el del albarán
+     lleva cosas por medio ("NKO PRO CREMA RELLENO BLANCA c./ 6 kg"). Basta con
+     que TODAS las palabras del corto estén en el largo, aunque no seguidas. */
+  return corto.every(w=>largo.indexOf(w) >= 0);
+}
+/* Los números de lote tampoco se escriben igual en el cuaderno y en el albarán:
+   "C61-26173" y "26173" son el mismo. Se comparan solo letras y números, y vale
+   que uno contenga al otro si el corto tiene al menos cuatro caracteres. */
+function mismoLote(a, b){
+  const x = String(a==null?'':a).toLowerCase().replace(/[^a-z0-9]/g,'');
+  const y = String(b==null?'':b).toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(!x || !y) return false;
+  if(x === y) return true;
   const corto = x.length <= y.length ? x : y;
   const largo = x.length <= y.length ? y : x;
-  if(corto.split(' ').length < 2) return false;
-  return (' '+largo+' ').indexOf(' '+corto+' ') >= 0;
+  if(corto.length < 4) return false;
+  return largo.indexOf(corto) >= 0;
+}
+/* Todos los nombres de producto que conocemos (catálogo de lotes, catálogo de
+   stock y los que ya tienen lote abierto). Sirve para desempatar. */
+function nombresConocidos(){
+  const out = [];
+  const mete = n => { const t=String(n||'').trim(); if(t && out.indexOf(t)<0) out.push(t); };
+  const cat = CONFIG.catalogoLotes || {};
+  ['pasteleria','bajaRotacion','materiales'].forEach(k=>(cat[k]||[]).forEach(mete));
+  (CONFIG.materiasPrimas||[]).forEach(m=>mete(m.nombre));
+  (DATA.lotesMP||[]).forEach(r=>mete(r.producto));
+  return out;
+}
+/* "BANDEJA CARTON ORO N.12" encaja con "Bandeja cartón nº12" y también con
+   "Bandeja cartón oro nº12". Gana el que más palabras comparte: el del oro. Así
+   un producto no se queda con las recepciones de su hermano más específico. */
+function mejorProductoPara(descripcion, candidatos){
+  let mejor = null, mejorPeso = -1;
+  (candidatos || nombresConocidos()).forEach(nom=>{
+    if(!mismoProducto(descripcion, nom)) return;
+    const peso = normTxt(nom).split(' ').filter(Boolean).length;
+    if(peso > mejorPeso){ mejor = nom; mejorPeso = peso; }
+  });
+  return mejor;
 }
 function lotesRecibidos(nombre){
   const key0 = String(nombre||'').trim().toLowerCase();
   if(!key0) return [];
   const porLote = {};
+  const conocidos = nombresConocidos();
   DATA.recepcion
-    .filter(r=>mismoProducto(r.producto, nombre) && r.lote && String(r.lote).trim())
+    .filter(r=>{
+      if(!r.lote || !String(r.lote).trim()) return false;
+      if(!mismoProducto(r.producto, nombre)) return false;
+      /* Si otro producto del catálogo encaja mejor con esa descripción, la
+         recepción es suya, no nuestra. */
+      const mejor = mejorProductoPara(r.producto, conocidos);
+      return !mejor || normTxt(mejor) === normTxt(nombre);
+    })
     .forEach(r=>{
       const key = String(r.lote).trim().toLowerCase();
       if(!porLote[key]) porLote[key] = {lote:r.lote, cantidadRecibida:0, fecha:r.fecha,
@@ -2900,13 +2950,10 @@ function lotesRecibidos(nombre){
         porLote[key].fecha = r.fecha; porLote[key].caducidad = r.caducidad;
       }
     });
-  const abiertosPorLote = {};
-  DATA.lotesMP.filter(r=>mismoProducto(r.producto, nombre)).forEach(r=>{
-    const key = String(r.lote||'').trim().toLowerCase();
-    abiertosPorLote[key] = (abiertosPorLote[key]||0)+1;
-  });
+  const aperturas = DATA.lotesMP.filter(r=>mismoProducto(r.producto, nombre));
   return Object.keys(porLote)
-    .map(key=>({...porLote[key], abiertos: abiertosPorLote[key]||0}))
+    .map(key=>({...porLote[key],
+                abiertos: aperturas.filter(r=>mismoLote(r.lote, porLote[key].lote)).length}))
     .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));   // el más antiguo primero (FIFO)
 }
 /** Tabla para elegir de qué lote se abre el envase, y cerrar los que sigan abiertos.
@@ -2922,19 +2969,17 @@ function pintarRecepcionesDelProducto(nombre){
   if(!nombre){ host.innerHTML=''; return; }
   const clave = String(nombre).trim().toLowerCase();
   const recibidos = lotesRecibidos(nombre);
-  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre &&
-      String(r.producto||'').trim().toLowerCase()===clave);
+  const abiertos = DATA.lotesMP.filter(r=>!r.fechaCierre && mismoProducto(r.producto, nombre));
 
-  // una fila por lote: lo recepcionado, más los abiertos que no casen con ninguno
+  /* Una fila por lote: lo recepcionado, más los envases abiertos cuyo número de
+     lote no case con ninguna recepción (esos salen como "sin recepción"). */
   const filasLote = recibidos.slice();
-  const yaEstan = new Set(recibidos.map(l=>String(l.lote).trim().toLowerCase()));
   abiertos.forEach(r=>{
-    const k = String(r.lote||'').trim().toLowerCase();
-    if(k && !yaEstan.has(k)){
-      yaEstan.add(k);
-      filasLote.push({lote:r.lote, cantidadRecibida:0, fecha:r.fechaApertura,
-                      caducidad:'', proveedor:'', abiertos:1, sinRecepcion:true});
-    }
+    const k = String(r.lote||'').trim();
+    if(!k) return;
+    if(filasLote.some(l=>mismoLote(l.lote, k))) return;
+    filasLote.push({lote:r.lote, cantidadRecibida:0, fecha:r.fechaApertura,
+                    caducidad:'', proveedor:'', abiertos:1, sinRecepcion:true});
   });
   if(!filasLote.length){
     host.innerHTML = `<p class="hint">No hay ninguna recepción registrada con lote para <strong>${esc(nombre)}</strong>, ni ningún envase abierto. Escribe el número de lote a mano arriba.</p>`;
@@ -2947,8 +2992,7 @@ function pintarRecepcionesDelProducto(nombre){
     const quedan = l.cantidadRecibida - l.abiertos;
     const agotado = !l.sinRecepcion && quedan <= 0;
     const recomendado = primeroDisponible && l.lote === primeroDisponible.lote;
-    const susAbiertos = abiertos.filter(r=>
-      String(r.lote||'').trim().toLowerCase()===String(l.lote).trim().toLowerCase());
+    const susAbiertos = abiertos.filter(r=>mismoLote(r.lote, l.lote));
     const cerrar = susAbiertos.map((r,k)=>{
       const idf = 'cierreFecha'+i+'_'+k;
       return `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
