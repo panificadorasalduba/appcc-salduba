@@ -481,6 +481,10 @@ async function loadAll(){
         if(!cat[seccion].some(x=>normTxt(x)===normTxt(n))) cat[seccion].push(n);
       });
     });
+    Object.keys(cat).forEach(seccion=>{
+      cat[seccion] = (cat[seccion]||[]).filter(n=>
+        !CATALOGO_RETIRADOS_DEF.some(v=>normTxt(v)===normTxt(n)));
+    });
     CONFIG.aliasVer = ALIAS_VER;
   }
   for(const mod of Object.keys(DATA)){
@@ -1372,6 +1376,11 @@ function viewRecepcion(){
       </form>
     </div>
     <div class="panel">
+      <h2>${icon('truck')} Productos por identificar</h2>
+      <p class="hint">Cada proveedor escribe los productos a su manera. Si un nombre no se reconoce, ese producto no se enlaza con su lote y no sale en la trazabilidad. Aquí aparecen los que faltan por revisar.</p>
+      <div id="aviso-nombres"></div>
+    </div>
+    <div class="panel">
       <h2>${icon('truck')} Albaranes registrados</h2>
       <p class="hint">Un albarán por línea, del más reciente al más antiguo. Despliega y repasa cuáles están metidos; eliges uno y ves sus productos.</p>
       <div id="alb-resumen"></div>
@@ -1451,6 +1460,7 @@ function viewRecepcion(){
     document.getElementById('form-recepcion').querySelector('input[name=cantidad]').value = 1;
     renderRecepTable();
     renderAlbaranes();
+    renderAvisoNombres();
     renderDashboard();
   });
   ['albBuscar','albSel'].forEach(id=>{
@@ -1459,6 +1469,7 @@ function viewRecepcion(){
   });
   renderRecepTable();
   renderAlbaranes();
+  renderAvisoNombres();
 }
 const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
 
@@ -1800,6 +1811,81 @@ function poblarSelectAlbaranes(){
   sel.value = lista.some(g=>g.clave===previo) ? previo : '';
   return lista;
 }
+/* ---- AVISO DE NOMBRES SIN IDENTIFICAR ----
+   Cada proveedor escribe los productos a su manera. Cuando entra un albarán con
+   un nombre que no se reconoce, ese producto no se puede enlazar con su lote.
+   Aquí salen todos los que están sin identificar, para repasarlos. */
+function productosSinIdentificar(){
+  const conocidos = nombresConocidos();
+  const vistos = {};
+  (DATA.recepcion||[]).forEach(r=>{
+    const d = String(r.producto||'').trim();
+    if(!d) return;
+    if(mejorProductoPara(d, conocidos)) return;
+    const k = normTxt(limpiaCodigoProveedor(d));
+    if((CONFIG.productosSinLote||[]).indexOf(k) >= 0) return;
+    if(!vistos[k]) vistos[k] = {descripcion:d, proveedor:r.proveedor||'', fecha:r.fecha||'', veces:0};
+    vistos[k].veces++;
+    if(String(r.fecha||'') > String(vistos[k].fecha||'')){ vistos[k].fecha = r.fecha; vistos[k].proveedor = r.proveedor||''; }
+  });
+  return Object.keys(vistos).map(k=>vistos[k])
+    .sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+}
+function renderAvisoNombres(){
+  const host = document.getElementById('aviso-nombres');
+  if(!host) return;
+  const lista = productosSinIdentificar();
+  if(!lista.length){
+    host.innerHTML = '<p class="hint">✅ Todos los productos de los albaranes están identificados.</p>';
+    return;
+  }
+  const opciones = nombresConocidos().sort((a,b)=>a.localeCompare(b,'es'))
+    .map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  const filas = lista.map((x,i)=>`<tr>
+    <td>${esc(x.descripcion)}</td>
+    <td class="mono">${x.fecha?fmtDate(x.fecha):'—'}</td>
+    <td>${esc(x.proveedor)||'—'}</td>
+    <td class="mono">${x.veces}</td>
+    <td><span class="cierre-linea">
+      <select id="aliasSel${i}"><option value="">Elige el producto del cuaderno…</option>${opciones}</select>
+      <button class="btn secondary small" type="button" onclick="guardarAliasProducto('${esc(x.descripcion).replace(/'/g,"\\'")}','aliasSel${i}')">Es este</button>
+      <button class="btn secondary small" type="button" onclick="guardarProductoNuevo('${esc(x.descripcion).replace(/'/g,"\\'")}')">Es nuevo</button>
+      <button class="btn secondary small" type="button" onclick="ignorarProducto('${esc(x.descripcion).replace(/'/g,"\\'")}')">Sin lote</button>
+    </span></td>
+  </tr>`);
+  host.innerHTML = `<p class="hint" style="margin:0 0 8px;color:var(--warn);">
+      ⚠ Hay <strong>${lista.length}</strong> ${lista.length===1
+          ? 'producto de los albaranes que no se reconoce, así que no se enlaza con ningún lote. Dile a cuál corresponde, o márcalo como producto nuevo.'
+          : 'productos de los albaranes que no se reconocen, así que no se enlazan con ningún lote. Dile a cuál corresponde cada uno, o márcalo como producto nuevo.'}</p>`
+    + table(['Como viene en el albarán','Último','Proveedor','Veces',''], filas);
+}
+/** Enlaza la descripción del albarán con un producto que ya está en el cuaderno. */
+async function guardarAliasProducto(descripcion, idSelect){
+  const sel = document.getElementById(idSelect);
+  if(!sel || !sel.value){ alert('Elige primero el producto del cuaderno en la lista.'); return; }
+  CONFIG.aliasProductos = CONFIG.aliasProductos || {};
+  CONFIG.aliasProductos[normTxt(limpiaCodigoProveedor(descripcion))] = sel.value;
+  await saveConfig();
+  renderAvisoNombres(); renderAlbaranes();
+}
+/** Da de alta la descripción como producto nuevo del cuaderno. */
+async function guardarProductoNuevo(descripcion){
+  const cat = CONFIG.catalogoLotes = CONFIG.catalogoLotes || {pasteleria:[], bajaRotacion:[], materiales:[]};
+  cat.pasteleria = cat.pasteleria || [];
+  const limpio = limpiaCodigoProveedor(descripcion);
+  if(!cat.pasteleria.some(n=>normTxt(n)===normTxt(limpio))) cat.pasteleria.push(limpio);
+  await saveConfig();
+  renderAvisoNombres(); renderAlbaranes();
+}
+/** Producto que no lleva registro de lote (velas, material de oficina…). */
+async function ignorarProducto(descripcion){
+  CONFIG.productosSinLote = CONFIG.productosSinLote || [];
+  const k = normTxt(limpiaCodigoProveedor(descripcion));
+  if(CONFIG.productosSinLote.indexOf(k) < 0) CONFIG.productosSinLote.push(k);
+  await saveConfig();
+  renderAvisoNombres();
+}
+
 function renderAlbaranes(){
   const host = document.getElementById('alb-detalle');
   const resumen = document.getElementById('alb-resumen');
@@ -2892,7 +2978,7 @@ function cantidadRecepcion(r){
    El cuaderno y el albarán llaman a lo mismo de maneras distintas. Esta tabla la
    revisó Berta producto por producto el 19/09/2026: a la izquierda el nombre tal
    como viene en el albarán, a la derecha el nombre bueno, el del cuaderno. */
-const ALIAS_VER = 1;
+const ALIAS_VER = 2;
 const ALIAS_PRODUCTOS_DEF = {
   // harinas San Lorenzo
   'recia 25 kg harina panific de trigo duro': 'RECIA (37) 25 Kg. Harina panif. de trigo duro',
@@ -2907,7 +2993,7 @@ const ALIAS_PRODUCTOS_DEF = {
   'supercrem nutty white sg cubo 14kg rspo segregated': 'Supercrem Nutty White SG Cubo 14Kg (RSPO Segregad',
   'cover fluid white caja 10kg': 'Chocolate blanco cobertura Cover Fluid',
   'bandeja carton n 02 10x17 100 ud': 'Bandeja cartón nº2',
-  'bandeja carton oro n 08 100 ud': 'Bandeja oro nº8',
+  'bandeja carton oro n 08 100 ud': 'Bandeja cartón oro nº8',
   'platos carton oro 32 cm 50 ud': 'Platos cartón nº32 oro',
   'manteq bq crema ville 10 x 1 k': 'Mantequilla',
   'bobina kraft 40 cm 18 kg': 'Papel marrón en bobina',
@@ -2924,9 +3010,15 @@ const ALIAS_PRODUCTOS_DEF = {
   'capsula sup ext n 8 2500 unid': 'Cápsula nº8',
   'caps belga sta n 8 p 4000': 'Cápsula nº8',
   'caps belga stand n 10 4000 un': 'Cápsula nº10',
+  /* En el catálogo convivían dos formas de escribir la bandeja de oro
+     ("Bandeja oro nº13" y "Bandeja cartón oro nº13"). Se deja una sola. */
+  'bandeja oro n 6': 'Bandeja cartón oro nº6',
+  'bandeja oro n 8': 'Bandeja cartón oro nº8',
+  'bandeja oro n 13': 'Bandeja cartón oro nº13',
+  'bandeja oro n 14': 'Bandeja cartón oro nº14',
   // bandejas, platos y cápsulas: explícitos, que es donde más fácil es confundirse
   'bandeja carton oro n 13 50 ud': 'Bandeja cartón oro nº13',
-  'bandeja carton oro n 14 25 ud': 'Bandeja oro nº14',
+  'bandeja carton oro n 14 25 ud': 'Bandeja cartón oro nº14',
   'bandeja carton oro n 12 50 ud': 'Bandeja cartón oro nº12',
   'bandeja carton oro n 35 100 ud': 'Bandeja cartón oro nº35',
   'bandeja carton n 04 14x21 100 ud': 'Bandeja cartón nº4',
@@ -2949,8 +3041,13 @@ const CATALOGO_NUEVOS_DEF = {
     'PANILIFE SARRACENO ALGAS 15 KG.', 'SEMILLA DE LINAZA 25 KG.', 'COPOS DE AVENA 25 KG.',
     'QUESO CREMA NATURAL 26%, Cu-5 Kg.', 'DUBOR AEROSOL PR100, B-600 ml.', 'Almidón de maíz'],
   materiales: ['Cápsula nº8', 'Cápsula nº10', 'Aro de madera 11x4', 'Flor oblea rosa',
-    'Bandeja cartón oro nº35', 'Platos cartón nº30 oro'],
+    'Bandeja cartón oro nº35', 'Platos cartón nº30 oro',
+    'Bandeja cartón oro nº6', 'Bandeja cartón oro nº8', 'Bandeja cartón oro nº14'],
 };
+/* Nombres viejos que se quitan del catálogo porque ya tienen uno bueno. Lo que
+   haya registrado con ellos no se toca: la tabla de equivalencias los reconoce. */
+const CATALOGO_RETIRADOS_DEF = ['Bandeja oro nº6', 'Bandeja oro nº8',
+  'Bandeja oro nº13', 'Bandeja oro nº14'];
 /* Los albaranes traen a veces el código del proveedor delante ("416117 AMBAR…").
    No forma parte del nombre. */
 function limpiaCodigoProveedor(t){
@@ -3962,29 +4059,29 @@ function hojasLotesMP(desde, hasta){
 
   const cat = CONFIG.catalogoLotes || {};
   const enCatalogo = {};
-  LOTES_SECCIONES.forEach(([k])=> (cat[k]||[]).forEach(p=> enCatalogo[normTxt(p)] = true ));
+  LOTES_SECCIONES.forEach(([k])=> (cat[k]||[]).forEach(p=> enCatalogo[normTxt(resolverNombreProducto(p))] = true ));
 
   const out = [];
   anios.forEach(anio=>{
     const porProd = {};
     porAnio[anio].forEach(r=>{
-      const k = normTxt(r.producto);
+      const k = normTxt(resolverNombreProducto(r.producto));   // el nombre bueno
       (porProd[k] = porProd[k] || []).push(r);
     });
     Object.keys(porProd).forEach(k=> porProd[k].sort((a,b)=>
       String(a.fechaApertura||'￿').localeCompare(String(b.fechaApertura||'￿')) ));
 
     // lotes de productos que no están en ningún catálogo: se añaden al final
-    const sueltos = Object.keys(porProd).filter(k=> !enCatalogo[k]);
+    const sueltos = Object.keys(porProd).filter(k=> !enCatalogo[k]);   // ya resueltos
 
     LOTES_SECCIONES.forEach(([clave, titulo], iSec)=>{
       let lista = (cat[clave]||[]).slice();
-      if(iSec===0) sueltos.forEach(k=> lista.push(porProd[k][0].producto) );
+      if(iSec===0) sueltos.forEach(k=> lista.push(resolverNombreProducto(porProd[k][0].producto)) );
       if(!lista.length) return;
       /* La hoja se ensancha sola: tantos casilleros a lo ancho como lotes tenga el
          producto que más haya gastado, con el mínimo del cuaderno impreso (4). */
       const casilleros = {};
-      lista.forEach(p=>{ casilleros[normTxt(p)] = agruparPorLote(porProd[normTxt(p)] || []); });
+      lista.forEach(p=>{ casilleros[normTxt(p)] = agruparPorLote(porProd[normTxt(resolverNombreProducto(p))] || []); });
       let bloques = LOTES_BLOQUES;
       lista.forEach(p=>{ const n = casilleros[normTxt(p)].length; if(n > bloques) bloques = n; });
       const cuerpo = lista.map(p=> filasProductoLote(p, casilleros[normTxt(p)], bloques) ).join('');
