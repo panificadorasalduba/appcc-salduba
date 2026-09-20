@@ -4924,13 +4924,16 @@ function construirListaRevision(){
     if(!nombre) return;
     mete(nombre, 'recepcion', r.fecha);
   });
+  /* Primero lo que figura abierto, empezando por lo que lleva más tiempo así
+     (es lo que más papeletas tiene de estar ya gastado); después, en orden
+     alfabético, lo que nunca se ha abierto. */
+  const masViejo = x => x.abiertos.length
+    ? x.abiertos.map(l=>String(l.fechaApertura||'9999-99-99')).sort()[0]
+    : '';
   return [...porProducto.values()].sort((a,b)=>{
-    // primero lo que lleva más tiempo abierto, que es lo más probable que esté gastado
-    const aa = a.abiertos.length ? Math.min(...a.abiertos.map(l=>String(l.fechaApertura||'9999'))) : '';
-    const bb = b.abiertos.length ? Math.min(...b.abiertos.map(l=>String(l.fechaApertura||'9999'))) : '';
-    if(aa && bb && aa !== bb) return aa.localeCompare(bb);
-    if(aa && !bb) return -1;
-    if(!aa && bb) return 1;
+    const aa = masViejo(a), bb = masViejo(b);
+    if(!!aa !== !!bb) return aa ? -1 : 1;
+    if(aa && aa !== bb) return aa < bb ? -1 : 1;
     return String(a.producto).localeCompare(String(b.producto),'es');
   });
 }
