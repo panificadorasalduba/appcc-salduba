@@ -4662,6 +4662,7 @@ function renderDashboard(){
   const aceiteCambiar = DATA.aceite.filter(r=>r.fecha===today && r.estado==='CAMBIAR').length;
   const trazaHoy = DATA.trazabilidad.filter(r=>r.fecha===today);
   const mantPendientes = DATA.mantenimiento.filter(r=>!r.resuelto).length;
+  const plagasAviso = resumenPlagasDashboard();
   const ncAbiertas = DATA.noconformidades.filter(r=>r.estado==='Abierta').length;
   const pedidosPendientes = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo).length;
 
@@ -4719,8 +4720,13 @@ function renderDashboard(){
       </div>
       <div class="card">
         <div class="card-top">${icon('wrench')}<span class="badge ${mantPendientes>0?'warn':'ok'}">${mantPendientes>0?'Pendiente':'OK'}</span></div>
-        <h3>Mantenimiento / Plagas</h3><div class="metric mono">${mantPendientes}</div>
+        <h3>Mantenimiento</h3><div class="metric mono">${mantPendientes}</div>
         <div class="sub">Partes pendientes de resolver</div>
+      </div>
+      <div class="card">
+        <div class="card-top">${icon('wrench')}<span class="badge ${plagasAviso.badge}">${plagasAviso.etiqueta}</span></div>
+        <h3>Control de plagas</h3><div class="metric mono">${plagasAviso.metrica}</div>
+        <div class="sub">${plagasAviso.sub}</div>
       </div>
       <div class="card">
         <div class="card-top">${icon('alert')}<span class="badge ${ncAbiertas>0?'danger':'ok'}">${ncAbiertas>0?'Abiertas':'OK'}</span></div>
@@ -4891,8 +4897,66 @@ async function leerParteConIA(){
    sube a Drive como archivo suelto para poder abrirla desde cualquier ordenador. */
 let plagasFotos = [];          // fotos de la visita que se está apuntando
 
+/* La revisión de plagas es ANUAL salvo que haya un problema puntual. Como pasa
+   casi un año entre visitas, es fácil que se eche el tiempo encima sin darse
+   cuenta; por eso la app lleva la cuenta y avisa sola. */
+const PLAGAS_MESES_REVISION = 12;
+function mesesDesde(fecha){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha||''))) return null;
+  const d = new Date(fecha+'T00:00:00'), hoy = new Date(todayStr()+'T00:00:00');
+  if(isNaN(d.getTime())) return null;
+  return (hoy.getFullYear()-d.getFullYear())*12 + (hoy.getMonth()-d.getMonth())
+       - (hoy.getDate() < d.getDate() ? 1 : 0);
+}
+function sumaMeses(fecha, n){
+  const d = new Date(fecha+'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  d.setMonth(d.getMonth()+n);
+  return d.toISOString().slice(0,10);
+}
+/** La revisión periódica más reciente: los avisos por incidencia no cuentan
+    como la revisión anual, son visitas extra. */
+function ultimaRevisionPlagas(){
+  return porFechaDesc((DATA.plagas||[]).filter(r=>!/incidencia/i.test(r.tipoActuacion||'')))[0] || null;
+}
+function panelProximaRevision(){
+  const u = ultimaRevisionPlagas();
+  if(!u) return `<div class="panel"><p class="hint">Todavía no hay ninguna revisión registrada. La revisión de plagas es anual: apunta la última que os hicieran para que la app lleve la cuenta.</p></div>`;
+  const meses = mesesDesde(u.fecha);
+  const toca = u.proxima && /^\d{4}-\d{2}-\d{2}$/.test(u.proxima) ? u.proxima : sumaMeses(u.fecha, PLAGAS_MESES_REVISION);
+  const faltan = diasDesdeHoy(toca);
+  let color = 'var(--ok)', fondo = '#f2f9f2', borde = 'var(--ok)', texto;
+  if(faltan === null){ texto = ''; }
+  else if(faltan < 0){
+    color = '#7d2018'; fondo = '#fdecea'; borde = '#c0392b';
+    texto = `<b>La revisión anual está vencida.</b> Tocaba el ${fmtDate(toca)}, hace ${Math.abs(faltan)} días. Conviene llamar a ${esc(u.empresa)||'la empresa'} y que quede el parte registrado.`;
+  } else if(faltan <= 60){
+    color = '#7a5200'; fondo = '#fdf6e3'; borde = '#b7791f';
+    texto = `<b>Se acerca la revisión anual:</b> toca sobre el ${fmtDate(toca)}, dentro de ${faltan} días. Buen momento para pedir cita a ${esc(u.empresa)||'la empresa'}.`;
+  } else {
+    texto = `Revisión anual al día. La siguiente toca sobre el <b>${fmtDate(toca)}</b>, dentro de ${faltan} días.`;
+  }
+  return `<div class="panel" style="border-left:4px solid ${borde};background:${fondo};color:${color};">
+    <p style="margin:0;font-size:15px;line-height:1.5;">${texto}</p>
+    <p class="hint" style="margin:6px 0 0;">Última revisión: <b>${fmtDate(u.fecha)}</b>${meses!==null?` (hace ${meses} ${meses===1?'mes':'meses'})`:''} · ${esc(u.empresa)||'—'}${u.numParte?` · parte ${esc(u.numParte)}`:''}. Se revisa una vez al año, salvo que haya algún problema puntual.</p>
+  </div>`;
+}
+/** Lo que se ve en el panel general: cuánto queda para la revisión anual. */
+function resumenPlagasDashboard(){
+  const u = ultimaRevisionPlagas();
+  if(!u) return {badge:'warn', etiqueta:'Sin datos', metrica:'—', sub:'Ninguna revisión registrada todavía'};
+  const toca = u.proxima && /^\d{4}-\d{2}-\d{2}$/.test(u.proxima) ? u.proxima : sumaMeses(u.fecha, PLAGAS_MESES_REVISION);
+  const faltan = diasDesdeHoy(toca);
+  if(faltan === null) return {badge:'ok', etiqueta:'OK', metrica:'—', sub:'Última revisión: '+fmtDate(u.fecha)};
+  if(faltan < 0) return {badge:'danger', etiqueta:'Vencida', metrica:Math.abs(faltan),
+    sub:'Días de retraso · tocaba el '+fmtDate(toca)};
+  if(faltan <= 60) return {badge:'warn', etiqueta:'Se acerca', metrica:faltan,
+    sub:'Días para la revisión anual ('+fmtDate(toca)+')'};
+  return {badge:'ok', etiqueta:'Al día', metrica:faltan, sub:'Días para la revisión anual ('+fmtDate(toca)+')'};
+}
 function viewPlagas(){
   document.getElementById('view-plagas').innerHTML = `
+    ${panelProximaRevision()}
     <div class="panel">
       <h2>${icon('wrench')} Nueva visita de la empresa de plagas</h2>
       <p class="hint"><strong>Adjunta el parte primero</strong> —una foto del papel que te dejan, o el PDF que te mandan por correo— y pulsa «Leer el parte y rellenar»: la IA saca los datos y te llena el formulario para que solo tengas que repasarlo. El archivo se guarda además en tu Drive, así que se abre desde cualquier ordenador y queda como prueba de lo que se hizo en el obrador.</p>
