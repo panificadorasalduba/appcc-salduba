@@ -3860,9 +3860,14 @@ const MODULE_META = {
    cuántas hojas tiene el parte y si ya están guardadas en Drive. */
 function enlacesParte(r){
   const fotos = r.fotos || [];
-  if(!fotos.length) return 'Sin foto';
+  if(!fotos.length) return 'Sin parte adjunto';
+  const pdfs = fotos.filter(f=>esPdf(f.mime, f.nombre)).length;
+  const imgs = fotos.length - pdfs;
+  const trozos = [];
+  if(imgs) trozos.push(imgs + ' foto' + (imgs===1?'':'s'));
+  if(pdfs) trozos.push(pdfs + ' PDF');
   const subidas = fotos.filter(f=>f.estado==='subida').length;
-  const n = fotos.length + ' hoja' + (fotos.length===1?'':'s');
+  const n = trozos.join(' y ');
   if(subidas === fotos.length) return n + ' · en Drive';
   if(subidas === 0) return n + ' · pendiente de subir';
   return n + ' · ' + subidas + ' en Drive';
@@ -4752,7 +4757,7 @@ function viewPlagas(){
   document.getElementById('view-plagas').innerHTML = `
     <div class="panel">
       <h2>${icon('wrench')} Nueva visita de la empresa de plagas</h2>
-      <p class="hint">Apunta cada visita y <strong>haz una foto del parte que te dejan</strong>. La foto se guarda en tu Drive como archivo aparte, así que se abre desde cualquier ordenador y queda como prueba de lo que se hizo en el obrador.</p>
+      <p class="hint">Apunta cada visita y <strong>adjunta el parte</strong>: una foto del papel que te dejan, o el PDF que te mandan por correo. Se guarda en tu Drive como archivo aparte, así que se abre desde cualquier ordenador y queda como prueba de lo que se hizo en el obrador.</p>
       <form class="record-form" id="form-plagas">
         <label class="field"><span>Fecha de la visita</span><input type="date" name="fecha" value="${todayStr()}" required></label>
         <label class="field"><span>Empresa</span><input type="text" name="empresa" list="dl-empresas-ddd" placeholder="Empresa de control de plagas" required>
@@ -4774,13 +4779,16 @@ function viewPlagas(){
         <label class="field checkline"><input type="checkbox" name="incidencia"><span>Hay una incidencia que corregir</span></label>
         <label class="field"><span>Responsable de Salduba</span><input type="text" name="responsable" required></label>
         <div class="field wide">
-          <span>Foto del parte</span>
+          <span>El parte (foto o PDF)</span>
           <div class="cierre-linea" style="flex-wrap:wrap;gap:8px;">
-            <input type="file" id="plagasFile" accept="image/*" capture="environment" style="max-width:260px;">
-            <button class="btn secondary small" type="button" onclick="plagasQuitarFotos()">Quitar fotos</button>
+            <input type="file" id="plagasCamara" accept="image/*" capture="environment" style="display:none;">
+            <input type="file" id="plagasArchivo" accept="image/*,application/pdf" multiple style="display:none;">
+            <button class="btn secondary small" type="button" onclick="document.getElementById('plagasCamara').click()">📷 Hacer foto</button>
+            <button class="btn secondary small" type="button" onclick="document.getElementById('plagasArchivo').click()">📎 Subir imagen o PDF</button>
+            <button class="btn secondary small" type="button" onclick="plagasQuitarFotos()">Quitar todo</button>
           </div>
-          <div id="plagasPreview" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"></div>
-          <p class="hint" style="margin:6px 0 0;">Puedes añadir varias hojas: elige una, luego otra. Si el parte tiene dos caras, hazle una foto a cada una.</p>
+          <div id="plagasPreview" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
+          <p class="hint" style="margin:6px 0 0;">Puedes adjuntar varias cosas: si el parte tiene dos caras, una foto de cada una; y si además te mandan el PDF por correo, súbelo también. Las fotos se reducen para que ocupen poco; el PDF se sube tal cual (hasta 12 MB).</p>
         </div>
         <div class="form-actions"><button class="btn" type="submit">Guardar visita</button></div>
       </form>
@@ -4790,15 +4798,16 @@ function viewPlagas(){
       <div id="plagas-aviso-drive"></div>
       <div id="plagas-table"></div>
     </div>`;
-  document.getElementById('plagasFile').addEventListener('change', async e=>{
-    const f = e.target.files && e.target.files[0];
-    if(!f) return;
-    try{
-      const dataUrl = await compressImage(f, 1400, 0.75);
-      plagasFotos.push(dataUrl);
+  ['plagasCamara','plagasArchivo'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', async e=>{
+      const archivos = [...(e.target.files||[])];
+      for(const f of archivos){
+        try{ await plagasAnadirArchivo(f); }
+        catch(err){ alert('No se pudo adjuntar «'+f.name+'»: '+err.message); }
+      }
       pintarPlagasPreview();
-    }catch(err){ alert('No se pudo leer la imagen: '+err.message); }
-    e.target.value = '';
+      e.target.value = '';
+    });
   });
   document.getElementById('form-plagas').addEventListener('submit', async e=>{
     e.preventDefault();
@@ -4809,11 +4818,12 @@ function viewPlagas(){
       zonas:f.get('zonas'), productos:f.get('productos'), hallazgos:f.get('hallazgos'),
       medidas:f.get('medidas'), incidencia:f.get('incidencia')==='on',
       responsable:f.get('responsable'), fotos:[]};
-    // la foto se queda en el dispositivo y, además, se sube a Drive como archivo
+    // el parte se queda en el dispositivo y, además, sube a Drive como archivo
     for(let i=0;i<plagasFotos.length;i++){
+      const a = plagasFotos[i];
       const fotoId = uid();
-      try{ await Store.set('foto:'+fotoId, plagasFotos[i]); }catch(err){ console.error(err); }
-      rec.fotos.push({fotoId, driveId:'', driveUrl:'', estado:'pendiente'});
+      try{ await Store.set('foto:'+fotoId, a.dataUrl); }catch(err){ console.error(err); }
+      rec.fotos.push({fotoId, nombre:a.nombre, mime:a.mime, driveId:'', driveUrl:'', estado:'pendiente'});
     }
     DATA.plagas.unshift(rec);
     await saveModule('plagas');
@@ -4830,11 +4840,53 @@ function empresasDDD(){
   const viejas = (DATA.mantenimiento||[]).filter(r=>/plaga|ddd/i.test(r.tipo||'')).map(r=>r.empresa).filter(Boolean);
   return [...new Set(de.concat(viejas))].sort((a,b)=>a.localeCompare(b,'es'));
 }
+const PARTE_MAX_BYTES = 12 * 1024 * 1024;   // lo que aguanta cómodo el Apps Script
+function esPdf(mime, nombre){
+  return /pdf/i.test(String(mime||'')) || /\.pdf$/i.test(String(nombre||''));
+}
+function leerComoDataUrl(file){
+  return new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = e=>res(e.target.result);
+    r.onerror = ()=>rej(new Error('no se pudo leer el archivo'));
+    r.readAsDataURL(file);
+  });
+}
+/** Las imágenes se reducen; los PDF se suben tal cual, sin tocarlos. */
+async function plagasAnadirArchivo(file){
+  if(esPdf(file.type, file.name)){
+    if(file.size > PARTE_MAX_BYTES){
+      throw new Error('el PDF ocupa '+Math.round(file.size/1048576)+' MB y el máximo son 12 MB');
+    }
+    const dataUrl = await leerComoDataUrl(file);
+    plagasFotos.push({dataUrl, mime:'application/pdf', nombre:file.name, pdf:true, bytes:file.size});
+    return;
+  }
+  if(!/^image\//i.test(file.type||'')){
+    throw new Error('solo se admiten imágenes o PDF');
+  }
+  const dataUrl = await compressImage(file, 1400, 0.75);
+  plagasFotos.push({dataUrl, mime:'image/jpeg', nombre:file.name || 'foto.jpg', pdf:false});
+}
 function pintarPlagasPreview(){
   const host = document.getElementById('plagasPreview');
   if(!host) return;
-  host.innerHTML = plagasFotos.map((d,i)=>`<img src="${d}" alt="Hoja ${i+1}" style="height:110px;border:1px solid var(--border);border-radius:6px;">`).join('');
+  if(!plagasFotos.length){ host.innerHTML = ''; return; }
+  host.innerHTML = plagasFotos.map((a,i)=>{
+    const quitar = `<button class="btn secondary small" type="button" style="margin-top:6px;" onclick="plagasQuitarUno(${i})">Quitar</button>`;
+    if(a.pdf){
+      return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fafafa;max-width:230px;">
+        <div style="font-size:26px;line-height:1;">📄</div>
+        <div style="font-size:13px;word-break:break-word;margin-top:4px;">${esc(a.nombre)}</div>
+        <div class="hint" style="font-size:12px;">PDF · ${(a.bytes/1024/1024).toFixed(1)} MB</div>
+        ${quitar}</div>`;
+    }
+    return `<div style="text-align:center;">
+      <img src="${a.dataUrl}" alt="Hoja ${i+1}" style="height:110px;border:1px solid var(--border);border-radius:6px;display:block;">
+      ${quitar}</div>`;
+  }).join('');
 }
+function plagasQuitarUno(i){ plagasFotos.splice(i,1); pintarPlagasPreview(); }
 function plagasQuitarFotos(){ plagasFotos = []; pintarPlagasPreview(); }
 
 /* ---- la foto del parte, como archivo suelto en Drive ----
@@ -4842,10 +4894,13 @@ function plagasQuitarFotos(){ plagasFotos = []; pintarPlagasPreview(); }
    también imágenes en una carpeta y devuelve el enlace. Si el script todavía no
    sabe hacerlo, la foto se queda en el dispositivo marcada como pendiente y se
    reintenta; no se pierde nada. */
-async function subirFotoADrive(dataUrl, nombre){
+async function subirFotoADrive(dataUrl, nombre, mime){
   if(!syncActiva()) throw new Error('Drive no está configurado en este dispositivo');
   const coma = dataUrl.indexOf(',');
-  const cuerpo = JSON.stringify({accion:'foto', nombre, mime:'image/jpeg', datos:dataUrl.slice(coma+1)});
+  /* Si no viene el tipo, se saca de la propia cabecera del data URL. */
+  const cab = /^data:([^;,]+)/.exec(String(dataUrl).slice(0,80));
+  const tipo = mime || (cab ? cab[1] : 'image/jpeg');
+  const cuerpo = JSON.stringify({accion:'foto', nombre, mime:tipo, datos:dataUrl.slice(coma+1)});
   const res = await fetch(getAppsScriptUrl(), {
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:cuerpo
   });
@@ -4860,7 +4915,7 @@ async function subirFotosPendientes(avisar){
     if(f.estado !== 'subida') pendientes.push({rec:r, foto:f, i});
   }));
   if(!pendientes.length){
-    if(avisar) alert('No hay fotos pendientes de subir.');
+    if(avisar) alert('No hay partes pendientes de subir.');
     return;
   }
   let bien = 0, mal = 0, ultimoError = '';
@@ -4868,8 +4923,10 @@ async function subirFotosPendientes(avisar){
     try{
       const dataUrl = await Store.get('foto:'+p.foto.fotoId);
       if(!dataUrl){ p.foto.estado = 'sin copia'; mal++; continue; }
-      const nombre = 'plagas-'+p.rec.fecha+'-'+normTxt(p.rec.empresa||'parte').replace(/ /g,'-')+'-'+(p.i+1)+'.jpg';
-      const r = await subirFotoADrive(dataUrl, nombre);
+      const pdf = esPdf(p.foto.mime, p.foto.nombre) || /^data:application\/pdf/i.test(String(dataUrl).slice(0,40));
+      const nombre = 'plagas-'+p.rec.fecha+'-'+normTxt(p.rec.empresa||'parte').replace(/ /g,'-')
+                   + '-'+(p.i+1)+(pdf ? '.pdf' : '.jpg');
+      const r = await subirFotoADrive(dataUrl, nombre, pdf ? 'application/pdf' : (p.foto.mime || 'image/jpeg'));
       p.foto.driveId = r.id || '';
       p.foto.driveUrl = r.url;
       p.foto.estado = 'subida';
@@ -4879,8 +4936,8 @@ async function subirFotosPendientes(avisar){
   await saveModule('plagas');
   renderPlagasTable();
   if(avisar || mal){
-    const msg = (bien?bien+' foto(s) subidas a Drive. ':'') +
-      (mal? mal+' no se han podido subir todavía ('+ultimoError+'). Se quedan guardadas aquí y puedes reintentarlo.' : '');
+    const msg = (bien?bien+' archivo(s) subidos a Drive. ':'') +
+      (mal? mal+' no se han podido subir todavía ('+ultimoError+'). Se quedan guardados aquí y puedes reintentarlo.' : '');
     alert(msg.trim() || 'Listo.');
   }
 }
@@ -4890,15 +4947,18 @@ function renderPlagasTable(){
   if(aviso){
     aviso.innerHTML = pendientes
       ? `<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #b7791f;border-left-width:4px;border-radius:8px;background:#fdf6e3;color:#7a5200;">
-           Hay <b>${pendientes}</b> foto(s) guardadas en este dispositivo que todavía no están en Drive.
+           Hay <b>${pendientes}</b> parte(s) guardados en este dispositivo que todavía no están en Drive.
            <button class="btn small" type="button" style="margin-left:8px;" onclick="subirFotosPendientes(true)">Subirlas ahora</button>
          </div>`
       : '';
   }
   const rows = porFechaDesc(DATA.plagas).map(r=>{
-    const fotos = (r.fotos||[]).map((f,i)=>f.driveUrl
-      ? `<a href="${esc(f.driveUrl)}" target="_blank" rel="noopener">Hoja ${i+1}</a>`
-      : `<a href="#" onclick="verFotoLocal('${esc(f.fotoId)}');return false;">Hoja ${i+1} (sin subir)</a>`).join(' · ');
+    const fotos = (r.fotos||[]).map((f,i)=>{
+      const et = (esPdf(f.mime, f.nombre) ? '📄 PDF ' : '🖼 Hoja ') + (i+1);
+      return f.driveUrl
+        ? `<a href="${esc(f.driveUrl)}" target="_blank" rel="noopener">${et}</a>`
+        : `<a href="#" onclick="verFotoLocal('${esc(f.fotoId)}');return false;">${et} (sin subir)</a>`;
+    }).join(' · ');
     return `<tr>
       <td class="mono">${fmtDate(r.fecha)}</td>
       <td>${esc(r.empresa)||'—'}${r.tecnico?'<br><span class="hint">'+esc(r.tecnico)+'</span>':''}</td>
@@ -4916,7 +4976,20 @@ function renderPlagasTable(){
 }
 async function verFotoLocal(fotoId){
   const d = await Store.get('foto:'+fotoId);
-  if(!d){ alert('Esa foto no está guardada en este dispositivo. Si se hizo desde la tablet, ábrela allí o súbela a Drive desde la tablet.'); return; }
+  if(!d){ alert('Ese parte no está guardado en este dispositivo. Si se adjuntó desde la tablet, ábrelo allí o súbelo a Drive desde la tablet.'); return; }
+  if(/^data:application\/pdf/i.test(String(d).slice(0,40))){
+    /* Un PDF en data: URL no se abre en pestaña nueva en algunos navegadores;
+       se pasa a blob, que sí. */
+    try{
+      const bin = atob(String(d).slice(String(d).indexOf(',')+1));
+      const buf = new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([buf], {type:'application/pdf'}));
+      window.open(url, '_blank');
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    }catch(e){ alert('No se pudo abrir el PDF: '+e.message); }
+    return;
+  }
   const w = window.open('');
   if(w) w.document.write('<title>Parte de plagas</title><img src="'+d+'" style="max-width:100%">');
 }
