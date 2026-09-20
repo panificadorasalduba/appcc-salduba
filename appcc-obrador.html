@@ -208,6 +208,18 @@
   table.papel-aceite td.dia{background:#f4f1e9;font-weight:700;}
   table.papel-aceite tr.con-datos td{background:#fffdf6;}
   table.papel-aceite tr.con-datos td.dia{background:#efeade;}
+  table.papel-limpieza{table-layout:fixed;width:100%;margin-bottom:14px;}
+  table.papel-limpieza th{font-size:10px;padding:4px 3px;}
+  table.papel-limpieza td{font-size:10px;padding:3px 4px;height:18px;word-break:break-word;}
+  table.papel-limpieza td.lim-el{width:17%;font-weight:600;}
+  table.papel-limpieza td.lim-frec{width:14%;color:#555;font-size:9px;}
+  table.papel-limpieza td.lim-dias{width:16%;}
+  .hoja h4.lim-sala{margin:14px 0 5px;font-size:12px;letter-spacing:.6px;color:#1f4e79;text-transform:uppercase;}
+  .hoja-limpieza h4.lim-sala:first-of-type{margin-top:6px;}
+  table.papel-transporte{table-layout:fixed;width:100%;}
+  table.papel-transporte th,table.papel-transporte td{font-size:9px;padding:2px 1px;text-align:center;height:20px;}
+  table.papel-transporte .trans-rot{width:13%;text-align:left;font-weight:600;font-size:10px;padding-left:5px;
+    background:#f0ece2;}
   table.papel-lotes{table-layout:fixed;}
   table.papel-lotes th.banda{text-align:right;font-size:12px;letter-spacing:.5px;padding:5px 8px;background:#e6e0d2;}
   table.papel-lotes td{font-size:10px;padding:2px 4px;height:15px;}
@@ -301,12 +313,13 @@ const STORE_KEYS = {
   lotesMP:'records:lotesMP',
   mantenimiento:'records:mantenimiento',
   plagas:'records:plagas',
+  transporte:'records:transporte',
   noconformidades:'records:noconformidades',
   pedidosManual:'records:pedidosManual',
   produccion:'records:produccion',
 };
 let CONFIG = null;
-let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],plagas:[],noconformidades:[],pedidosManual:[],produccion:[]};
+let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],plagas:[],transporte:[],noconformidades:[],pedidosManual:[],produccion:[]};
 
 /* Los cuadernos de papel del obrador, tal cual: cada registro con sus productos
    agrupados igual que en la hoja impresa, para que quien los rellena reconozca
@@ -846,6 +859,7 @@ const VIEWS = [
   {id:'aceite', label:'Control de aceite', icon:'oil'},
   {id:'produccion', label:'Producción diaria', icon:'wheat'},
   {id:'trazabilidad', label:'Trazabilidad y reparto', icon:'route'},
+  {id:'transporte', label:'Transporte y reparto', icon:'route'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
   {id:'revision', label:'Repaso del obrador', icon:'box'},
   {id:'mantenimiento', label:'Mantenimiento', icon:'wrench'},
@@ -996,7 +1010,8 @@ function viewLimpieza(){
         <label class="field checkline"><input type="checkbox" name="realizado" checked><span>Limpieza realizada</span></label>
         <label class="field"><span>Quién hace la acción</span><input type="text" name="responsable" required></label>
         <label class="field"><span>Quién supervisa</span><input type="text" name="supervisor"></label>
-        <label class="field wide"><span>Observaciones / incidencia</span><textarea name="observaciones"></textarea></label>
+        <label class="field"><span>Incidencia nº</span><input type="text" name="incidenciaNum" placeholder="Solo si hubo incidencia"></label>
+        <label class="field wide"><span>Observaciones</span><textarea name="observaciones"></textarea></label>
         <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
       </form>
     </div>
@@ -1012,7 +1027,8 @@ function viewLimpieza(){
     e.preventDefault();
     const f = new FormData(e.target);
     const rec = {id:uid(), fecha:f.get('fecha'), area:f.get('area'), elemento:f.get('elemento'), frecuencia:f.get('frecuencia'),
-      realizado: f.get('realizado')==='on', responsable:f.get('responsable'), supervisor:f.get('supervisor'), observaciones:f.get('observaciones')};
+      realizado: f.get('realizado')==='on', responsable:f.get('responsable'), supervisor:f.get('supervisor'),
+      incidenciaNum:f.get('incidenciaNum'), observaciones:f.get('observaciones')};
     DATA.limpieza.unshift(rec);
     await saveModule('limpieza');
     e.target.reset();
@@ -3826,6 +3842,8 @@ function viewListeria(){
 
 /* ================= INFORMES ================= */
 const MODULE_META = {
+  transporte:{label:'Transporte y reparto', headers:['Fecha','T. inicio (°C)','T. fin (°C)','Reparto','Responsable','Observaciones'],
+    row:r=>[fmtDate(r.fecha), r.tempInicio||'', r.tempFin||'', r.reparto?'Sí':'No', r.responsable||'', r.observaciones||'']},
   limpieza:{label:'Limpieza', headers:['Fecha','Área','Elemento','Frecuencia','Realizado','Responsable','Supervisor','Obs.'],
     row:r=>[fmtDate(r.fecha),r.area,r.elemento,r.frecuencia,r.realizado?'Sí':'No',r.responsable,r.supervisor||'',r.observaciones||'']},
   agua:{label:'Control de agua', headers:['Fecha','Cloro (mg/l)','Organolépticos','Estado','Responsable','Obs.'],
@@ -4307,6 +4325,58 @@ function hojaDetalleLotes(desde, hasta){
     <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
 }
 
+/* ---- REGISTRO DE LIMPIEZA Y DESINFECCIÓN, CALCADO DEL MANUAL ----
+   El manual (APPCC ED04) tiene una tabla por sala, con TODOS los elementos
+   preimpresos aunque no se hayan limpiado. Aquí igual: la hoja sale siempre
+   completa, rellena donde hay registro y en blanco donde no, para que el
+   inspector vea el cuadro entero y no una lista de lo que se hizo. */
+const FRECUENCIA_OPCIONES = 'Diario / semanal / mensual / anual';
+function hojasLimpiezaPorZona(desde, hasta){
+  const zonas = CONFIG.zonasLimpieza || [];
+  if(!zonas.length) return [];
+  const dentroRango = r => dentro(r.fecha, desde, hasta);
+  const registros = (DATA.limpieza||[]).filter(dentroRango);
+  const porElemento = {};
+  registros.forEach(r=>{
+    const k = normTxt(r.area)+'|'+normTxt(r.elemento);
+    (porElemento[k] = porElemento[k] || []).push(r);
+  });
+  const filasDe = z => (z.elementos||[]).map(el=>{
+    const lista = (porElemento[normTxt(z.area)+'|'+normTxt(el)] || [])
+      .slice().sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
+    const hechas = lista.filter(r=>r.realizado);
+    const dias = hechas.map(r=>String(r.fecha||'').slice(8,10).replace(/^0/,'')).join(' · ');
+    const fechas = hechas.map(r=>fmtDate(r.fecha)).join(' · ');
+    const quien = [...new Set(lista.map(r=>r.responsable).filter(Boolean))].join(' / ');
+    const superv = [...new Set(lista.map(r=>r.supervisor).filter(Boolean))].join(' / ');
+    const inc = [...new Set(lista.map(r=>r.incidenciaNum || r.observaciones).filter(Boolean))].join(' · ');
+    const frec = [...new Set(lista.map(r=>r.frecuencia).filter(Boolean))].join(' / ');
+    return `<tr>
+      <td class="lim-el">${esc(el)}</td>
+      <td class="lim-frec">${frec ? esc(frec) : FRECUENCIA_OPCIONES}</td>
+      <td class="lim-dias">${esc(dias)}</td>
+      <td>${esc(fechas)}</td>
+      <td>${esc(quien)}</td>
+      <td>${esc(superv)}</td>
+      <td>${esc(inc)}</td>
+    </tr>`;
+  }).join('');
+  const cuerpo = zonas.map(z=>`
+    <h4 class="lim-sala">${esc(String(z.area).toUpperCase())}</h4>
+    <table class="rejilla papel-limpieza"><thead><tr>
+      <th>Elemento</th><th>Frecuencia</th><th>Días / casillas de control</th>
+      <th>Anotar fecha en que se limpia</th><th>Quién hace la acción</th>
+      <th>Quién supervisa</th><th>Incidencia nº</th>
+    </tr></thead><tbody>${filasDe(z)}</tbody></table>`).join('');
+  const hechas = registros.filter(r=>r.realizado).length;
+  return [`<section class="hoja ancha hoja-limpieza">
+    ${cabeceraHoja('Registro · control de limpieza y desinfección','T4 · Limpieza',rotuloRango(desde,hasta))}
+    ${cuerpo}
+    <p class="pie-nota">${hechas} limpieza${hechas===1?'':'s'} registrada${hechas===1?'':'s'} en este periodo. Las casillas en blanco son las del cuaderno que todavía no se han rellenado.</p>
+    <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div>
+  </section>`];
+}
+
 /** Listado corriente (limpieza, agua, recepción…) con la cabecera de su hoja. */
 function hojaListado(clave, titulo, traza, desde, hasta){
   const meta = MODULE_META[clave];
@@ -4356,15 +4426,17 @@ function generarDossier(){
     meses.forEach(mes=>{ partes.push(hojaProduccion(k, mes, desde, hasta)); });
   });
   meses.forEach(mes=>{ partes.push(hojaAceite(mes, desde, hasta)); });
+  meses.forEach(mes=>{ partes.push(hojaTransporte(mes, desde, hasta)); });
 
   // listados
   // el registro de lotes va con la forma del cuaderno, no como listado
   hojasLotesMP(desde, hasta).forEach(h=> partes.push(h) );
   partes.push(hojaDetalleLotes(desde, hasta));
+  hojasLimpiezaPorZona(desde, hasta).forEach(h=> partes.push(h) );
 
   const listados = [
     ['recepcion','Recepción de mercancías','T1 · Recepción'],
-    ['limpieza','Limpieza y desinfección','T4 · Limpieza'],
+    ['transporte','Transporte y reparto · detalle','T2 · Transporte'],
     ['agua','Control de agua','T5 · Agua'],
     ['alergenos','Alérgenos por lote','T6 · Alérgenos'],
     ['alergenosTienda','Alérgenos en tienda','T6 · Alérgenos tienda'],
@@ -4888,6 +4960,113 @@ async function leerParteConIA(){
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = '✨ Leer el parte y rellenar'; }
   }
+}
+
+/* ================= TRANSPORTE Y REPARTO =================
+   Hoja del manual APPCC ED04: por cada día del mes se apunta la temperatura al
+   salir, la temperatura al terminar y si se hizo el reparto. Es el control de
+   la cadena de frío desde el obrador hasta la tienda. */
+function viewTransporte(){
+  const hoy = (DATA.transporte||[]).find(r=>r.fecha===todayStr());
+  document.getElementById('view-transporte').innerHTML = `
+    <div class="panel">
+      <h2>${icon('route')} Temperatura del reparto de hoy</h2>
+      <p class="hint">Apunta la temperatura del vehículo <strong>al salir</strong> y <strong>al terminar</strong> el reparto. Es la hoja de transporte del manual: un dato por día, y a fin de mes sale la rejilla entera para la inspección.</p>
+      ${hoy ? `<p class="hint" style="color:var(--ok);">Hoy ya hay un registro apuntado (inicio ${esc(hoy.tempInicio)||'—'} °C, fin ${esc(hoy.tempFin)||'—'} °C). Si vuelves a guardar, se actualiza.</p>` : ''}
+      <form class="record-form" id="form-transporte">
+        <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Temperatura inicio (°C)</span><input type="number" step="0.1" name="tempInicio" value="${hoy?esc(hoy.tempInicio):''}"></label>
+        <label class="field"><span>Temperatura fin (°C)</span><input type="number" step="0.1" name="tempFin" value="${hoy?esc(hoy.tempFin):''}"></label>
+        <label class="field checkline"><input type="checkbox" name="reparto" ${(!hoy || hoy.reparto)?'checked':''}><span>Se ha hecho el reparto</span></label>
+        <label class="field"><span>Responsable</span><input type="text" name="responsable" value="${hoy?esc(hoy.responsable):''}" required></label>
+        <label class="field wide"><span>Observaciones</span><input type="text" name="observaciones" value="${hoy?esc(hoy.observaciones||''):''}" placeholder="Incidencias del reparto, si las hubo"></label>
+        <div class="form-actions"><button class="btn" type="submit">Guardar</button></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>${icon('route')} Rejilla del mes</h2>
+      <p class="hint">Así se imprime en el dossier: un mes por hoja, con los 31 días a lo ancho.</p>
+      <div class="filters">
+        <label class="field"><span>Mes</span><input type="month" id="transMes" value="${todayStr().slice(0,7)}"></label>
+      </div>
+      <div id="trans-rejilla"></div>
+    </div>
+    <div class="panel"><h2>${icon('route')} Histórico</h2><div id="trans-table"></div></div>`;
+  document.getElementById('form-transporte').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if(!confirmarFechaRara(f.get('fecha'))) return;
+    const fecha = f.get('fecha');
+    /* Un día, un registro: si ya hay uno de ese día se actualiza en vez de
+       duplicar, porque en el papel también hay una sola casilla por día. */
+    const previo = (DATA.transporte||[]).find(r=>r.fecha===fecha);
+    const datos = {fecha, tempInicio:f.get('tempInicio'), tempFin:f.get('tempFin'),
+      reparto:f.get('reparto')==='on', responsable:f.get('responsable'), observaciones:f.get('observaciones')};
+    if(previo) Object.assign(previo, datos);
+    else DATA.transporte.unshift(Object.assign({id:uid()}, datos));
+    await saveModule('transporte');
+    viewTransporte();
+    renderDashboard();
+  });
+  const mes = document.getElementById('transMes');
+  if(mes) mes.addEventListener('change', renderTransRejilla);
+  renderTransRejilla();
+  renderTransTable();
+}
+function renderTransRejilla(){
+  const host = document.getElementById('trans-rejilla');
+  const mes = (document.getElementById('transMes')||{}).value || todayStr().slice(0,7);
+  if(!host) return;
+  host.innerHTML = `<div class="table-wrap">${rejillaTransporte(mes)}</div>`;
+}
+/** La tabla del manual: filas Temperatura inicio / fin / Reparto, días a lo ancho. */
+function rejillaTransporte(mes){
+  const [y,m] = mes.split('-').map(Number);
+  const dias = daysInMonth(y,m);
+  const porDia = {};
+  (DATA.transporte||[]).forEach(r=>{ if(String(r.fecha||'').slice(0,7)===mes) porDia[Number(String(r.fecha).slice(8,10))] = r; });
+  const cab = [];
+  for(let d=1; d<=dias; d++) cab.push(`<th>${d}</th>`);
+  const fila = (rotulo, saca)=>{
+    const celdas = [];
+    for(let d=1; d<=dias; d++){
+      const r = porDia[d];
+      const v = r ? saca(r) : '';
+      celdas.push(`<td>${esc(v==null?'':v)}</td>`);
+    }
+    return `<tr><td class="trans-rot">${rotulo}</td>${celdas.join('')}</tr>`;
+  };
+  return `<table class="rejilla papel-transporte">
+    <thead><tr><th class="trans-rot">${esc(nombreMes(mes).toUpperCase())}</th>${cab.join('')}</tr></thead>
+    <tbody>
+      ${fila('Temperatura inicio', r=>r.tempInicio)}
+      ${fila('Temperatura fin', r=>r.tempFin)}
+      ${fila('Reparto', r=>r.reparto ? '✓' : (r.tempInicio||r.tempFin ? 'no' : ''))}
+    </tbody></table>`;
+}
+function renderTransTable(){
+  const rows = porFechaDesc(DATA.transporte).map(r=>`<tr>
+    <td class="mono">${fmtDate(r.fecha)}</td>
+    <td class="mono">${esc(r.tempInicio)||'—'}</td>
+    <td class="mono">${esc(r.tempFin)||'—'}</td>
+    <td><span class="badge ${r.reparto?'ok':'warn'}">${r.reparto?'Sí':'No'}</span></td>
+    <td>${esc(r.responsable)||'—'}</td>
+    <td>${esc(r.observaciones)||''}</td>
+    <td><button class="btn danger small" onclick="removeRecord('transporte','${r.id}',renderTransTable)">Borrar</button></td>
+  </tr>`);
+  document.getElementById('trans-table').innerHTML =
+    table(['Fecha','T. inicio','T. fin','Reparto','Responsable','Observaciones',''], rows);
+}
+/** Una hoja por mes, como el cuaderno. Sale siempre, aunque esté vacía. */
+function hojaTransporte(mes, desde, hasta){
+  if(desde && mes < desde.slice(0,7)) return '';
+  if(hasta && mes > hasta.slice(0,7)) return '';
+  return `<section class="hoja ancha">
+    ${cabeceraHoja('Registro · transporte','T2 · Transporte', nombreMes(mes))}
+    ${rejillaTransporte(mes)}
+    <p class="pie-nota">Temperatura del vehículo al salir y al terminar el reparto, y si el reparto se hizo. Las casillas en blanco son días sin registro.</p>
+    <div class="firma">Firma de verificación: ______________________________</div>
+  </section>`;
 }
 
 /* ================= CONTROL DE PLAGAS (DDD) =================
@@ -5480,6 +5659,7 @@ async function revEmpezarDeCero(){
 const RENDERERS = {
   dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
   recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, produccion:viewProduccion, trazabilidad:viewTrazabilidad,
+  transporte:viewTransporte,
   materiasprimas:viewMateriasPrimas, revision:viewRevision,
   mantenimiento:viewMantenimiento, plagas:viewPlagas, noconformidades:viewNoConformidades, listeria:viewListeria,
   informes:viewInformes, ajustes:viewAjustes
