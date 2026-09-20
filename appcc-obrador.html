@@ -4265,6 +4265,43 @@ function hojasLotesMP(desde, hasta){
   return out;
 }
 
+/* Detalle de aperturas y cierres.
+   La rejilla T1 es calcada del cuaderno de papel y tiene un solo casillero por
+   número de lote. Eso basta casi siempre, pero si del MISMO lote se abre un
+   segundo envase después de gastar el primero, en el casillero solo cabe una
+   fecha de cierre y el cierre anterior se quedaría sin reflejar. Esta hoja va
+   detrás y lo recoge todo: una línea por cada envase abierto, con su fecha de
+   apertura y la de cierre. Así el inspector tiene la traza completa. */
+function hojaDetalleLotes(desde, hasta){
+  const dentroDelRango = r=>{
+    const ap = String(r.fechaApertura||''), ci = String(r.fechaCierre||'');
+    if(hasta && ap && ap > hasta) return false;
+    if(desde && ci && ci < desde) return false;
+    return true;
+  };
+  const filas = (DATA.lotesMP||[]).filter(dentroDelRango).slice().sort((a,b)=>{
+    const p = String(resolverNombreProducto(a.producto)).localeCompare(String(resolverNombreProducto(b.producto)),'es');
+    if(p !== 0) return p;
+    return String(a.fechaApertura||'').localeCompare(String(b.fechaApertura||''));
+  });
+  if(!filas.length) return '';
+  const cerrados = filas.filter(r=>r.fechaCierre).length;
+  const cuerpo = filas.map(r=>`<tr>
+    <td>${esc(resolverNombreProducto(r.producto))}</td>
+    <td class="mono">${esc(r.lote)||'—'}</td>
+    <td>${esc(textoSemanas(r,' '))||'—'}</td>
+    <td>${r.fechaApertura?fmtDate(r.fechaApertura):'—'}</td>
+    <td>${r.fechaCierre?fmtDate(r.fechaCierre):'en uso'}</td>
+  </tr>`).join('');
+  return `<section class="hoja">
+    ${cabeceraHoja('Materias primas · detalle de aperturas y cierres','T1 · Traza 1-10',rotuloRango(desde,hasta))}
+    <table class="rejilla"><thead><tr>
+      <th>Producto</th><th>Lote</th><th>Semanas pedidas</th><th>Fecha de apertura</th><th>Fecha de cierre</th>
+    </tr></thead><tbody>${cuerpo}</tbody></table>
+    <p class="pie-nota">${filas.length} envase${filas.length===1?'':'s'} registrado${filas.length===1?'':'s'}: ${cerrados} ya gastado${cerrados===1?'':'s'} y ${filas.length-cerrados} en uso. Cada línea es un envase concreto; si de un mismo lote se han abierto varios, aparece uno por línea.</p>
+    <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
+}
+
 /** Listado corriente (limpieza, agua, recepción…) con la cabecera de su hoja. */
 function hojaListado(clave, titulo, traza, desde, hasta){
   const meta = MODULE_META[clave];
@@ -4318,6 +4355,7 @@ function generarDossier(){
   // listados
   // el registro de lotes va con la forma del cuaderno, no como listado
   hojasLotesMP(desde, hasta).forEach(h=> partes.push(h) );
+  partes.push(hojaDetalleLotes(desde, hasta));
 
   const listados = [
     ['recepcion','Recepción de mercancías','T1 · Recepción'],
