@@ -495,7 +495,11 @@ async function loadAll(){
   }
   /* Los lotes que se pasaron del papel traían las semanas pegadas al código.
      Se separan aquí; si ya vienen separados no se toca nada. */
-  if(normalizarLotes() > 0) await saveModuleLocal('lotesMP');
+  let arreglados = normalizarLotes();
+  const nom = normalizarNombresLotes();
+  arreglados += nom.tocados;
+  if(nom.fundidos) await guardarBajas();
+  if(arreglados > 0) await saveModuleLocal('lotesMP');
 }
 async function saveConfigLocal(){
   try{ await Store.set(STORE_KEYS.config, JSON.stringify(CONFIG)); }catch(e){ console.error(e); }
@@ -654,6 +658,7 @@ function mezclarTodo(remoto){
   /* Un dispositivo con la versión antigua puede mandar lotes con las semanas
      pegadas al código: se separan también al recibirlos. */
   if(normalizarLotes() > 0) cambios = true;
+  if(normalizarNombresLotes().tocados > 0) cambios = true;
   // Los ajustes (equipos, zonas, tiendas…) los cambia una sola persona: manda el más reciente.
   const tsRemoto = remoto.configTs || 0, tsLocal = CONFIG._ts || 0;
   if(remoto.config && tsRemoto > tsLocal){ CONFIG = remoto.config; cambios = true; }
@@ -836,6 +841,7 @@ const VIEWS = [
   {id:'produccion', label:'Producción diaria', icon:'wheat'},
   {id:'trazabilidad', label:'Trazabilidad y reparto', icon:'route'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
+  {id:'revision', label:'Repaso del obrador', icon:'box'},
   {id:'mantenimiento', label:'Mantenimiento y plagas', icon:'wrench'},
   {id:'noconformidades', label:'Incidencias', icon:'alert'},
   {id:'listeria', label:'Clasificación Listeria', icon:'book'},
@@ -3047,6 +3053,40 @@ function normalizarLotes(){
   return tocados;
 }
 
+/* Los lotes viejos guardaron el producto tal cual venía del albarán o con un
+   nombre que luego se unificó. Aquí se reescribe al nombre bueno del cuaderno y
+   se funden los que quedaron por duplicado (mismo producto y mismo lote). */
+function normalizarNombresLotes(){
+  const lista = DATA.lotesMP || [];
+  let tocados = 0;
+  lista.forEach(r=>{
+    const bueno = resolverNombreProducto(r.producto);
+    if(bueno && bueno !== r.producto){ r.producto = bueno; tocados++; }
+  });
+  const vistos = new Map();
+  const fuera = [];
+  lista.forEach(r=>{
+    const clave = normTxt(r.producto)+'|'+normTxt(r.lote)+'|'+(r.fechaCierre?'C':'A');
+    const previo = vistos.get(clave);
+    if(!previo){ vistos.set(clave, r); return; }
+    // se queda el que se abrió antes; el otro sobra
+    const mejor = String(previo.fechaApertura||'9999') <= String(r.fechaApertura||'9999') ? previo : r;
+    const sobra = mejor === previo ? r : previo;
+    if(!mejor.fechaCierre && sobra.fechaCierre) mejor.fechaCierre = sobra.fechaCierre;
+    const sem = (mejor.semanas||[]).concat(sobra.semanas||[])
+      .filter((v,i,a)=>isFinite(v) && a.indexOf(v)===i).sort((a,b)=>a-b);
+    if(sem.length){ mejor.semanas = sem; mejor.semana = sem[0]; }
+    vistos.set(clave, mejor);
+    fuera.push(sobra.id);
+    tocados++;
+  });
+  if(fuera.length){
+    DATA.lotesMP = lista.filter(r=>fuera.indexOf(r.id) < 0);
+    fuera.forEach(id=>{ BAJAS[id] = Date.now(); });
+  }
+  return {tocados, fundidos: fuera.length};
+}
+
 function getWeekNumber(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
@@ -4634,11 +4674,270 @@ function updateSidebarFoot(){
   pintarEstadoSync();
 }
 
+/* ================= REVISIÓN DEL OBRADOR =================
+   Para ponerse al día de una sentada: se recorre el obrador con la tablet,
+   producto por producto, diciendo qué hay abierto de verdad. Lo que se marca
+   queda registrado como apertura o cierre de lote, igual que si se hubiera
+   apuntado el día que tocaba. */
+let REV_LISTA = [];
+let REV_ABIERTO = -1;          // índice de la tarjeta con el selector desplegado
+let REV_FILTRO = 'pendientes';
+
+function revisionEstado(){
+  const hoy = todayStr();
+  if(!CONFIG.revision || CONFIG.revision.fecha !== hoy){
+    CONFIG.revision = {fecha: hoy, hechos: {}};
+  }
+  return CONFIG.revision;
+}
+function revClave(p){ return normTxt(p); }
+function revHecho(p){ return revisionEstado().hechos[revClave(p)] || ''; }
+
+/** Todo lo que puede haber abierto en el obrador: lo que figura abierto en la
+    app y, además, lo que se ha recepcionado alguna vez aunque nunca se abriera. */
+function construirListaRevision(){
+  const porProducto = new Map();
+  const mete = (nombre, campo, valor)=>{
+    const k = revClave(nombre);
+    if(!k) return;
+    if(!porProducto.has(k)) porProducto.set(k, {producto:nombre, abiertos:[], cerradosHoy:[], ultimaRecepcion:'', recepciones:0});
+    const o = porProducto.get(k);
+    if(campo==='lote') o.abiertos.push(valor);
+    if(campo==='cerradoHoy') o.cerradosHoy.push(valor);
+    if(campo==='recepcion'){
+      o.recepciones++;
+      if(String(valor||'') > o.ultimaRecepcion) o.ultimaRecepcion = valor;
+    }
+  };
+  (DATA.lotesMP||[]).filter(l=>!l.fechaCierre).forEach(l=>mete(l.producto, 'lote', l));
+  (DATA.lotesMP||[]).filter(l=>l.fechaCierre===todayStr()).forEach(l=>mete(l.producto, 'cerradoHoy', l));
+  const conocidos = nombresConocidos();
+  (DATA.recepcion||[]).forEach(r=>{
+    const d = String(r.producto||'').trim();
+    if(!d) return;
+    if((CONFIG.productosSinLote||[]).indexOf(normTxt(limpiaCodigoProveedor(d))) >= 0) return;
+    /* Solo lo que se reconoce como producto del cuaderno. Lo que no casa con
+       ningún nombre sale en «Productos por identificar», no aquí. */
+    const nombre = mejorProductoPara(d, conocidos);
+    if(!nombre) return;
+    mete(nombre, 'recepcion', r.fecha);
+  });
+  return [...porProducto.values()].sort((a,b)=>{
+    // primero lo que lleva más tiempo abierto, que es lo más probable que esté gastado
+    const aa = a.abiertos.length ? Math.min(...a.abiertos.map(l=>String(l.fechaApertura||'9999'))) : '';
+    const bb = b.abiertos.length ? Math.min(...b.abiertos.map(l=>String(l.fechaApertura||'9999'))) : '';
+    if(aa && bb && aa !== bb) return aa.localeCompare(bb);
+    if(aa && !bb) return -1;
+    if(!aa && bb) return 1;
+    return String(a.producto).localeCompare(String(b.producto),'es');
+  });
+}
+function diasAbierto(f){
+  const n = diasDesdeHoy(f);
+  return n === null ? null : Math.abs(n);
+}
+function viewRevision(){
+  REV_LISTA = construirListaRevision();
+  const est = revisionEstado();
+  const hechos = Object.keys(est.hechos).length;
+  const conLote = REV_LISTA.filter(x=>x.abiertos.length).length;
+  const pct = REV_LISTA.length ? Math.round(100*hechos/REV_LISTA.length) : 0;
+  document.getElementById('view-revision').innerHTML = `
+    <div class="panel">
+      <h2>${icon('box')} Repaso de botes, cubos y sacos</h2>
+      <p class="hint">Date una vuelta por el obrador con la tablet y ve confirmando lo que hay abierto de verdad en cada estantería. Cada respuesta queda registrada como apertura o cierre de lote, así que al terminar el registro está al día y ya solo hay que ir apuntando lo que se abra.</p>
+      <div style="margin:14px 0 6px;">
+        <div style="height:14px;border-radius:7px;background:#eee;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:var(--ok);transition:width .3s;"></div>
+        </div>
+        <p class="hint" style="margin:6px 0 0;"><strong>${hechos}</strong> de ${REV_LISTA.length} revisados · ${conLote} figuran con lote abierto · ${REV_LISTA.length-conLote} nunca se han abierto en la app</p>
+      </div>
+      <div class="filters" style="margin-top:10px;">
+        <label class="field"><span>Buscar</span><input type="text" id="revBuscar" placeholder="almendra, bandeja, nata…"></label>
+        <label class="field"><span>Ver</span>
+          <select id="revFiltro">
+            <option value="pendientes">Los que me faltan por revisar</option>
+            <option value="abiertos">Solo los que figuran abiertos</option>
+            <option value="nunca">Solo los que nunca he abierto</option>
+            <option value="todos">Todos, también los ya revisados</option>
+          </select>
+        </label>
+      </div>
+      ${hechos ? `<p class="hint" style="margin-top:8px;"><button class="btn secondary small" type="button" onclick="revEmpezarDeCero()">Empezar el repaso de cero</button></p>` : ''}
+    </div>
+    <div id="rev-lista"></div>`;
+  const b = document.getElementById('revBuscar');
+  const f = document.getElementById('revFiltro');
+  f.value = REV_FILTRO;
+  b.addEventListener('input', renderRevisionLista);
+  f.addEventListener('change', ()=>{ REV_FILTRO = f.value; REV_ABIERTO = -1; renderRevisionLista(); });
+  renderRevisionLista();
+}
+function renderRevisionLista(){
+  const host = document.getElementById('rev-lista');
+  if(!host) return;
+  const q = normTxt((document.getElementById('revBuscar')||{value:''}).value||'');
+  const visibles = REV_LISTA.map((x,i)=>({x,i})).filter(({x})=>{
+    if(q && normTxt(x.producto).indexOf(q) < 0) return false;
+    const hecho = revHecho(x.producto);
+    if(REV_FILTRO==='pendientes') return !hecho;
+    if(REV_FILTRO==='abiertos') return x.abiertos.length > 0;
+    if(REV_FILTRO==='nunca') return x.abiertos.length === 0;
+    return true;
+  });
+  if(!visibles.length){
+    host.innerHTML = `<div class="panel"><p class="hint">${REV_FILTRO==='pendientes' ? '✅ Repaso terminado, no queda nada por revisar.' : 'Nada que enseñar con este filtro.'}</p></div>`;
+    return;
+  }
+  host.innerHTML = visibles.map(({x,i})=>tarjetaRevision(x,i)).join('');
+}
+function tarjetaRevision(x, i){
+  const hecho = revHecho(x.producto);
+  const marca = hecho ? `<span style="color:var(--ok);font-weight:600;">✔ revisado</span>` : '';
+  let cuerpo = '';
+  if(x.abiertos.length){
+    cuerpo = x.abiertos.map(l=>{
+      const d = diasAbierto(l.fechaApertura);
+      const viejo = d !== null && d > 90;
+      return `<p style="margin:4px 0;font-size:15px;">Lote <strong class="mono">${esc(l.lote)||'—'}</strong> · abierto el ${fmtDate(l.fechaApertura)}${d!==null?` <span style="color:${viejo?'#b7791f':'var(--muted)'};">(hace ${d} días)</span>`:''}</p>`;
+    }).join('');
+    cuerpo += `<div class="cierre-linea" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
+      <button class="btn small" type="button" onclick="revConfirmar(${i})">✔ Sí, es el que hay</button>
+      <button class="btn secondary small" type="button" onclick="revPicker(${i})">Es otro lote</button>
+      ${x.abiertos.map(l=>`<button class="btn secondary small" type="button" onclick="revCerrar(${i},'${esc(l.id)}')">Gastado — cerrar ${x.abiertos.length>1?esc(l.lote):''}</button>`).join('')}
+      <button class="btn secondary small" type="button" onclick="revNada(${i})">No hay nada abierto</button>
+    </div>`;
+  } else if((x.cerradosHoy||[]).length){
+    cuerpo = `<p style="margin:4px 0;font-size:15px;color:var(--ok);">✔ Cerrado hoy el lote <strong class="mono">${esc(x.cerradosHoy[0].lote)}</strong>. ¿Habéis empezado otro envase?</p>
+    <div class="cierre-linea" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
+      <button class="btn small" type="button" onclick="revPicker(${i})">Sí — elegir el lote nuevo</button>
+      <button class="btn secondary small" type="button" onclick="revNada(${i})">No, no queda nada abierto</button>
+    </div>`;
+  } else {
+    cuerpo = `<p class="hint" style="margin:4px 0;">Nunca se ha abierto un lote de esto en la app.${x.ultimaRecepcion?` Última recepción: ${fmtDate(x.ultimaRecepcion)}.`:' No hay recepciones registradas.'}</p>
+    <div class="cierre-linea" style="margin-top:10px;flex-wrap:wrap;gap:8px;">
+      <button class="btn small" type="button" onclick="revPicker(${i})">Hay uno abierto — elegir lote</button>
+      <button class="btn secondary small" type="button" onclick="revNada(${i})">No hay nada abierto</button>
+    </div>`;
+  }
+  const picker = REV_ABIERTO === i ? pickerRevision(x, i) : '';
+  return `<div class="panel" style="padding:14px 16px;${hecho?'opacity:.65;':''}">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
+      <h3 style="margin:0;font-size:18px;">${esc(x.producto)}</h3>${marca}
+    </div>
+    ${cuerpo}${picker}
+  </div>`;
+}
+function pickerRevision(x, i){
+  const recibidos = lotesRecibidos(x.producto);
+  const filas = recibidos.map(r=>{
+    const quedan = r.cantidadRecibida - r.abiertos;
+    return `<tr>
+      <td class="mono">${esc(r.lote)}</td>
+      <td>${fmtDate(r.fecha)}</td>
+      <td>${r.caducidad?fmtDate(r.caducidad):'—'}</td>
+      <td>${esc(r.proveedor)||'—'}</td>
+      <td class="mono">${quedan} de ${r.cantidadRecibida}</td>
+      <td><button class="btn small" type="button" onclick="revUsarLote(${i},'${esc(String(r.lote).replace(/'/g,"\\'"))}')">Abrir este</button></td>
+    </tr>`;
+  }).join('');
+  return `<div style="margin-top:12px;padding:12px;border:1px dashed var(--border);border-radius:8px;background:#fafafa;">
+    ${recibidos.length
+      ? `<p class="hint" style="margin:0 0 8px;">Recepciones de este producto, de la más antigua a la más nueva. Se gasta primero la de arriba.</p>
+         <div class="table-wrap"><table><thead><tr><th>Lote</th><th>Recibido</th><th>Caduca</th><th>Proveedor</th><th>Sin abrir</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`
+      : `<p class="hint" style="margin:0 0 8px;">No hay recepciones registradas de este producto. Copia el lote del envase.</p>`}
+    <div class="cierre-linea" style="margin-top:10px;">
+      <input type="text" id="revLoteManual${i}" placeholder="Lote escrito en el envase">
+      <input type="date" id="revFechaManual${i}" value="${todayStr()}">
+      <button class="btn small" type="button" onclick="revUsarManual(${i})">Abrir con este lote</button>
+      <button class="btn secondary small" type="button" onclick="revPicker(-1)">Cancelar</button>
+    </div>
+  </div>`;
+}
+function revPicker(i){
+  REV_ABIERTO = (REV_ABIERTO === i) ? -1 : i;
+  renderRevisionLista();
+}
+async function revGuardarHecho(producto, estado){
+  const est = revisionEstado();
+  est.hechos[revClave(producto)] = estado;
+  await saveConfig();
+}
+async function revConfirmar(i){
+  const x = REV_LISTA[i];
+  await revGuardarHecho(x.producto, 'ok');
+  REV_ABIERTO = -1;
+  viewRevision();
+}
+async function revNada(i){
+  const x = REV_LISTA[i];
+  if(x.abiertos.length){
+    if(!confirm('En la app figura abierto el lote '+x.abiertos[0].lote+' de "'+x.producto+'".\n\nSi no hay nada abierto en el obrador, lo cierro con la fecha de hoy. ¿Sigo?')) return;
+    x.abiertos.forEach(l=>{ l.fechaCierre = todayStr(); });
+    await saveModule('lotesMP');
+  }
+  await revGuardarHecho(x.producto, 'nada');
+  REV_ABIERTO = -1;
+  viewRevision();
+}
+async function revCerrar(i, idLote){
+  const x = REV_LISTA[i];
+  const l = (DATA.lotesMP||[]).find(r=>r.id===idLote);
+  if(!l) return;
+  l.fechaCierre = todayStr();
+  await saveModule('lotesMP');
+  /* Se ha gastado, pero todavía no está revisado: falta saber si han cogido
+     otro envase. La tarjeta se queda pendiente con el selector desplegado. */
+  REV_LISTA = construirListaRevision();
+  REV_ABIERTO = REV_LISTA.findIndex(y=>revClave(y.producto)===revClave(x.producto));
+  viewRevision();
+  renderDashboard();
+}
+async function revUsarLote(i, lote){
+  const x = REV_LISTA[i];
+  const fecha = (document.getElementById('revFechaManual'+i)||{}).value || todayStr();
+  await revAbrir(x.producto, lote, fecha);
+}
+async function revUsarManual(i){
+  const x = REV_LISTA[i];
+  const lote = ((document.getElementById('revLoteManual'+i)||{}).value||'').trim();
+  if(!lote){ alert('Escribe el lote que viene en el envase.'); return; }
+  const fecha = (document.getElementById('revFechaManual'+i)||{}).value || todayStr();
+  await revAbrir(x.producto, lote, fecha);
+}
+async function revAbrir(producto, lote, fecha){
+  const abiertos = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre && normTxt(r.producto)===normTxt(producto));
+  const par = partirLoteYSemanas(lote);
+  const codigo = par.codigo || String(lote||'').trim();
+  const yaEsEse = abiertos.some(r=>mismoLote(r.lote, codigo));
+  if(yaEsEse){
+    await revGuardarHecho(producto, 'ok');
+    REV_ABIERTO = -1;
+    viewRevision();
+    return;
+  }
+  abiertos.forEach(r=>{ r.fechaCierre = fecha; });
+  DATA.lotesMP.unshift({id:uid(), producto, lote:codigo, fechaApertura:fecha, fechaCierre:'',
+                        semana:getWeekNumber(fecha), semanas:[getWeekNumber(fecha)]});
+  await saveModule('lotesMP');
+  await revGuardarHecho(producto, 'abierto');
+  REV_ABIERTO = -1;
+  viewRevision();
+  renderDashboard();
+}
+async function revEmpezarDeCero(){
+  if(!confirm('Esto solo borra las marcas de «revisado» para volver a empezar el repaso.\n\nLos lotes que hayas abierto o cerrado se quedan como están. ¿Sigo?')) return;
+  CONFIG.revision = {fecha: todayStr(), hechos:{}};
+  await saveConfig();
+  REV_ABIERTO = -1;
+  viewRevision();
+}
+
 /* ---------- RENDERERS MAP & BOOT ---------- */
 const RENDERERS = {
   dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
   recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, produccion:viewProduccion, trazabilidad:viewTrazabilidad,
-  materiasprimas:viewMateriasPrimas,
+  materiasprimas:viewMateriasPrimas, revision:viewRevision,
   mantenimiento:viewMantenimiento, noconformidades:viewNoConformidades, listeria:viewListeria,
   informes:viewInformes, ajustes:viewAjustes
 };
