@@ -4746,6 +4746,144 @@ function updateSidebarFoot(){
   pintarEstadoSync();
 }
 
+/* ---- LECTURA DEL PARTE DE PLAGAS CON IA ----
+   Igual que con los albaranes, pero aquí el documento puede venir en PDF, así
+   que se manda como documento y no como imagen. Lo que saca la IA se vuelca en
+   el formulario para revisarlo: no se guarda nada sin que Berta lo vea. */
+const PROMPT_PLAGAS = 'Esta es la documentación de una visita de una empresa de control de plagas (DDD: desinsectación, desinfección y desratización) a un obrador de panadería y pastelería. Puede ser el parte de trabajo, un certificado o un informe de seguimiento. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"empresa":"","tecnico":"","fecha":"YYYY-MM-DD","numParte":"","tipoActuacion":"","zonas":"","productos":"","hallazgos":"","medidas":"","proxima":"YYYY-MM-DD","incidencia":false}. '
+  + 'empresa: la empresa de control de plagas que firma el documento, NUNCA la panadería que lo recibe (la panadería es el cliente y suele llamarse Salduba o Panificadora Salduba). '
+  + 'tecnico: nombre del técnico que hizo la visita, si aparece. '
+  + 'fecha: la fecha en que se hizo la visita, en formato YYYY-MM-DD. Si no se lee el año con claridad, deja la fecha vacía "" en vez de inventarlo. '
+  + 'numParte: número de parte, de albarán, de certificado o de informe. Cópialo tal cual. '
+  + 'tipoActuacion: elige EXACTAMENTE una de estas cinco opciones, la que mejor encaje: "Revisión periódica", "Tratamiento", "Instalación / reposición de cebos", "Aviso por incidencia", "Certificado anual". '
+  + 'zonas: las zonas del local revisadas o tratadas, separadas por comas (obrador, almacén, cámaras, patio, aseos, vestuarios…). '
+  + 'productos: los productos biocidas aplicados con su número de registro si aparece; si no se aplicó ninguno, deja "". '
+  + 'hallazgos: qué se encontró — capturas en trampas, cebos consumidos, indicios, puntos críticos. Si el documento dice que no hubo nada, pon "Sin incidencias". '
+  + 'medidas: recomendaciones, correcciones pedidas al cliente o medidas adoptadas. '
+  + 'proxima: fecha de la próxima visita prevista si figura; si no, "". '
+  + 'incidencia: true SOLO si el documento refleja algo que la panadería tiene que corregir o alguna actividad de plagas detectada; false si la visita fue conforme y sin hallazgos. '
+  + 'Cualquier campo que no aparezca en el documento va como cadena vacía "". No inventes datos. Aunque el documento esté borroso o incompleto, devuelve el JSON igualmente.';
+
+/** Manda uno o varios adjuntos (imágenes y/o PDF) a la IA con el prompt dado. */
+async function preguntarIADocumentos(adjuntos, prompt){
+  const bloquesClaude = adjuntos.map(a=> a.mime === 'application/pdf'
+    ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:a.base64}}
+    : {type:'image', source:{type:'base64', media_type:a.mime||'image/jpeg', data:a.base64}} );
+  const cuerpoClaude = {
+    model:'claude-sonnet-4-6', max_tokens:1500,
+    messages:[{role:'user', content: bloquesClaude.concat([{type:'text', text:prompt}])}]
+  };
+  const leerClaude = async res=>{
+    let data;
+    try{ data = await res.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+res.status+')'); }
+    if(!res.ok){
+      let msg = data?.error?.message || ('HTTP '+res.status);
+      if(res.status===401) msg += ' — revisa que la clave de Anthropic en Ajustes sea correcta';
+      throw new Error(msg);
+    }
+    const t = (data.content||[]).find(b=>b.type==='text');
+    if(!t || !t.text) throw new Error('La IA no ha devuelto texto legible.');
+    return t.text;
+  };
+  if(HAS_CLAUDE_STORAGE){
+    return leerClaude(await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(cuerpoClaude)}));
+  }
+  const provider = getAIProvider();
+  if(provider === 'gemini'){
+    const key = getGeminiKey();
+    if(!key) throw new Error('Falta configurar la clave de API de Gemini en Ajustes → Configuración de IA');
+    const partes = adjuntos.map(a=>({inline_data:{mime_type:a.mime||'image/jpeg', data:a.base64}}));
+    partes.push({text:prompt});
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent', {
+      method:'POST', headers:{'content-type':'application/json','x-goog-api-key':key},
+      body: JSON.stringify({contents:[{parts:partes}]})
+    });
+    let data;
+    try{ data = await res.json(); }catch(e){ throw new Error('Respuesta no válida del servidor (HTTP '+res.status+')'); }
+    if(!res.ok){
+      let msg = data?.error?.message || ('HTTP '+res.status);
+      if(res.status===400 || res.status===403) msg += ' — revisa la clave de Gemini en Ajustes';
+      throw new Error(msg);
+    }
+    const text = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || '';
+    if(!text) throw new Error('La IA no ha devuelto texto legible.');
+    return text;
+  }
+  const key = getApiKey();
+  if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
+  return leerClaude(await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body: JSON.stringify(cuerpoClaude)}));
+}
+function jsonDeRespuesta(texto){
+  let limpio = String(texto||'').replace(/```json|```/g,'').trim();
+  const a = limpio.indexOf('{'), b = limpio.lastIndexOf('}');
+  if(a>=0 && b>a) limpio = limpio.slice(a, b+1);
+  try{ return JSON.parse(limpio); }
+  catch(e){ throw new Error('No se pudo interpretar la respuesta como datos ("'+String(texto).slice(0,140)+'"...)'); }
+}
+const TIPOS_ACTUACION = ['Revisión periódica','Tratamiento','Instalación / reposición de cebos','Aviso por incidencia','Certificado anual'];
+function tipoActuacionMasParecido(t){
+  const q = normTxt(t);
+  if(!q) return '';
+  const exacto = TIPOS_ACTUACION.find(x=>normTxt(x)===q);
+  if(exacto) return exacto;
+  if(/cebo|trampa/.test(q)) return 'Instalación / reposición de cebos';
+  if(/certificad|anual/.test(q)) return 'Certificado anual';
+  if(/incidenc|aviso|urgen/.test(q)) return 'Aviso por incidencia';
+  if(/tratamient|desinsect|desratiz|desinfec|fumig/.test(q)) return 'Tratamiento';
+  if(/revis|seguimient|periodic|mantenimient|inspec/.test(q)) return 'Revisión periódica';
+  return '';
+}
+async function leerParteConIA(){
+  if(!plagasFotos.length){ alert('Primero adjunta el parte: una foto o el PDF.'); return; }
+  const btn = document.getElementById('plagasLeerBtn');
+  const estado = document.getElementById('plagasEstadoIA');
+  if(btn){ btn.disabled = true; btn.textContent = 'Leyendo el parte…'; }
+  if(estado) estado.textContent = 'Leyendo el parte, un momento…';
+  try{
+    const adjuntos = plagasFotos.map(a=>({base64: a.dataUrl.slice(a.dataUrl.indexOf(',')+1), mime: a.mime}));
+    const p = jsonDeRespuesta(await preguntarIADocumentos(adjuntos, PROMPT_PLAGAS));
+    const form = document.getElementById('form-plagas');
+    const set = (name, valor)=>{
+      const el = form.querySelector('[name="'+name+'"]');
+      if(el && valor) el.value = valor;
+    };
+    let avisoFecha = '';
+    if(p.fecha){
+      if(fechaSospechosa(p.fecha)) avisoFecha = p.fecha;
+      else set('fecha', p.fecha);
+    }
+    set('empresa', p.empresa);
+    set('tecnico', p.tecnico);
+    set('numParte', p.numParte);
+    set('zonas', p.zonas);
+    set('productos', p.productos);
+    set('hallazgos', p.hallazgos);
+    set('medidas', p.medidas);
+    /* La próxima visita es una fecha futura a propósito, así que aquí no vale el
+       candado de fechas; solo se comprueba que tenga forma de fecha. */
+    if(/^\d{4}-\d{2}-\d{2}$/.test(String(p.proxima||''))) set('proxima', p.proxima);
+    const tipo = tipoActuacionMasParecido(p.tipoActuacion);
+    if(tipo){ const sel = form.querySelector('[name="tipoActuacion"]'); if(sel) sel.value = tipo; }
+    const chk = form.querySelector('[name="incidencia"]');
+    if(chk) chk.checked = !!p.incidencia;
+    const vacios = ['empresa','fecha','numParte','zonas','hallazgos'].filter(k=>!p[k]);
+    if(estado){
+      estado.innerHTML = '<b>Datos leídos.</b> Repásalos antes de guardar; corrige lo que haga falta.'
+        + (vacios.length ? ' No se ha podido leer: <b>'+vacios.join(', ')+'</b>.' : '')
+        + (avisoFecha ? ' La fecha del documento («'+fmtDate(avisoFecha)+'») no cuadra, así que se ha dejado la que había; ponla a mano si es correcta.' : '');
+    }
+  }catch(err){
+    console.error(err);
+    if(estado) estado.textContent = 'No se ha podido leer: '+err.message;
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '✨ Leer el parte y rellenar'; }
+  }
+}
+
 /* ================= CONTROL DE PLAGAS (DDD) =================
    Las visitas de la empresa de desinsectación llevan su propio registro, aparte
    del mantenimiento de equipos: el inspector lo pide como documentación del plan
@@ -4757,7 +4895,7 @@ function viewPlagas(){
   document.getElementById('view-plagas').innerHTML = `
     <div class="panel">
       <h2>${icon('wrench')} Nueva visita de la empresa de plagas</h2>
-      <p class="hint">Apunta cada visita y <strong>adjunta el parte</strong>: una foto del papel que te dejan, o el PDF que te mandan por correo. Se guarda en tu Drive como archivo aparte, así que se abre desde cualquier ordenador y queda como prueba de lo que se hizo en el obrador.</p>
+      <p class="hint"><strong>Adjunta el parte primero</strong> —una foto del papel que te dejan, o el PDF que te mandan por correo— y pulsa «Leer el parte y rellenar»: la IA saca los datos y te llena el formulario para que solo tengas que repasarlo. El archivo se guarda además en tu Drive, así que se abre desde cualquier ordenador y queda como prueba de lo que se hizo en el obrador.</p>
       <form class="record-form" id="form-plagas">
         <label class="field"><span>Fecha de la visita</span><input type="date" name="fecha" value="${todayStr()}" required></label>
         <label class="field"><span>Empresa</span><input type="text" name="empresa" list="dl-empresas-ddd" placeholder="Empresa de control de plagas" required>
@@ -4789,6 +4927,10 @@ function viewPlagas(){
           </div>
           <div id="plagasPreview" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
           <p class="hint" style="margin:6px 0 0;">Puedes adjuntar varias cosas: si el parte tiene dos caras, una foto de cada una; y si además te mandan el PDF por correo, súbelo también. Las fotos se reducen para que ocupen poco; el PDF se sube tal cual (hasta 12 MB).</p>
+          <div class="cierre-linea" style="margin-top:12px;flex-wrap:wrap;gap:8px;">
+            <button class="btn small" type="button" id="plagasLeerBtn" onclick="leerParteConIA()">✨ Leer el parte y rellenar</button>
+          </div>
+          <p class="hint" id="plagasEstadoIA" style="margin:8px 0 0;">Adjunta el parte y pulsa el botón: la IA lee la empresa, la fecha, el nº de parte, las zonas, los productos aplicados y los hallazgos, y rellena el formulario. <strong>Repasa siempre lo que ponga antes de guardar.</strong></p>
         </div>
         <div class="form-actions"><button class="btn" type="submit">Guardar visita</button></div>
       </form>
