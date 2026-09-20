@@ -3842,11 +3842,31 @@ const MODULE_META = {
     row:r=>[fmtDate(r.fecha),r.lote,r.producto,r.cantidad+' '+r.unidad,r.materiasPrimas,r.tiendas.join(' / '),r.responsable]},
   lotesMP:{label:'Lotes de materias primas', headers:['Producto','Lote','Semanas','Fecha apertura','Fecha cierre'],
     row:r=>[r.producto, r.lote, textoSemanas(r, ' '), r.fechaApertura?fmtDate(r.fechaApertura):'', r.fechaCierre?fmtDate(r.fechaCierre):'']},
-  mantenimiento:{label:'Mantenimiento y plagas', headers:['Fecha','Tipo','Empresa','Descripción','Estado','Responsable'],
+  mantenimiento:{label:'Mantenimiento', headers:['Fecha','Tipo','Empresa','Descripción','Estado','Responsable'],
     row:r=>[fmtDate(r.fecha),r.tipo,r.empresa||'',r.descripcion,r.resuelto?'Resuelto':'Pendiente',r.responsable]},
+  plagas:{label:'Control de plagas (DDD)',
+    headers:['Fecha','Empresa y técnico','Actuación','Nº parte','Zonas','Productos aplicados','Hallazgos','Medidas','Estado','Próxima','Parte','Responsable'],
+    row:r=>[fmtDate(r.fecha),
+            (r.empresa||'')+(r.tecnico?' — '+r.tecnico:''),
+            r.tipoActuacion||'', r.numParte||'', r.zonas||'', r.productos||'',
+            r.hallazgos||'', r.medidas||'',
+            r.incidencia?'Con incidencia':'Sin incidencias',
+            r.proxima?fmtDate(r.proxima):'',
+            enlacesParte(r), r.responsable||'']},
   noconformidades:{label:'Incidencias', headers:['Fecha','Plan','Descripción','Acción correctora','Estado','Cierre','Responsable'],
     row:r=>[fmtDate(r.fecha),r.plan,r.descripcion,r.accionCorrectiva,r.estado,r.fechaCierre?fmtDate(r.fechaCierre):'',r.responsable]},
 };
+/* En el papel un enlace no se puede pinchar, así que en el dossier se dice
+   cuántas hojas tiene el parte y si ya están guardadas en Drive. */
+function enlacesParte(r){
+  const fotos = r.fotos || [];
+  if(!fotos.length) return 'Sin foto';
+  const subidas = fotos.filter(f=>f.estado==='subida').length;
+  const n = fotos.length + ' hoja' + (fotos.length===1?'':'s');
+  if(subidas === fotos.length) return n + ' · en Drive';
+  if(subidas === 0) return n + ' · pendiente de subir';
+  return n + ' · ' + subidas + ' en Drive';
+}
 function flattenTemperaturas(desde, hasta){
   const out = [];
   Object.keys(DATA.temperaturas).sort().forEach(key=>{
@@ -4306,7 +4326,8 @@ function generarDossier(){
     ['alergenos','Alérgenos por lote','T6 · Alérgenos'],
     ['alergenosTienda','Alérgenos en tienda','T6 · Alérgenos tienda'],
     ['trazabilidad','Trazabilidad y reparto','T2 · Trazabilidad'],
-    ['mantenimiento','Mantenimiento y control de plagas','T7 · Mantenimiento'],
+    ['mantenimiento','Mantenimiento de equipos e instalaciones','T7 · Mantenimiento'],
+    ['plagas','Control de plagas · visitas de la empresa DDD','T7 · Plagas'],
     ['noconformidades','Incidencias y acciones correctoras','T8 · Incidencias'],
   ];
   listados.forEach(([k,t,c])=>{ partes.push(hojaListado(k,t,c,desde,hasta)); });
