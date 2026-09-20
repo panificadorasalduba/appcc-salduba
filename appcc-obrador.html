@@ -300,12 +300,13 @@ const STORE_KEYS = {
   trazabilidad:'records:trazabilidad',
   lotesMP:'records:lotesMP',
   mantenimiento:'records:mantenimiento',
+  plagas:'records:plagas',
   noconformidades:'records:noconformidades',
   pedidosManual:'records:pedidosManual',
   produccion:'records:produccion',
 };
 let CONFIG = null;
-let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],noconformidades:[],pedidosManual:[],produccion:[]};
+let DATA = {temperaturas:{},limpieza:[],agua:[],recepcion:[],alergenos:[],alergenosTienda:[],aceite:[],trazabilidad:[],lotesMP:[],mantenimiento:[],plagas:[],noconformidades:[],pedidosManual:[],produccion:[]};
 
 /* Los cuadernos de papel del obrador, tal cual: cada registro con sus productos
    agrupados igual que en la hoja impresa, para que quien los rellena reconozca
@@ -495,6 +496,10 @@ async function loadAll(){
   }
   /* Los lotes que se pasaron del papel traían las semanas pegadas al código.
      Se separan aquí; si ya vienen separados no se toca nada. */
+  if(migrarPlagasDeMantenimiento() > 0){
+    await saveModuleLocal('plagas');
+    await saveModuleLocal('mantenimiento');
+  }
   let arreglados = normalizarLotes();
   const nom = normalizarNombresLotes();
   arreglados += nom.tocados;
@@ -659,6 +664,7 @@ function mezclarTodo(remoto){
      pegadas al código: se separan también al recibirlos. */
   if(normalizarLotes() > 0) cambios = true;
   if(normalizarNombresLotes().tocados > 0) cambios = true;
+  if(migrarPlagasDeMantenimiento() > 0) cambios = true;
   // Los ajustes (equipos, zonas, tiendas…) los cambia una sola persona: manda el más reciente.
   const tsRemoto = remoto.configTs || 0, tsLocal = CONFIG._ts || 0;
   if(remoto.config && tsRemoto > tsLocal){ CONFIG = remoto.config; cambios = true; }
@@ -842,7 +848,8 @@ const VIEWS = [
   {id:'trazabilidad', label:'Trazabilidad y reparto', icon:'route'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
   {id:'revision', label:'Repaso del obrador', icon:'box'},
-  {id:'mantenimiento', label:'Mantenimiento y plagas', icon:'wrench'},
+  {id:'mantenimiento', label:'Mantenimiento', icon:'wrench'},
+  {id:'plagas', label:'Control de plagas (DDD)', icon:'wrench'},
   {id:'noconformidades', label:'Incidencias', icon:'alert'},
   {id:'listeria', label:'Clasificación Listeria', icon:'book'},
   {id:'informes', label:'Informes', icon:'report'},
@@ -1160,10 +1167,11 @@ function renderAceiteTable(){
 function viewMantenimiento(){
   document.getElementById('view-mantenimiento').innerHTML = `
     <div class="panel">
-      <h2>${icon('wrench')} Nuevo parte de mantenimiento o visita DDD</h2>
+      <h2>${icon('wrench')} Nuevo parte de mantenimiento</h2>
+      <p class="hint">Averías, reparaciones y revisiones de equipos. Las visitas de la empresa de plagas van en su propio apartado, <strong>Control de plagas (DDD)</strong>.</p>
       <form class="record-form" id="form-mant">
         <label class="field"><span>Fecha</span><input type="date" name="fecha" value="${todayStr()}" required></label>
-        <label class="field"><span>Tipo</span><select name="tipo"><option>Mantenimiento</option><option>Plagas - DDD</option></select></label>
+        <label class="field"><span>Tipo</span><select name="tipo"><option>Mantenimiento</option></select></label>
         <label class="field"><span>Empresa externa</span><input type="text" name="empresa"></label>
         <label class="field wide"><span>Descripción</span><textarea name="descripcion" required></textarea></label>
         <label class="field checkline"><input type="checkbox" name="resuelto"><span>Resuelto</span></label>
@@ -1171,7 +1179,7 @@ function viewMantenimiento(){
         <div class="form-actions"><button class="btn" type="submit">Guardar registro</button></div>
       </form>
     </div>
-    <div class="panel"><h2>${icon('wrench')} Histórico de mantenimiento y plagas</h2><div id="mant-table"></div></div>
+    <div class="panel"><h2>${icon('wrench')} Histórico de mantenimiento</h2><div id="mant-table"></div></div>
   `;
   document.getElementById('form-mant').addEventListener('submit', async e=>{
     e.preventDefault();
@@ -4674,6 +4682,200 @@ function updateSidebarFoot(){
   pintarEstadoSync();
 }
 
+/* ================= CONTROL DE PLAGAS (DDD) =================
+   Las visitas de la empresa de desinsectación llevan su propio registro, aparte
+   del mantenimiento de equipos: el inspector lo pide como documentación del plan
+   de lucha contra plagas. De cada visita se guarda el parte en foto, y la foto
+   sube a Drive como archivo suelto para poder abrirla desde cualquier ordenador. */
+let plagasFotos = [];          // fotos de la visita que se está apuntando
+
+function viewPlagas(){
+  document.getElementById('view-plagas').innerHTML = `
+    <div class="panel">
+      <h2>${icon('wrench')} Nueva visita de la empresa de plagas</h2>
+      <p class="hint">Apunta cada visita y <strong>haz una foto del parte que te dejan</strong>. La foto se guarda en tu Drive como archivo aparte, así que se abre desde cualquier ordenador y queda como prueba de lo que se hizo en el obrador.</p>
+      <form class="record-form" id="form-plagas">
+        <label class="field"><span>Fecha de la visita</span><input type="date" name="fecha" value="${todayStr()}" required></label>
+        <label class="field"><span>Empresa</span><input type="text" name="empresa" list="dl-empresas-ddd" placeholder="Empresa de control de plagas" required>
+          <datalist id="dl-empresas-ddd">${empresasDDD().map(n=>`<option value="${esc(n)}">`).join('')}</datalist></label>
+        <label class="field"><span>Técnico</span><input type="text" name="tecnico" placeholder="Quien vino"></label>
+        <label class="field"><span>Tipo de actuación</span><select name="tipoActuacion">
+          <option>Revisión periódica</option>
+          <option>Tratamiento</option>
+          <option>Instalación / reposición de cebos</option>
+          <option>Aviso por incidencia</option>
+          <option>Certificado anual</option>
+        </select></label>
+        <label class="field"><span>Nº de parte o certificado</span><input type="text" name="numParte"></label>
+        <label class="field"><span>Próxima visita prevista</span><input type="date" name="proxima"></label>
+        <label class="field wide"><span>Zonas revisadas o tratadas</span><input type="text" name="zonas" placeholder="Obrador, almacén, cámaras, patio…"></label>
+        <label class="field wide"><span>Productos aplicados y nº de registro</span><input type="text" name="productos" placeholder="Tal como figure en el parte"></label>
+        <label class="field wide"><span>Qué se encontró</span><textarea name="hallazgos" placeholder="Capturas en trampas, indicios, cebos consumidos… o «sin incidencias»"></textarea></label>
+        <label class="field wide"><span>Medidas y recomendaciones</span><textarea name="medidas"></textarea></label>
+        <label class="field checkline"><input type="checkbox" name="incidencia"><span>Hay una incidencia que corregir</span></label>
+        <label class="field"><span>Responsable de Salduba</span><input type="text" name="responsable" required></label>
+        <div class="field wide">
+          <span>Foto del parte</span>
+          <div class="cierre-linea" style="flex-wrap:wrap;gap:8px;">
+            <input type="file" id="plagasFile" accept="image/*" capture="environment" style="max-width:260px;">
+            <button class="btn secondary small" type="button" onclick="plagasQuitarFotos()">Quitar fotos</button>
+          </div>
+          <div id="plagasPreview" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"></div>
+          <p class="hint" style="margin:6px 0 0;">Puedes añadir varias hojas: elige una, luego otra. Si el parte tiene dos caras, hazle una foto a cada una.</p>
+        </div>
+        <div class="form-actions"><button class="btn" type="submit">Guardar visita</button></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>${icon('wrench')} Visitas registradas</h2>
+      <div id="plagas-aviso-drive"></div>
+      <div id="plagas-table"></div>
+    </div>`;
+  document.getElementById('plagasFile').addEventListener('change', async e=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    try{
+      const dataUrl = await compressImage(f, 1400, 0.75);
+      plagasFotos.push(dataUrl);
+      pintarPlagasPreview();
+    }catch(err){ alert('No se pudo leer la imagen: '+err.message); }
+    e.target.value = '';
+  });
+  document.getElementById('form-plagas').addEventListener('submit', async e=>{
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if(!confirmarFechaRara(f.get('fecha'))) return;
+    const rec = {id:uid(), fecha:f.get('fecha'), empresa:f.get('empresa'), tecnico:f.get('tecnico'),
+      tipoActuacion:f.get('tipoActuacion'), numParte:f.get('numParte'), proxima:f.get('proxima'),
+      zonas:f.get('zonas'), productos:f.get('productos'), hallazgos:f.get('hallazgos'),
+      medidas:f.get('medidas'), incidencia:f.get('incidencia')==='on',
+      responsable:f.get('responsable'), fotos:[]};
+    // la foto se queda en el dispositivo y, además, se sube a Drive como archivo
+    for(let i=0;i<plagasFotos.length;i++){
+      const fotoId = uid();
+      try{ await Store.set('foto:'+fotoId, plagasFotos[i]); }catch(err){ console.error(err); }
+      rec.fotos.push({fotoId, driveId:'', driveUrl:'', estado:'pendiente'});
+    }
+    DATA.plagas.unshift(rec);
+    await saveModule('plagas');
+    plagasFotos = [];
+    viewPlagas();
+    renderDashboard();
+    if(rec.fotos.length) await subirFotosPendientes();
+  });
+  pintarPlagasPreview();
+  renderPlagasTable();
+}
+function empresasDDD(){
+  const de = (DATA.plagas||[]).map(r=>r.empresa).filter(Boolean);
+  const viejas = (DATA.mantenimiento||[]).filter(r=>/plaga|ddd/i.test(r.tipo||'')).map(r=>r.empresa).filter(Boolean);
+  return [...new Set(de.concat(viejas))].sort((a,b)=>a.localeCompare(b,'es'));
+}
+function pintarPlagasPreview(){
+  const host = document.getElementById('plagasPreview');
+  if(!host) return;
+  host.innerHTML = plagasFotos.map((d,i)=>`<img src="${d}" alt="Hoja ${i+1}" style="height:110px;border:1px solid var(--border);border-radius:6px;">`).join('');
+}
+function plagasQuitarFotos(){ plagasFotos = []; pintarPlagasPreview(); }
+
+/* ---- la foto del parte, como archivo suelto en Drive ----
+   El Apps Script guarda el JSON de los registros; con una llamada más guarda
+   también imágenes en una carpeta y devuelve el enlace. Si el script todavía no
+   sabe hacerlo, la foto se queda en el dispositivo marcada como pendiente y se
+   reintenta; no se pierde nada. */
+async function subirFotoADrive(dataUrl, nombre){
+  if(!syncActiva()) throw new Error('Drive no está configurado en este dispositivo');
+  const coma = dataUrl.indexOf(',');
+  const cuerpo = JSON.stringify({accion:'foto', nombre, mime:'image/jpeg', datos:dataUrl.slice(coma+1)});
+  const res = await fetch(getAppsScriptUrl(), {
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:cuerpo
+  });
+  const r = await res.json().catch(()=>({ok:false, error:'Drive no contestó en condiciones'}));
+  if(!r.ok) throw new Error(r.error || 'Drive no guardó la foto');
+  if(!r.url) throw new Error('Drive no devolvió el enlace de la foto');
+  return r;
+}
+async function subirFotosPendientes(avisar){
+  const pendientes = [];
+  (DATA.plagas||[]).forEach(r=>(r.fotos||[]).forEach((f,i)=>{
+    if(f.estado !== 'subida') pendientes.push({rec:r, foto:f, i});
+  }));
+  if(!pendientes.length){
+    if(avisar) alert('No hay fotos pendientes de subir.');
+    return;
+  }
+  let bien = 0, mal = 0, ultimoError = '';
+  for(const p of pendientes){
+    try{
+      const dataUrl = await Store.get('foto:'+p.foto.fotoId);
+      if(!dataUrl){ p.foto.estado = 'sin copia'; mal++; continue; }
+      const nombre = 'plagas-'+p.rec.fecha+'-'+normTxt(p.rec.empresa||'parte').replace(/ /g,'-')+'-'+(p.i+1)+'.jpg';
+      const r = await subirFotoADrive(dataUrl, nombre);
+      p.foto.driveId = r.id || '';
+      p.foto.driveUrl = r.url;
+      p.foto.estado = 'subida';
+      bien++;
+    }catch(err){ p.foto.estado = 'pendiente'; ultimoError = err.message; mal++; }
+  }
+  await saveModule('plagas');
+  renderPlagasTable();
+  if(avisar || mal){
+    const msg = (bien?bien+' foto(s) subidas a Drive. ':'') +
+      (mal? mal+' no se han podido subir todavía ('+ultimoError+'). Se quedan guardadas aquí y puedes reintentarlo.' : '');
+    alert(msg.trim() || 'Listo.');
+  }
+}
+function renderPlagasTable(){
+  const aviso = document.getElementById('plagas-aviso-drive');
+  const pendientes = (DATA.plagas||[]).reduce((n,r)=>n+(r.fotos||[]).filter(f=>f.estado!=='subida').length, 0);
+  if(aviso){
+    aviso.innerHTML = pendientes
+      ? `<div style="margin-bottom:12px;padding:10px 12px;border:1px solid #b7791f;border-left-width:4px;border-radius:8px;background:#fdf6e3;color:#7a5200;">
+           Hay <b>${pendientes}</b> foto(s) guardadas en este dispositivo que todavía no están en Drive.
+           <button class="btn small" type="button" style="margin-left:8px;" onclick="subirFotosPendientes(true)">Subirlas ahora</button>
+         </div>`
+      : '';
+  }
+  const rows = porFechaDesc(DATA.plagas).map(r=>{
+    const fotos = (r.fotos||[]).map((f,i)=>f.driveUrl
+      ? `<a href="${esc(f.driveUrl)}" target="_blank" rel="noopener">Hoja ${i+1}</a>`
+      : `<a href="#" onclick="verFotoLocal('${esc(f.fotoId)}');return false;">Hoja ${i+1} (sin subir)</a>`).join(' · ');
+    return `<tr>
+      <td class="mono">${fmtDate(r.fecha)}</td>
+      <td>${esc(r.empresa)||'—'}${r.tecnico?'<br><span class="hint">'+esc(r.tecnico)+'</span>':''}</td>
+      <td>${esc(r.tipoActuacion)||'—'}${r.numParte?'<br><span class="mono hint">'+esc(r.numParte)+'</span>':''}</td>
+      <td>${esc(r.zonas)||'—'}</td>
+      <td>${esc(r.hallazgos)||'—'}${r.medidas?'<br><span class="hint">'+esc(r.medidas)+'</span>':''}</td>
+      <td><span class="badge ${r.incidencia?'warn':'ok'}">${r.incidencia?'Con incidencia':'Sin incidencias'}</span>${r.proxima?'<br><span class="hint">Próxima: '+fmtDate(r.proxima)+'</span>':''}</td>
+      <td>${fotos||'—'}</td>
+      <td>${esc(r.responsable)||'—'}</td>
+      <td><button class="btn danger small" onclick="removeRecord('plagas','${r.id}',renderPlagasTable)">Borrar</button></td>
+    </tr>`;
+  });
+  document.getElementById('plagas-table').innerHTML =
+    table(['Fecha','Empresa','Actuación','Zonas','Hallazgos y medidas','Estado','Parte','Responsable',''], rows);
+}
+async function verFotoLocal(fotoId){
+  const d = await Store.get('foto:'+fotoId);
+  if(!d){ alert('Esa foto no está guardada en este dispositivo. Si se hizo desde la tablet, ábrela allí o súbela a Drive desde la tablet.'); return; }
+  const w = window.open('');
+  if(w) w.document.write('<title>Parte de plagas</title><img src="'+d+'" style="max-width:100%">');
+}
+/* Las visitas de plagas que se apuntaron en Mantenimiento se pasan a su apartado. */
+function migrarPlagasDeMantenimiento(){
+  const viejas = (DATA.mantenimiento||[]).filter(r=>/plaga|ddd/i.test(r.tipo||''));
+  if(!viejas.length) return 0;
+  viejas.forEach(r=>{
+    if((DATA.plagas||[]).some(p=>p.id===r.id)) return;
+    DATA.plagas.push({id:r.id, fecha:r.fecha, empresa:r.empresa||'', tecnico:'',
+      tipoActuacion:'Revisión periódica', numParte:'', proxima:'', zonas:'',
+      productos:'', hallazgos:r.descripcion||'', medidas:'',
+      incidencia: !r.resuelto, responsable:r.responsable||'', fotos:[]});
+  });
+  DATA.mantenimiento = DATA.mantenimiento.filter(r=>!/plaga|ddd/i.test(r.tipo||''));
+  return viejas.length;
+}
+
 /* ================= REVISIÓN DEL OBRADOR =================
    Para ponerse al día de una sentada: se recorre el obrador con la tablet,
    producto por producto, diciendo qué hay abierto de verdad. Lo que se marca
@@ -4938,7 +5140,7 @@ const RENDERERS = {
   dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
   recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, produccion:viewProduccion, trazabilidad:viewTrazabilidad,
   materiasprimas:viewMateriasPrimas, revision:viewRevision,
-  mantenimiento:viewMantenimiento, noconformidades:viewNoConformidades, listeria:viewListeria,
+  mantenimiento:viewMantenimiento, plagas:viewPlagas, noconformidades:viewNoConformidades, listeria:viewListeria,
   informes:viewInformes, ajustes:viewAjustes
 };
 
