@@ -477,6 +477,54 @@ async function clearGeminiKey(){
   try{ localStorage.removeItem('appcc_gemini_key'); }catch(e){}
   if(CONFIG){ CONFIG.iaGeminiKey = ''; try{ await saveConfig(); }catch(e){} }
 }
+/* ---- CONFIGURAR OTRO DISPOSITIVO ----
+   El enlace lleva dentro la dirección del Apps Script y la clave de la IA, que
+   son las dos cosas que no se pueden escribir en el código porque el repositorio
+   es público. Con el QR se pasa al móvil sin teclear nada. */
+function enlaceConfiguracion(){
+  const u = getAppsScriptUrl(), k = getGeminiKey();
+  if(!u && !k) return '';
+  let e = location.origin + location.pathname + '?v=' + Date.now().toString(36);
+  if(u) e += '&sync=' + encodeURIComponent(u);
+  if(k) e += '&ia=' + encodeURIComponent(k);
+  return e;
+}
+function cargarLibreriaQr(){
+  if(window.QRCode) return Promise.resolve(true);
+  return new Promise(res=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = ()=>res(!!window.QRCode);
+    s.onerror = ()=>res(false);
+    document.head.appendChild(s);
+  });
+}
+async function mostrarQrConfig(){
+  const enlace = enlaceConfiguracion();
+  const caja = document.getElementById('qrConfigCaja');
+  const host = document.getElementById('qrConfig');
+  if(!caja || !host) return;
+  if(!enlace){
+    alert('Este dispositivo todavía no tiene configurada ni la sincronización con Drive ni la clave de IA, así que no hay nada que pasar a otro aparato.');
+    return;
+  }
+  caja.style.display = '';
+  document.getElementById('verQrConfigBtn').style.display = 'none';
+  document.getElementById('ocultarQrConfigBtn').style.display = '';
+  document.getElementById('qrConfigTexto').value = enlace;
+  host.innerHTML = '<p class="hint">Generando el código…</p>';
+  const ok = await cargarLibreriaQr();
+  if(!ok){
+    host.innerHTML = '<p class="hint">No se ha podido cargar el generador de códigos (¿sin internet?). Usa el enlace de abajo.</p>';
+    return;
+  }
+  host.innerHTML = '';
+  try{
+    new QRCode(host, {text: enlace, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.L});
+  }catch(err){
+    host.innerHTML = '<p class="hint">No se ha podido dibujar el código: '+esc(err.message)+'. Usa el enlace de abajo.</p>';
+  }
+}
 function mensajeSinClaveIA(){
   return syncActiva()
     ? 'Este aparato todavía no tiene la clave de IA. Si la acabas de poner en otro, espera a que sincronice (abajo a la izquierda pone cuándo fue la última vez) y vuelve a probar. Si no, ponla en Ajustes → Configuración de IA.'
@@ -4598,6 +4646,23 @@ function viewAjustes(){
       <p class="hint" id="driveSyncEstado"></p>
     </div>
     <div class="panel">
+      <h2>${icon('box')} Configurar otro dispositivo</h2>
+      <p class="hint">Para que una tablet o un móvil nuevo vean los mismos registros y puedan leer albaranes, hay que darles la dirección de tu Drive y la clave de la IA. Pulsa el botón y <strong>escanea el código con la cámara del otro aparato</strong>: se configura solo y no hay que escribir nada.</p>
+      <div class="filters">
+        <button class="btn small" id="verQrConfigBtn" type="button">Ver el código de configuración</button>
+        <button class="btn secondary small" id="ocultarQrConfigBtn" type="button" style="display:none;">Ocultar</button>
+      </div>
+      <div id="qrConfigCaja" style="display:none;margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#fff;">
+        <div id="qrConfig" style="display:flex;justify-content:center;min-height:200px;align-items:center;"></div>
+        <p class="hint" style="margin:10px 0 4px;">Si la cámara no lo coge, copia este enlace y ábrelo en el otro aparato:</p>
+        <textarea id="qrConfigTexto" readonly style="width:100%;min-height:60px;font-family:monospace;font-size:11px;word-break:break-all;"></textarea>
+        <div class="cierre-linea" style="margin-top:8px;">
+          <button class="btn secondary small" type="button" id="copiarEnlaceConfigBtn">Copiar enlace</button>
+        </div>
+        <p class="hint" style="margin-top:10px;color:#7d2018;"><strong>Cuidado:</strong> este código y este enlace dan acceso a todos tus registros y a tu clave de IA. Úsalos solo en los aparatos de la empresa y no los mandes por ahí.</p>
+      </div>
+    </div>
+    <div class="panel">
       <h2>${icon('alert')} Zona de riesgo</h2>
       <p class="hint">Elimina todos los registros guardados de todos los módulos. Los ajustes (empresa, equipos, zonas, tiendas, alérgenos, planes) no se ven afectados.</p>
       <button class="btn danger" id="reset-data">Vaciar todos los registros</button>
@@ -4674,6 +4739,21 @@ function viewAjustes(){
     alert('URL guardada. Ya puedes subir/descargar copia.');
   });
   document.getElementById('uploadDriveBtn').addEventListener('click', subirBackupADrive);
+  const btnQr = document.getElementById('verQrConfigBtn');
+  if(btnQr) btnQr.addEventListener('click', mostrarQrConfig);
+  const btnQrOff = document.getElementById('ocultarQrConfigBtn');
+  if(btnQrOff) btnQrOff.addEventListener('click', ()=>{
+    document.getElementById('qrConfigCaja').style.display='none';
+    document.getElementById('verQrConfigBtn').style.display='';
+    btnQrOff.style.display='none';
+  });
+  const btnCopiar = document.getElementById('copiarEnlaceConfigBtn');
+  if(btnCopiar) btnCopiar.addEventListener('click', async ()=>{
+    const t = document.getElementById('qrConfigTexto');
+    t.select();
+    try{ await navigator.clipboard.writeText(t.value); alert('Enlace copiado.'); }
+    catch(e){ document.execCommand('copy'); alert('Enlace copiado.'); }
+  });
   document.getElementById('import-backup-file').addEventListener('change', e=>{
     const file = e.target.files[0];
     if(file) importarBackupFile(file);
