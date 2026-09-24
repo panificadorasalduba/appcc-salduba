@@ -481,6 +481,49 @@ async function clearGeminiKey(){
    El enlace lleva dentro la dirección del Apps Script y la clave de la IA, que
    son las dos cosas que no se pueden escribir en el código porque el repositorio
    es público. Con el QR se pasa al móvil sin teclear nada. */
+/* ---- ESTADO DE ESTE DISPOSITIVO ----
+   Tres cosas tienen que estar bien para que la app funcione entera: que guarde
+   en Drive, que tenga la clave de la IA, y que la IA conteste de verdad. */
+function lineaEstado(ok, titulo, detalle){
+  const color = ok===true ? 'var(--ok)' : (ok===false ? '#c0392b' : '#b7791f');
+  const icono = ok===true ? '✅' : (ok===false ? '❌' : '⏳');
+  return `<p style="margin:6px 0;font-size:15px;color:${color};">${icono} <strong>${esc(titulo)}</strong>`
+       + (detalle ? `<br><span class="hint" style="color:var(--muted);">${detalle}</span>` : '') + '</p>';
+}
+function pintarEstadoDispositivo(extra){
+  const host = document.getElementById('estadoDispositivo');
+  if(!host) return;
+  const drive = !!getAppsScriptUrl();
+  const clave = !!getGeminiKey();
+  const registros = Object.keys(DATA).reduce((n,k)=>n + (Array.isArray(DATA[k]) ? DATA[k].length : Object.keys(DATA[k]||{}).length), 0);
+  host.innerHTML =
+    lineaEstado(drive, drive ? 'Guarda en tu Google Drive' : 'NO guarda en Drive',
+      drive ? esc(SYNC.estado) : 'Los registros se quedan solo en este aparato y no los ves desde los demás. Escanea el código de configuración desde el ordenador.')
+    + lineaEstado(clave, clave ? 'Puede leer albaranes con la IA' : 'NO puede leer albaranes',
+      clave ? 'La clave está guardada en este aparato.' : 'Falta la clave de IA. Escanea el código de configuración desde el ordenador.')
+    + lineaEstado(registros > 0, registros + ' registros en este aparato',
+      registros > 0 ? 'Si el número cuadra con el del ordenador, la sincronización va bien.' : 'No hay ningún registro todavía.')
+    + (extra || '');
+}
+async function comprobarDispositivo(){
+  let extra = '';
+  if(getAppsScriptUrl()){
+    try{ await sincronizar('comprobación'); }catch(e){}
+  }
+  if(getGeminiKey()){
+    /* Se le manda una imagen de un píxel: basta para ver si la clave responde. */
+    try{
+      const c = document.createElement('canvas'); c.width=8; c.height=8;
+      const ctx = c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,8,8);
+      const b64 = c.toDataURL('image/jpeg',0.5).split(',')[1];
+      const t = await preguntarIADocumentos([{base64:b64, mime:'image/jpeg'}], 'Responde solo con la palabra OK.');
+      extra = lineaEstado(/ok/i.test(t), /ok/i.test(t) ? 'La IA contesta correctamente' : 'La IA ha contestado algo raro', esc(String(t).slice(0,80)));
+    }catch(err){
+      extra = lineaEstado(false, 'La IA no contesta', esc(err.message));
+    }
+  }
+  pintarEstadoDispositivo(extra);
+}
 function enlaceConfiguracion(){
   const u = getAppsScriptUrl(), k = getGeminiKey();
   if(!u && !k) return '';
@@ -863,7 +906,18 @@ async function arrancarSync(){
       try{ localStorage.setItem('appcc_gemini_key', decodeURIComponent(k)); }catch(e){}
       if(CONFIG){ CONFIG.iaGeminiKey = decodeURIComponent(k); try{ await saveConfigLocal(); }catch(e){} }
     }
-    if(p || k) history.replaceState(null,'',location.pathname);
+    if(p || k){
+      history.replaceState(null,'',location.pathname);
+      /* Sin esto no hay forma de saber si el enlace ha hecho algo: la dirección
+         se limpia sola y la pantalla queda igual. */
+      setTimeout(()=>{
+        alert('✅ Dispositivo configurado\n\n'
+          + (p ? '• Sincronización con Google Drive: activada\n' : '')
+          + (k ? '• Clave de la IA para leer albaranes: guardada\n' : '')
+          + '\nEn unos segundos deberían aparecer aquí todos los registros. '
+          + 'Puedes comprobarlo en Ajustes → Estado de este dispositivo.');
+      }, 1200);
+    }
   }catch(e){}
   if(!syncActiva()){
     marcarSync('Los datos se guardan solo en este dispositivo. Configura la sincronización en Ajustes.');
@@ -4646,6 +4700,14 @@ function viewAjustes(){
       <p class="hint" id="driveSyncEstado"></p>
     </div>
     <div class="panel">
+      <h2>${icon('box')} Estado de este dispositivo</h2>
+      <p class="hint">Para saber de un vistazo si este aparato está bien configurado.</p>
+      <div id="estadoDispositivo"></div>
+      <div class="filters" style="margin-top:8px;">
+        <button class="btn small" id="comprobarDispositivoBtn" type="button">Comprobar ahora</button>
+      </div>
+    </div>
+    <div class="panel">
       <h2>${icon('box')} Configurar otro dispositivo</h2>
       <p class="hint">Para que una tablet o un móvil nuevo vean los mismos registros y puedan leer albaranes, hay que darles la dirección de tu Drive y la clave de la IA. Pulsa el botón y <strong>escanea el código con la cámara del otro aparato</strong>: se configura solo y no hay que escribir nada.</p>
       <div class="filters">
@@ -4739,6 +4801,13 @@ function viewAjustes(){
     alert('URL guardada. Ya puedes subir/descargar copia.');
   });
   document.getElementById('uploadDriveBtn').addEventListener('click', subirBackupADrive);
+  pintarEstadoDispositivo();
+  const btnComp = document.getElementById('comprobarDispositivoBtn');
+  if(btnComp) btnComp.addEventListener('click', async ()=>{
+    btnComp.disabled = true; btnComp.textContent = 'Comprobando…';
+    await comprobarDispositivo();
+    btnComp.disabled = false; btnComp.textContent = 'Comprobar ahora';
+  });
   const btnQr = document.getElementById('verQrConfigBtn');
   if(btnQr) btnQr.addEventListener('click', mostrarQrConfig);
   const btnQrOff = document.getElementById('ocultarQrConfigBtn');
