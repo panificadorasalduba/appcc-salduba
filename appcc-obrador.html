@@ -300,7 +300,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-09-24-b';
+const APP_VERSION = '2026-09-24-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1774,20 +1774,19 @@ async function extraerAlbaran(){
   let textoRespuesta = '';
   try{
     const base64 = recepcionFotoDataUrl.split(',')[1];
-    if(HAS_CLAUDE_STORAGE){
-      textoRespuesta = await llamarClaudeSinClave(base64);
-    } else {
+    const pedir = async ()=>{
+      if(HAS_CLAUDE_STORAGE) return await llamarClaudeSinClave(base64);
       const provider = getAIProvider();
       if(provider==='gemini'){
         const key = getGeminiKey();
         if(!key) throw new Error(mensajeSinClaveIA());
-        textoRespuesta = await llamarGemini(base64, key);
-      } else {
-        const key = getApiKey();
-        if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
-        textoRespuesta = await llamarClaudeConClave(base64, key);
+        return await llamarGemini(base64, key);
       }
-    }
+      const key = getApiKey();
+      if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
+      return await llamarClaudeConClave(base64, key);
+    };
+    textoRespuesta = await reintentarSiSatura(pedir, estado);
     textoRespuesta = textoRespuesta.trim();
     let clean = textoRespuesta.replace(/```json|```/g,'').trim();
     const first = clean.indexOf('{');
@@ -1822,13 +1821,44 @@ async function extraerAlbaran(){
       iniciarCuentaAtrasLimite(err.retrySeconds, btn, estado);
       return;
     }
-    estado.textContent = 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
+    estado.textContent = esSaturacion(err)
+      ? 'Gemini lleva un rato saturado y no ha podido leer el albarán ni reintentándolo. No es culpa de la foto ni de la app: prueba otra vez en un par de minutos, o mete los productos a mano ahora y sigue.'
+      : 'No se ha podido leer el albarán automáticamente (' + err.message + '). Añade los productos manualmente abajo, o prueba con una foto más nítida y bien encuadrada.';
     if(recepcionExtraidas.length===0){ recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''}); renderLineasExtraidas(); }
   }finally{
     if(!estado.dataset.limiteActivo) btn.disabled = false;
     if(btn.textContent==='Leyendo albarán…') btn.textContent = 'Extraer datos con IA';
   }
 }
+/* Gemini a veces contesta que el modelo está saturado ("high demand"), que no es
+   lo mismo que el límite de peticiones por minuto: no hay que esperar un cupo,
+   simplemente hay que volver a pedirlo. Se reintenta solo, con esperas cada vez
+   más largas, en vez de dejar tirado a quien está recepcionando mercancía. */
+function esSaturacion(err){
+  const m = String(err && err.message || '').toLowerCase();
+  return /high demand|overloaded|currently unavailable|unavailable|try again later|503|500|internal error|temporarily/.test(m);
+}
+const ESPERAS_SATURACION = [4, 10, 20];   // segundos entre intento e intento
+async function reintentarSiSatura(pedir, estado){
+  let ultimo = null;
+  for(let i = 0; i <= ESPERAS_SATURACION.length; i++){
+    try{
+      return await pedir();
+    }catch(err){
+      ultimo = err;
+      if(err.esLimiteVelocidad) throw err;        // eso lo lleva la cuenta atrás
+      if(!esSaturacion(err) || i === ESPERAS_SATURACION.length) throw err;
+      const espera = ESPERAS_SATURACION[i];
+      for(let s = espera; s > 0; s--){
+        if(estado) estado.textContent = `Gemini está saturado en este momento. Reintento solo en ${s} s (intento ${i+2} de ${ESPERAS_SATURACION.length+1})… no toques nada.`;
+        await new Promise(r=>setTimeout(r, 1000));
+      }
+      if(estado) estado.textContent = 'Reintentando leer el albarán…';
+    }
+  }
+  throw ultimo;
+}
+
 /* Guarda el último fallo de la IA para poder mirarlo después en Ajustes, sin
    tener que acordarse de lo que ponía el aviso. */
 function guardarUltimoErrorIA(err){
@@ -5143,7 +5173,7 @@ async function leerParteConIA(){
   if(estado) estado.textContent = 'Leyendo el parte, un momento…';
   try{
     const adjuntos = plagasFotos.map(a=>({base64: a.dataUrl.slice(a.dataUrl.indexOf(',')+1), mime: a.mime}));
-    const p = jsonDeRespuesta(await preguntarIADocumentos(adjuntos, PROMPT_PLAGAS));
+    const p = jsonDeRespuesta(await reintentarSiSatura(()=>preguntarIADocumentos(adjuntos, PROMPT_PLAGAS), estado));
     const form = document.getElementById('form-plagas');
     const set = (name, valor)=>{
       const el = form.querySelector('[name="'+name+'"]');
