@@ -300,6 +300,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
+const APP_VERSION = '2026-09-24-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -5862,6 +5863,32 @@ async function boot(){
   arrancarSync();
   document.querySelector('.navitem[data-view="dashboard"]').classList.add('active');
   document.getElementById('view-dashboard').classList.add('active');
+  comprobarVersion();
+}
+
+/* ---- ACTUALIZACIÓN AUTOMÁTICA ----
+   Los móviles y las tablets se quedan con la página guardada en la caché y
+   siguen enseñando una versión vieja aunque se recargue. Aquí se pregunta al
+   servidor qué versión hay y, si no es la que está corriendo, se recarga sola.
+   Solo una vez por sesión, para que no entre en bucle si algo va mal. */
+async function comprobarVersion(){
+  try{
+    if(sessionStorage.getItem('appcc_ya_actualizado')) return;
+  }catch(e){ return; }
+  try{
+    const res = await fetch(location.pathname + '?nocache=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    const txt = await res.text();
+    const m = /const APP_VERSION = '([^']+)'/.exec(txt);
+    if(!m || m[1] === APP_VERSION) return;
+    try{ sessionStorage.setItem('appcc_ya_actualizado','1'); }catch(e){}
+    const aviso = document.createElement('div');
+    aviso.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);color:#fff;'
+      + 'display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:18px;line-height:1.5;';
+    aviso.innerHTML = 'Hay una versión nueva de la app.<br>Actualizando…';
+    document.body.appendChild(aviso);
+    setTimeout(()=>location.reload(), 900);
+  }catch(e){ /* sin conexión: se queda con lo que hay */ }
 }
 boot();
 </script>
