@@ -300,7 +300,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-09-24-e';
+const APP_VERSION = '2026-09-25-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1448,7 +1448,9 @@ async function abrirCamara(){
     const video = document.getElementById('albaranVideo');
     video.srcObject = camaraStream;
     document.getElementById('albaranCamWrap').style.display = 'block';
-    estado.textContent = 'Encuadra el albarán y pulsa "Capturar foto".';
+    const cerrar = document.getElementById('albaranCerrarCamBtn');
+    if(cerrar) cerrar.textContent = albaranQueue.length ? ('Ya están todos (' + albaranQueue.length + ')') : 'Cancelar';
+    estado.textContent = 'Encuadra el albarán y pulsa "Capturar foto". Puedes encadenar uno detrás de otro sin cerrar la cámara.';
   }catch(err){
     console.error(err);
     estado.textContent = 'Este navegador no permite abrir la cámara aquí. Usa "Subir foto": en el móvil también abre la cámara directamente.';
@@ -1479,7 +1481,12 @@ function capturarFotoCamara(){
   albaranQueueHash.push(hFoto);
   if(albaranQueue.length===1) albaranQueueIndex = 0;
   cargarFotoDeCola();
-  cerrarCamara();
+  // La cámara NO se cierra: para vaciar una carpeta de albaranes en papel hay que
+  // poder disparar uno detrás de otro sin volver a abrirla cada vez.
+  const estado = document.getElementById('albaranEstado');
+  if(estado) estado.textContent = 'Foto ' + albaranQueue.length + ' guardada en la cola. Pon el siguiente albarán y vuelve a capturar, o pulsa "Ya están todos".';
+  const cerrar = document.getElementById('albaranCerrarCamBtn');
+  if(cerrar) cerrar.textContent = 'Ya están todos (' + albaranQueue.length + ')';
 }
 function cargarFotoDeCola(){
   const preview = document.getElementById('albaranPreview');
@@ -1490,6 +1497,7 @@ function cargarFotoDeCola(){
     recepcionFotoDataUrl = null;
     preview.innerHTML = '';
     if(btn) btn.disabled = true;
+    pintarBotonLote();
     return;
   }
   if(albaranQueueIndex>=albaranQueue.length) albaranQueueIndex = albaranQueue.length-1;
@@ -1507,8 +1515,9 @@ function cargarFotoDeCola(){
   const numInput = document.getElementById('albaranNumero');
   if(numInput) numInput.value = '';
   if(estado) estado.textContent = albaranQueue.length>1
-    ? `Foto ${albaranQueueIndex+1} de ${albaranQueue.length} lista. Pulsa "Extraer datos con IA".`
+    ? `Foto ${albaranQueueIndex+1} de ${albaranQueue.length} lista. Pulsa "Extraer datos con IA", o léelas todas de golpe.`
     : 'Foto lista. Pulsa "Extraer datos con IA".';
+  pintarBotonLote();
 }
 function compressImage(file, maxWidth, quality){
   return new Promise((resolve,reject)=>{
@@ -1531,6 +1540,217 @@ function compressImage(file, maxWidth, quality){
     reader.readAsDataURL(file);
   });
 }
+/* ============================ CARGA MASIVA DE ALBARANES ============================
+   Para vaciar de golpe la carpeta de albaranes en papel. Lee uno detrás de otro y
+   los guarda solos, porque Berta prefiere repasarlos después en el histórico.
+   Tres cosas que NO hace, a propósito:
+   - no toca el stock: son entregas viejas, la mercancía ya está gastada;
+   - no guarda dos veces el mismo albarán (usa el mismo freno que la carga de uno);
+   - no se inventa fechas: si la que lee no es de 2026 y anterior a hoy, la aparta.  */
+let LOTE_EN_MARCHA = false;
+let LOTE_PARAR = false;
+const LOTE_PAUSA_MS = 2500;             // respiro entre albarán y albarán
+const LOTE_FECHA_MIN = '2026-01-01';    // dicho por Berta: todas las recepciones son de 2026
+const LOTE_CLAVE = 'lote:pendientes';
+
+function fechaHistoricaValida(f){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(f||''))) return false;
+  return f >= LOTE_FECHA_MIN && f <= todayStr();
+}
+
+async function guardarLotePendiente(){
+  try{ await Store.set(LOTE_CLAVE, albaranQueue.slice()); }catch(e){ console.error(e); }
+}
+async function limpiarLotePendiente(){
+  try{ await Store.delete(LOTE_CLAVE); }catch(e){}
+}
+async function comprobarLotePendiente(){
+  let pend = null;
+  try{ pend = await Store.get(LOTE_CLAVE); }catch(e){}
+  const host = document.getElementById('loteReanudar');
+  if(!host) return;
+  if(!Array.isArray(pend) || !pend.length){ host.style.display='none'; host.innerHTML=''; return; }
+  host.style.display='block';
+  host.innerHTML = '<b>Quedaron ' + pend.length + ' foto(s) a medias</b> de una carga masiva anterior.' +
+    '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<button class="btn small" type="button" onclick="reanudarLote()">Recuperarlas</button>' +
+    '<button class="btn secondary small" type="button" onclick="descartarLotePendiente()">Olvidarlas</button></div>';
+}
+async function reanudarLote(){
+  let pend = null;
+  try{ pend = await Store.get(LOTE_CLAVE); }catch(e){}
+  if(!Array.isArray(pend) || !pend.length) return;
+  albaranQueue = pend.slice();
+  albaranQueueHash = albaranQueue.map(d=>huellaFoto(d));
+  albaranQueueIndex = 0;
+  cargarFotoDeCola();
+  pintarBotonLote();
+  const host = document.getElementById('loteReanudar');
+  if(host){ host.style.display='none'; host.innerHTML=''; }
+}
+async function descartarLotePendiente(){
+  if(!confirm('¿Seguro? Esas fotos se pierden y habría que volver a hacerlas.')) return;
+  await limpiarLotePendiente();
+  await comprobarLotePendiente();
+}
+
+function pintarBotonLote(){
+  const el = document.getElementById('loteBotonera');
+  if(!el) return;
+  if(albaranQueue.length < 2 || LOTE_EN_MARCHA){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='block';
+  el.innerHTML = '<button class="btn" type="button" onclick="procesarLoteAlbaranes()" ' +
+    'style="background:var(--wheat);">⚡ Leer y guardar los ' + albaranQueue.length + ' de golpe</button>' +
+    '<div class="hint" style="margin-top:6px;">Los lee uno detrás de otro y los guarda sin preguntar. ' +
+    'Tarda algo más de medio minuto por albarán. Puedes pararlo cuando quieras.</div>';
+}
+
+function pintarProgresoLote(hecho, total, resumen){
+  const el = document.getElementById('lotePanel');
+  if(!el) return;
+  el.style.display='block';
+  el.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">Leyendo albarán ' + hecho + ' de ' + total + '…</div>' +
+    '<div style="height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin-bottom:8px;">' +
+    '<div style="height:100%;width:' + Math.round((hecho-1)/total*100) + '%;background:var(--wheat);"></div></div>' +
+    '<div class="hint">Guardados: ' + resumen.guardados.length + ' · Repetidos: ' + resumen.duplicados.length +
+    ' · Sin fecha clara: ' + resumen.fechaRara.length + ' · No se han podido leer: ' + resumen.fallidos.length + '</div>' +
+    '<button class="btn secondary small" type="button" onclick="LOTE_PARAR=true;" style="margin-top:8px;">Parar al terminar este</button>';
+}
+
+function pintarResumenLote(resumen, total, parado){
+  const el = document.getElementById('lotePanel');
+  if(!el) return;
+  const lista = (t, arr, color)=> arr.length ? ('<div style="margin-top:10px;"><b style="color:' + color + ';">' + t + ' (' + arr.length + ')</b>' +
+      '<ul style="margin:4px 0 0 18px;padding:0;font-size:14px;line-height:1.5;">' +
+      arr.map(x=>'<li>' + esc(x) + '</li>').join('') + '</ul></div>') : '';
+  el.style.display='block';
+  el.innerHTML = '<div style="font-weight:700;font-size:16px;margin-bottom:4px;">' +
+    (parado ? 'Parado a petición tuya.' : 'Terminado.') + ' ' + resumen.guardados.length + ' de ' + total + ' albaranes guardados.</div>' +
+    lista('Guardados', resumen.guardados, 'var(--ok,#2f7a3d)') +
+    lista('Repetidos — ya los tenías, no se han vuelto a guardar', resumen.duplicados, '#7a5200') +
+    lista('Guardados, pero repasa la fecha en «Fechas que no cuadran»', resumen.fechaRara, '#b7791f') +
+    lista('No se han podido leer — las fotos siguen en la cola', resumen.fallidos, '#c0392b') +
+    '<div class="hint" style="margin-top:12px;">El stock de materias primas no se ha tocado: son entregas antiguas y esa mercancía ya está gastada.</div>' +
+    '<button class="btn secondary small" type="button" onclick="document.getElementById(\'lotePanel\').style.display=\'none\';" style="margin-top:10px;">Cerrar</button>';
+}
+
+/* Guarda un albarán ya leído, sin pasar por el formulario. Devuelve qué ha pasado. */
+async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
+  const lineas = (parsed.lineas||[])
+    .map(l=>({producto:(l.producto||'').trim(), lote:l.lote||'', cantidad:l.cantidad||'', caducidad:l.caducidad||''}))
+    .filter(l=>l.producto);
+  if(!lineas.length) return {estado:'sinproductos'};
+
+  const proveedor = (parsed.proveedor||'').trim();
+  const numAlbaran = (parsed.numAlbaran||'').trim();
+  const fechaLeida = (parsed.fecha||'').trim();
+  const fechaOk = fechaHistoricaValida(fechaLeida);
+  const fecha = fechaOk ? fechaLeida : todayStr();
+
+  const huella = huellaAlbaran(proveedor, fecha, numAlbaran, lineas);
+  const previo = huellasRegistradas().get(huella);
+  if(previo) return {estado:'duplicado', previo, proveedor, fecha};
+
+  const fotoHash = huellaFoto(dataUrl);
+  let fotoId = uid();
+  try{ await Store.set('foto:'+fotoId, dataUrl); }catch(e){ console.error(e); fotoId=null; }
+
+  lineas.forEach(l=>{
+    DATA.recepcion.unshift({id:uid(), fecha, hora:'', proveedor, numAlbaran,
+      producto:l.producto, lote:l.lote, cantidad:l.cantidad, tempLlegada:'', estadoEnvase:'Correcto',
+      caducidad:l.caducidad, aceptado:true, responsable,
+      observaciones: (l.cantidad?('Cantidad: '+l.cantidad+'. '):'') + 'Cargado en bloque desde albarán en papel.',
+      fotoId, huella, fotoHash, fechaOk, fechaPorConfirmar: !fechaOk, cargaMasiva:true});
+  });
+  await saveModule('recepcion');
+  return {estado:'guardado', proveedor, fecha, numAlbaran, fechaOk, fechaLeida, n:lineas.length};
+}
+
+async function procesarLoteAlbaranes(){
+  if(LOTE_EN_MARCHA) return;
+  const campoResp = document.getElementById('albaranResponsable');
+  const responsable = campoResp ? campoResp.value.trim() : '';
+  if(!responsable){
+    alert('Antes de empezar, pon abajo quién recepciona. Se usará para todos los albaranes de esta tanda.');
+    if(campoResp) campoResp.focus();
+    return;
+  }
+  const total = albaranQueue.length;
+  if(total < 1){ alert('No hay fotos en la cola.'); return; }
+  if(!confirm('Se van a leer y GUARDAR ' + total + ' albaranes, uno detrás de otro, sin preguntarte por cada uno.\n\n' +
+              'Tarda alrededor de ' + Math.ceil(total*35/60) + ' minuto(s). No cierres la página.\n\n¿Empezamos?')) return;
+
+  LOTE_EN_MARCHA = true; LOTE_PARAR = false;
+  pintarBotonLote();
+  await guardarLotePendiente();
+  const resumen = {guardados:[], duplicados:[], fechaRara:[], fallidos:[]};
+  const fallidas = [];
+  let hechas = 0;
+
+  while(albaranQueue.length && !LOTE_PARAR){
+    hechas++;
+    pintarProgresoLote(hechas, total, resumen);
+    const dataUrl = albaranQueue[0];
+    const etiqueta = 'Foto ' + hechas;
+    let parsed = null, fallo = null;
+    try{
+      const base64 = dataUrl.split(',')[1];
+      const texto = await reintentarSiSatura(()=>lectorAlbaran(base64, null), null);
+      let limpio = String(texto||'').replace(/```json|```/g,'').trim();
+      const a = limpio.indexOf('{'), b = limpio.lastIndexOf('}');
+      if(a>=0 && b>a) limpio = limpio.slice(a, b+1);
+      parsed = JSON.parse(limpio);
+    }catch(err){ fallo = err; guardarUltimoErrorIA(err); }
+
+    if(parsed){
+      try{
+        const r = await guardarAlbaranDirecto(parsed, dataUrl, responsable);
+        const quien = (r.proveedor||'proveedor sin identificar') + (r.numAlbaran ? (' · albarán ' + r.numAlbaran) : '');
+        if(r.estado==='guardado'){
+          resumen.guardados.push(quien + ' · ' + fmtDate(r.fecha) + ' · ' + r.n + ' producto(s)');
+          if(!r.fechaOk) resumen.fechaRara.push(quien + (r.fechaLeida
+              ? (' — en el papel leyó ' + r.fechaLeida + ', que no puede ser; lleva la de hoy')
+              : ' — no se pudo leer la fecha del papel; lleva la de hoy'));
+        } else if(r.estado==='duplicado'){
+          resumen.duplicados.push(quien + ' · ' + fmtDate(r.fecha));
+        } else {
+          resumen.fallidos.push(etiqueta + ' — no se ha visto ningún producto en la foto');
+          fallidas.push(dataUrl);
+        }
+      }catch(err){
+        console.error(err);
+        resumen.fallidos.push(etiqueta + ' — ' + String(err.message||err).slice(0,80));
+        fallidas.push(dataUrl);
+      }
+    } else {
+      resumen.fallidos.push(etiqueta + ' — ' + String(fallo && fallo.message || 'no se ha podido leer').slice(0,80));
+      fallidas.push(dataUrl);
+    }
+
+    albaranQueue.shift();
+    albaranQueueHash.shift();
+    await guardarLotePendiente();
+    if(albaranQueue.length && !LOTE_PARAR) await new Promise(r=>setTimeout(r, LOTE_PAUSA_MS));
+  }
+
+  // las que no se han podido leer vuelven a la cola, para reintentarlas a mano
+  const parado = LOTE_PARAR;
+  albaranQueue = fallidas.concat(albaranQueue);
+  albaranQueueHash = albaranQueue.map(d=>huellaFoto(d));
+  albaranQueueIndex = 0;
+  LOTE_EN_MARCHA = false; LOTE_PARAR = false;
+
+  if(albaranQueue.length) await guardarLotePendiente(); else await limpiarLotePendiente();
+  await saveConfig();
+  pintarResumenLote(resumen, total, parado);
+  cargarFotoDeCola();
+  pintarBotonLote();
+  renderRecepTable();
+  renderDashboard();
+  if(typeof renderAvisoFechas==='function') renderAvisoFechas();
+  if(typeof renderAvisoNombres==='function') renderAvisoNombres();
+}
+
 function viewRecepcion(){
   document.getElementById('view-recepcion').innerHTML = `
     <div class="panel">
@@ -1546,7 +1766,10 @@ function viewRecepcion(){
         <button class="btn" type="button" id="albaranCapturarBtn">Capturar foto</button>
         <button class="btn secondary" type="button" id="albaranCerrarCamBtn">Cancelar</button>
       </div>
+      <div id="loteReanudar" style="display:none;margin-bottom:12px;padding:12px 14px;border:1px solid #b7791f;border-left-width:4px;border-radius:8px;background:#fdf6e3;color:#7a5200;font-size:14px;line-height:1.5;"></div>
       <div id="albaranPreview" style="margin-bottom:10px;"></div>
+      <div id="loteBotonera" style="display:none;margin-bottom:12px;"></div>
+      <div id="lotePanel" style="display:none;margin-bottom:12px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card,#fff);font-size:14px;line-height:1.5;"></div>
       <div id="albaranAviso" style="display:none;margin-bottom:12px;padding:12px 14px;border:1px solid #c0392b;border-left-width:4px;border-radius:8px;background:#fdecea;color:#7d2018;font-size:14px;line-height:1.5;"></div>
       <p id="albaranEstado" class="hint" style="margin-bottom:14px;"></p>
       <div id="albaranAvisoFecha" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #b7791f;border-left-width:4px;border-radius:8px;background:#fdf6e3;color:#7a5200;font-size:14px;line-height:1.5;"></div>
@@ -1682,6 +1905,8 @@ function viewRecepcion(){
   renderRecepTable();
   renderAlbaranes();
   renderAvisoNombres(); renderAvisoFechas();
+  pintarBotonLote();
+  comprobarLotePendiente();
 }
 const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán, y es la fecha de entrega o de emisión del albarán, nunca una fecha de caducidad, de lote ni de un pedido anterior. Si el año no se lee con claridad, deja la fecha vacía "" en vez de inventarlo; es preferible dejarla en blanco a poner un año equivocado. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
 
@@ -1808,6 +2033,21 @@ async function llamarGemini(base64, apiKey, estado){
   ], apiKey, estado);
 }
 
+/* Un único sitio que decide con qué IA se lee un albarán. Lo usan la lectura de
+   una foto suelta y la carga masiva, para que las dos se porten igual. */
+async function lectorAlbaran(base64, estado){
+  if(HAS_CLAUDE_STORAGE) return await llamarClaudeSinClave(base64);
+  const provider = getAIProvider();
+  if(provider==='gemini'){
+    const key = getGeminiKey();
+    if(!key) throw new Error(mensajeSinClaveIA());
+    return await llamarGemini(base64, key, estado);
+  }
+  const key = getApiKey();
+  if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
+  return await llamarClaudeConClave(base64, key);
+}
+
 async function extraerAlbaran(){
   if(!recepcionFotoDataUrl) return;
   const btn = document.getElementById('albaranExtraerBtn');
@@ -1817,19 +2057,7 @@ async function extraerAlbaran(){
   let textoRespuesta = '';
   try{
     const base64 = recepcionFotoDataUrl.split(',')[1];
-    const pedir = async ()=>{
-      if(HAS_CLAUDE_STORAGE) return await llamarClaudeSinClave(base64);
-      const provider = getAIProvider();
-      if(provider==='gemini'){
-        const key = getGeminiKey();
-        if(!key) throw new Error(mensajeSinClaveIA());
-        return await llamarGemini(base64, key, estado);
-      }
-      const key = getApiKey();
-      if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
-      return await llamarClaudeConClave(base64, key);
-    };
-    textoRespuesta = await reintentarSiSatura(pedir, estado);
+    textoRespuesta = await reintentarSiSatura(()=>lectorAlbaran(base64, estado), estado);
     textoRespuesta = textoRespuesta.trim();
     let clean = textoRespuesta.replace(/```json|```/g,'').trim();
     const first = clean.indexOf('{');
@@ -2160,7 +2388,11 @@ function productosSinIdentificar(){
 function gruposFechaRara(){
   const g = {};
   (DATA.recepcion||[]).forEach(r=>{
-    if(!fechaSospechosa(r.fecha)) return;
+    // fechaOk: fecha comprobada al cargar albaranes antiguos. Es vieja a propósito.
+    if(r.fechaOk) return;
+    // fechaPorConfirmar: cargado en bloque sin poder leer la fecha del papel.
+    // Lleva la de hoy, que no es "sospechosa", así que hay que forzar que salga.
+    if(!r.fechaPorConfirmar && !fechaSospechosa(r.fecha)) return;
     const k = String(r.fecha)+'|'+String(r.proveedor||'')+'|'+String(r.numAlbaran||'');
     if(!g[k]) g[k] = {fecha:r.fecha, proveedor:r.proveedor||'', numAlbaran:r.numAlbaran||'', ids:[], productos:[]};
     g[k].ids.push(r.id);
@@ -2182,7 +2414,7 @@ function renderAvisoFechas(){
       <td class="mono">${esc(g.numAlbaran)||'—'}</td>
       <td>${esc(g.productos.slice(0,3).join(', '))}${g.productos.length>3?(' y '+(g.productos.length-3)+' más'):''}</td>
       <td><span class="cierre-linea">
-        <input type="date" id="fixfecha${i}" value="${todayStr()}">
+        <input type="date" id="fixfecha${i}" value="${g.fecha||todayStr()}">
         <button class="btn small" type="button" onclick="corregirFechaRecepcion(${i})">Corregir</button>
       </span></td>
     </tr>`).join('')+'</tbody></table>';
@@ -2193,9 +2425,20 @@ async function corregirFechaRecepcion(i){
   const campo = document.getElementById('fixfecha'+i);
   const nueva = campo ? campo.value : '';
   if(!nueva){ alert('Elige la fecha correcta.'); return; }
-  if(fechaSospechosa(nueva) && !confirm('Esa fecha tampoco cuadra ('+motivoFechaSospechosa(nueva)+'). ¿La pongo igual?')) return;
+  // Un albarán cargado en bloque ES viejo a propósito: ahí una fecha de hace meses
+  // es la buena, y no hay que dar la lata pidiendo confirmación.
+  const esHistorico = (DATA.recepcion||[]).some(r=>g.ids.indexOf(r.id)>=0 && r.cargaMasiva);
+  const valeSinPreguntar = esHistorico ? fechaHistoricaValida(nueva) : !fechaSospechosa(nueva);
+  if(!valeSinPreguntar && !confirm('Esa fecha no cuadra ('+(motivoFechaSospechosa(nueva)||'no es de 2026 o es futura')+'). ¿La pongo igual?')) return;
   let n = 0;
-  (DATA.recepcion||[]).forEach(r=>{ if(g.ids.indexOf(r.id)>=0){ r.fecha = nueva; n++; } });
+  (DATA.recepcion||[]).forEach(r=>{
+    if(g.ids.indexOf(r.id)>=0){
+      r.fecha = nueva;
+      delete r.fechaPorConfirmar;          // ya la ha confirmado una persona
+      r.fechaOk = true;
+      n++;
+    }
+  });
   await saveModule('recepcion');
   renderAvisoFechas(); renderRecepTable(); renderAlbaranes(); renderDashboard();
   alert('Corregidas '+n+' línea(s) a '+fmtDate(nueva)+'.');
