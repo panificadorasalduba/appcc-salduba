@@ -300,7 +300,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-09-25-b';
+const APP_VERSION = '2026-09-26-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1602,7 +1602,12 @@ function pintarBotonLote(){
   el.innerHTML = '<button class="btn" type="button" onclick="procesarLoteAlbaranes()" ' +
     'style="background:var(--wheat);">⚡ Leer y guardar los ' + albaranQueue.length + ' de golpe</button>' +
     '<div class="hint" style="margin-top:6px;">Los lee uno detrás de otro y los guarda sin preguntar. ' +
-    'Tarda algo más de medio minuto por albarán. Puedes pararlo cuando quieras.</div>';
+    'Tarda algo más de medio minuto por albarán. Puedes pararlo cuando quieras.</div>' +
+    '<label class="field" style="margin-top:10px;max-width:320px;"><span>Avisarme al acabar (móvil para el WhatsApp)</span>' +
+    '<input type="tel" id="loteTelefono" placeholder="6XX XXX XXX" value="' + esc(telefonoAviso()) + '" ' +
+    'onchange="setTelefonoAviso(this.value)"></label>' +
+    '<div class="hint">Al terminar suena un pitido y salta un aviso en la pantalla. ' +
+    'Tocando el aviso se abre WhatsApp con el resumen ya escrito: solo hay que darle a enviar.</div>';
 }
 
 function pintarProgresoLote(hecho, total, resumen){
@@ -1632,7 +1637,10 @@ function pintarResumenLote(resumen, total, parado){
     lista('Guardados, pero repasa la fecha en «Fechas que no cuadran»', resumen.fechaRara, '#b7791f') +
     lista('No se han podido leer — las fotos siguen en la cola', resumen.fallidos, '#c0392b') +
     '<div class="hint" style="margin-top:12px;">El stock de materias primas no se ha tocado: son entregas antiguas y esa mercancía ya está gastada.</div>' +
-    '<button class="btn secondary small" type="button" onclick="document.getElementById(\'lotePanel\').style.display=\'none\';" style="margin-top:10px;">Cerrar</button>';
+    '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<a class="btn small" style="background:#25D366;color:#fff;text-decoration:none;" target="_blank" rel="noopener" href="' +
+      esc(enlaceWhatsapp(textoResumenLote(resumen, total, parado))) + '">Mandármelo por WhatsApp</a>' +
+    '<button class="btn secondary small" type="button" onclick="document.getElementById(\'lotePanel\').style.display=\'none\';">Cerrar</button></div>';
 }
 
 /* Guarda un albarán ya leído, sin pasar por el formulario. Devuelve qué ha pasado. */
@@ -1682,6 +1690,105 @@ async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
   return {estado: segundaHoja ? 'otrahoja' : 'guardado', proveedor, fecha, numAlbaran, fechaOk, fechaLeida, n:lineas.length};
 }
 
+/* ---------- AVISO DE QUE YA ESTÁ TODO ----------
+   Berta quería un aviso al WhatsApp al terminar la tanda. Una página web NO puede
+   mandar un WhatsApp sola: para eso hace falta la API de empresa de Meta, que es de
+   pago y pide dar de alta la empresa. Lo que sí se puede, y es gratis, es esto:
+   1) un aviso del sistema (el mismo que sale cuando llega un correo), que salta
+      aunque esté en otra aplicación mientras el navegador siga abierto;
+   2) un pitido;
+   3) al tocar el aviso, se abre WhatsApp con el resumen YA ESCRITO, y solo hay que
+      darle a enviar. Se abre al tocarlo porque el navegador solo deja abrir WhatsApp
+      si lo pide una persona, no el programa solo. */
+
+function telefonoAviso(){
+  try{ const l = localStorage.getItem('appcc_whatsapp'); if(l) return l; }catch(e){}
+  return (CONFIG && CONFIG.avisoWhatsapp) || '';
+}
+async function setTelefonoAviso(tel){
+  try{ localStorage.setItem('appcc_whatsapp', tel||''); }catch(e){}
+  if(CONFIG){ CONFIG.avisoWhatsapp = tel||''; try{ await saveConfig(); }catch(e){} }
+}
+/* Deja el número como lo quiere wa.me: solo dígitos y con prefijo de país.
+   Un móvil español de 9 cifras que empieza por 6 o 7 se le pone el 34 delante. */
+function normalizarTelefono(tel){
+  let d = String(tel||'').replace(/\D/g,'');
+  if(!d) return '';
+  if(d.length===9 && /^[67]/.test(d)) d = '34' + d;
+  return d;
+}
+function textoResumenLote(resumen, total, parado){
+  const l = [];
+  l.push('APPCC Salduba — albaranes cargados');
+  l.push((parado ? 'Parado a mitad. ' : 'Terminado. ') + resumen.guardados.length + ' de ' + total + ' guardados.');
+  if(resumen.hojas.length)      l.push('Segundas hojas añadidas: ' + resumen.hojas.length);
+  if(resumen.duplicados.length) l.push('Repetidos que ya estaban: ' + resumen.duplicados.length);
+  if(resumen.fechaRara.length)  l.push('OJO: ' + resumen.fechaRara.length + ' sin fecha clara, hay que repasarlos en «Fechas que no cuadran».');
+  if(resumen.fallidos.length)   l.push('No se han podido leer: ' + resumen.fallidos.length + ' (siguen en la cola).');
+  return l.join('\n');
+}
+function enlaceWhatsapp(texto){
+  const tel = normalizarTelefono(telefonoAviso());
+  return 'https://wa.me/' + (tel ? tel : '') + '?text=' + encodeURIComponent(texto);
+}
+async function pedirPermisoAviso(){
+  try{
+    if(!('Notification' in window)) return false;
+    if(Notification.permission === 'granted') return true;
+    if(Notification.permission === 'denied') return false;
+    const r = await Notification.requestPermission();
+    return r === 'granted';
+  }catch(e){ return false; }
+}
+function pitido(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    const ctx = new Ctx();
+    [0, 0.22, 0.44].forEach((t,i)=>{
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 660 + i*110; o.type = 'sine';
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.18);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.2);
+    });
+    setTimeout(()=>{ try{ ctx.close(); }catch(e){} }, 1500);
+  }catch(e){}
+}
+function avisarFinDeLote(resumen, total, parado){
+  const texto = textoResumenLote(resumen, total, parado);
+  pitido();
+  try{
+    if(('Notification' in window) && Notification.permission === 'granted'){
+      const n = new Notification('APPCC Salduba — ya está todo', {
+        body: texto.split('\n').slice(1).join(' · '),
+        tag: 'appcc-lote', requireInteraction: true
+      });
+      n.onclick = ()=>{
+        window.focus();
+        window.open(enlaceWhatsapp(texto), '_blank');
+        n.close();
+      };
+    }
+  }catch(e){ console.error(e); }
+}
+
+/* La tablet apaga la pantalla a los pocos minutos y el navegador congela la página:
+   la tanda se quedaría parada a medias. Esto la mantiene despierta mientras dura. */
+let LOTE_WAKELOCK = null;
+async function mantenerPantallaEncendida(){
+  try{
+    if(navigator.wakeLock && navigator.wakeLock.request){
+      LOTE_WAKELOCK = await navigator.wakeLock.request('screen');
+    }
+  }catch(e){ LOTE_WAKELOCK = null; }
+}
+function soltarPantalla(){
+  try{ if(LOTE_WAKELOCK){ LOTE_WAKELOCK.release(); LOTE_WAKELOCK = null; } }catch(e){}
+}
+
 async function procesarLoteAlbaranes(){
   if(LOTE_EN_MARCHA) return;
   const campoResp = document.getElementById('albaranResponsable');
@@ -1698,6 +1805,8 @@ async function procesarLoteAlbaranes(){
 
   LOTE_EN_MARCHA = true; LOTE_PARAR = false;
   pintarBotonLote();
+  await pedirPermisoAviso();
+  await mantenerPantallaEncendida();
   await guardarLotePendiente();
   const resumen = {guardados:[], hojas:[], duplicados:[], fechaRara:[], fallidos:[]};
   const fallidas = [];
@@ -1760,7 +1869,9 @@ async function procesarLoteAlbaranes(){
 
   if(albaranQueue.length) await guardarLotePendiente(); else await limpiarLotePendiente();
   await saveConfig();
+  soltarPantalla();
   pintarResumenLote(resumen, total, parado);
+  avisarFinDeLote(resumen, total, parado);
   cargarFotoDeCola();
   pintarBotonLote();
   renderRecepTable();
@@ -1775,7 +1886,7 @@ function viewRecepcion(){
       <h2>${icon('truck')} Escanear albarán</h2>
       <p class="hint">Haz una foto del albarán al recepcionar la mercancía. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
       <div class="filters">
-        <label class="field"><span>Subir fotos (una o varias)</span><input type="file" id="albaranFile" accept="image/*" multiple></label>
+        <label class="field"><span>Subir fotos (puedes marcarlas todas de golpe)</span><input type="file" id="albaranFile" accept="image/*" multiple></label>
         <button class="btn secondary" id="albaranCamBtn" type="button">📷 Abrir cámara</button>
         <button class="btn secondary" id="albaranExtraerBtn" disabled>Extraer datos con IA</button>
       </div>
@@ -1855,8 +1966,21 @@ function viewRecepcion(){
       const yaGuardadas = fotosYaRegistradas();
       const nuevas = [];
       let repetidasEnCola = 0, repetidasGuardadas = 0;
-      for(const file of files){
-        const dataUrl = await compressImage(file, 1100, 0.72);
+      const ilegibles = [];
+      /* Cada foto va en su propio try: antes, una sola foto que el navegador no
+         supiera abrir (un HEIC de iPhone, un archivo a medio copiar) tiraba abajo
+         la carga entera y no entraba ninguna de las treinta. */
+      for(let i=0; i<files.length; i++){
+        const file = files[i];
+        if(files.length>3) estado.textContent = `Preparando foto ${i+1} de ${files.length}…`;
+        let dataUrl = null;
+        try{
+          dataUrl = await compressImage(file, 1100, 0.72);
+        }catch(errFoto){
+          console.error(errFoto);
+          ilegibles.push(file.name || ('foto '+(i+1)));
+          continue;
+        }
         const h = huellaFoto(dataUrl);
         if(yaGuardadas.has(h)){ repetidasGuardadas++; continue; }
         if(albaranQueueHash.indexOf(h)>=0 || nuevas.some(x=>x.h===h)){ repetidasEnCola++; continue; }
@@ -1867,6 +1991,8 @@ function viewRecepcion(){
         albaranQueue = albaranQueue.concat(nuevas.map(x=>x.dataUrl));
         albaranQueueHash = albaranQueueHash.concat(nuevas.map(x=>x.h));
         albaranQueueIndex = albaranQueue.length - nuevas.length;
+        // se guardan en el dispositivo por si se cierra la página antes de leerlas
+        guardarLotePendiente();
       }
       cargarFotoDeCola();
       if(descartadas){
@@ -1879,7 +2005,15 @@ function viewRecepcion(){
       } else {
         avisoAlbaran('');
       }
+      if(ilegibles.length){
+        avisoAlbaran((descartadas ? (document.getElementById('albaranAviso').innerHTML + '<br><br>') : '') +
+          '<b>' + ilegibles.length + ' foto(s) que este navegador no sabe abrir</b> — el resto ha entrado bien.<br>' +
+          esc(ilegibles.slice(0,6).join(', ')) + (ilegibles.length>6 ? (' y ' + (ilegibles.length-6) + ' más') : '') +
+          '.<br>Suele pasar con las fotos de iPhone en formato HEIC. Ábrelas y vuelve a guardarlas como JPG, ' +
+          'o hazlas con el botón "Abrir cámara" de aquí.');
+      }
       if(!nuevas.length && descartadas) estado.textContent = 'Todas las fotos elegidas estaban repetidas.';
+      else if(nuevas.length) estado.textContent = nuevas.length + ' foto(s) listas en la cola.';
     }catch(err){
       estado.textContent = 'No se han podido procesar las fotos.';
     }
