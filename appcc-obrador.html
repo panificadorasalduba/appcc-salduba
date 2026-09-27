@@ -300,7 +300,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-09-26-a';
+const APP_VERSION = '2026-09-27-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3084,6 +3084,18 @@ function viewMateriasPrimas(){
       <p class="hint" id="lotesHistCuenta" style="margin-top:8px;"></p>
     </div>
 
+    <div class="panel">
+      <h2>${icon('box')} Reconstruir histórico de lotes (albaranes antiguos)</h2>
+      <p class="hint">Para cuando se han subido de golpe albaranes de semanas pasadas: mira, producto por producto, qué recepciones con lote todavía no tienen su apertura registrada en el tramo de semanas que elijas, y las va encadenando por orden de llegada — el mismo criterio que usa la app para proponer "el siguiente envase" al cerrar uno a mano. <strong>No toca el stock actual</strong> (son consumos ya pasados). Antes de escribir nada te enseña un resumen y pide confirmación. Dos productos que ya tengan algo registrado en esas semanas no se tocan, para no pisar lo que ya está bien.</p>
+      <div class="filters">
+        <label class="field"><span>Desde semana</span><input type="number" min="1" max="53" id="reconstruirSemanaDesde" value="30"></label>
+        <label class="field"><span>Hasta semana</span><input type="number" min="1" max="53" id="reconstruirSemanaHasta" value="${Math.max(1, getWeekNumber(todayStr())-2)}"></label>
+      </div>
+      <p class="hint">Deja fuera, a propósito, las dos últimas semanas: esas se ajustan a mano con lo que de verdad hay abierto ahora mismo.</p>
+      <button class="btn secondary" id="btnCalcularReconstruccion">Calcular qué faltaría</button>
+      <div id="reconstruccion-resultado" style="margin-top:10px;"></div>
+    </div>
+
     <div class="wheat-divider">${icon('box')}<span>Referencia</span></div>
     <div class="panel">
       <h2>${icon('box')} Proveedores y materias primas</h2>
@@ -3152,6 +3164,7 @@ function viewMateriasPrimas(){
   });
   document.getElementById('autocompletar-proveedores-btn').addEventListener('click', autocompletarProveedores);
   document.getElementById('recalcular-proveedores-btn').addEventListener('click', recalcularProveedoresDesdeRecepciones);
+  document.getElementById('btnCalcularReconstruccion').addEventListener('click', calcularReconstruccionHistorico);
   renderLotesAbiertos();
   renderLotesMPTable();
   ['lotesAbBuscar','lotesAbProducto'].forEach(id=>{
@@ -4260,6 +4273,82 @@ async function cerrarLoteMP(id, idInputFecha){
   /* Se acaba un envase: se pregunta ahí mismo si se abre el siguiente. */
   await proponerSiguienteEnvase(rec.producto, rec.lote);
 }
+
+/* ---- RECONSTRUCCIÓN DEL HISTÓRICO DE LOTES (albaranes viejos subidos de golpe) ----
+   Cuando se hace una carga masiva de albaranes atrasados, muchas recepciones quedan
+   con número de lote pero nadie las ha "abierto" en Materias primas. Esto calcula,
+   producto por producto, la cadena de aperturas/cierres que faltaría por orden de
+   llegada (FIFO) — el mismo criterio que usa la app para proponer "el siguiente
+   envase" al cerrar uno a mano. NO toca nada que ya esté registrado en ese tramo de
+   semanas, y NO toca el stock actual (son consumos ya pasados, no de hoy). */
+window.__reconstruccionPlan = null;
+function calcularPlanReconstruccion(semDesde, semHasta){
+  const universo = nombresConocidos();
+  const plan = [];
+  universo.forEach(producto=>{
+    const recibidos = lotesRecibidos(producto);
+    const enRango = recibidos.filter(l=>{ const s = getWeekNumber(l.fecha); return s>=semDesde && s<=semHasta; });
+    const pendientes = enRango.filter(l=>l.abiertos===0);
+    if(!pendientes.length) return;
+    const historicos = DATA.lotesMP.filter(r=>mismoProducto(r.producto, producto));
+    const antesDelRango = historicos.filter(r=>{
+      const s = r.fechaCierre ? getWeekNumber(r.fechaCierre) : (r.semanas && r.semanas.length ? Math.max(...r.semanas) : r.semana);
+      return s && s < semDesde;
+    }).sort((a,b)=>String(a.fechaCierre||a.fechaApertura).localeCompare(String(b.fechaCierre||b.fechaApertura)));
+    let cursor = antesDelRango.length ? (antesDelRango[antesDelRango.length-1].fechaCierre || antesDelRango[antesDelRango.length-1].fechaApertura) : null;
+    const nodos = enRango.map(l=>({lote:l.lote, fecha:l.fecha, existe: l.abiertos>0}));
+    const acciones = [];
+    nodos.forEach((n,i)=>{
+      if(n.existe){ cursor = null; return; } // ya registrado: no se toca, se pierde el hilo exacto de cierre
+      const apertura = (cursor && cursor > n.fecha) ? cursor : n.fecha;
+      const siguiente = nodos[i+1];
+      const cierre = siguiente ? siguiente.fecha : ''; // se cierra cuando llega el siguiente; el último se deja abierto
+      acciones.push({lote:n.lote, fechaApertura:apertura, fechaCierre:cierre, semana:getWeekNumber(apertura)});
+      cursor = cierre || null;
+    });
+    if(acciones.length) plan.push({producto, acciones});
+  });
+  return plan;
+}
+function calcularReconstruccionHistorico(){
+  const semDesde = parseInt(document.getElementById('reconstruirSemanaDesde').value, 10) || 30;
+  const semHasta = parseInt(document.getElementById('reconstruirSemanaHasta').value, 10) || (getWeekNumber(todayStr())-2);
+  const host = document.getElementById('reconstruccion-resultado');
+  const plan = calcularPlanReconstruccion(semDesde, semHasta);
+  window.__reconstruccionPlan = plan;
+  const totalLotes = plan.reduce((s,p)=>s+p.acciones.length, 0);
+  if(!plan.length){
+    host.innerHTML = `<p class="hint">No falta nada por registrar entre la semana S${semDesde} y la S${semHasta}: o ya está todo abierto, o no hay recepciones con lote en ese tramo.</p>`;
+    return;
+  }
+  const filas = plan.map(p=>`<tr><td>${esc(p.producto)}</td><td>${p.acciones.length}</td>
+      <td>${p.acciones.map(a=>`${esc(a.lote)} (S${a.semana}${a.fechaCierre?', cierra '+fmtDate(a.fechaCierre):', sigue abierto'})`).join('<br>')}</td></tr>`).join('');
+  host.innerHTML = `
+    <p><strong>${plan.length} producto${plan.length===1?'':'s'}</strong> con <strong>${totalLotes} lote${totalLotes===1?'':'s'}</strong> por registrar (S${semDesde}–S${semHasta}).</p>
+    <div style="max-height:340px;overflow:auto;border:1px solid var(--border,#ddd);border-radius:8px;">
+      <table class="tabla"><thead><tr><th>Producto</th><th>Lotes</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table>
+    </div>
+    <div class="form-actions" style="margin-top:10px;">
+      <button class="btn" id="btnAplicarReconstruccion">Registrar estos ${totalLotes} lotes</button>
+    </div>`;
+  document.getElementById('btnAplicarReconstruccion').addEventListener('click', aplicarReconstruccionHistorico);
+}
+async function aplicarReconstruccionHistorico(){
+  const plan = window.__reconstruccionPlan;
+  if(!plan || !plan.length) return;
+  const totalLotes = plan.reduce((s,p)=>s+p.acciones.length, 0);
+  if(!confirm(`Se van a crear ${totalLotes} registros de lote en ${plan.length} productos, calculados por orden de llegada de los albaranes.\n\nNo se toca el stock actual.\n\n¿Seguro que quieres registrarlos?`)) return;
+  plan.forEach(p=>{
+    p.acciones.forEach(a=>{
+      DATA.lotesMP.push({id:uid(), producto:p.producto, lote:a.lote, fechaApertura:a.fechaApertura,
+                          fechaCierre:a.fechaCierre, semana:a.semana, semanas:[a.semana]});
+    });
+  });
+  await saveModule('lotesMP');
+  window.__reconstruccionPlan = null;
+  alert(`Hecho: ${totalLotes} lotes registrados.`);
+  viewMateriasPrimas();
+}
 /** Rellena el desplegable con los productos que de verdad tienen lotes.
     Lo que se escribe en la casilla de buscar va acotando la lista, para no
     tener que bajar por 80 nombres buscando el que quieres. */
@@ -4894,7 +4983,7 @@ function hojasLotesMP(desde, hasta){
       (porProd[k] = porProd[k] || []).push(r);
     });
     Object.keys(porProd).forEach(k=> porProd[k].sort((a,b)=>
-      String(a.fechaApertura||'￿').localeCompare(String(b.fechaApertura||'￿')) ));
+      String(a.fechaApertura||' ').localeCompare(String(b.fechaApertura||' ')) ));
 
     // lotes de productos que no están en ningún catálogo: se añaden al final
     const sueltos = Object.keys(porProd).filter(k=> !enCatalogo[k]);   // ya resueltos
