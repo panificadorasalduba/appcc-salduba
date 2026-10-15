@@ -3746,7 +3746,8 @@ function normalizarNombresLotes(){
   const vistos = new Map();
   const fuera = [];
   lista.forEach(r=>{
-    const clave = normTxt(r.producto)+'|'+normTxt(r.lote)+'|'+(r.fechaCierre?'C':'A');
+    /* Los envases «mismo lote» son envases distintos a propósito: no se funden. */
+    const clave = normTxt(r.producto)+'|'+normTxt(r.lote)+'|'+(r.fechaCierre?'C':'A')+(r.mismoLote?'|ML|'+r.id:'');
     const previo = vistos.get(clave);
     if(!previo){ vistos.set(clave, r); return; }
     // se queda el que se abrió antes; el otro sobra
@@ -4131,11 +4132,26 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana, sinPreguntar){
       + (cerrado ? ' y se cerró el ' + fmtDate(yaRegistrado.fechaCierre) : '')
       + ' con ' + (antes.length ? 'la' + (antes.length>1?'s':'') + ' semana' + (antes.length>1?'s':'') + ' ' + antes.map(n=>'S'+n).join(' ') : 'sin semanas')
       + '.\n\n'
-      + (nuevas.length
-          ? 'Aceptar: es el mismo lote y le añado ' + (nuevas.length>1?'las semanas ':'la semana ') + nuevas.map(n=>'S'+n).join(' ') + (cerrado ? ' y lo vuelvo a abrir.' : '.') 
-          : 'Esa semana ya la tiene apuntada.')
+      + (cerrado
+          ? 'Aceptar: es otro envase del MISMO LOTE. Lo abro con fecha de hoy y en el informe de inspección saldrá como «MISMO LOTE».'
+          : (nuevas.length
+              ? 'Aceptar: es el mismo lote y le añado ' + (nuevas.length>1?'las semanas ':'la semana ') + nuevas.map(n=>'S'+n).join(' ') + '.'
+              : 'Esa semana ya la tiene apuntada.'))
       + '\n\nCancelar: es un lote distinto y lo registro aparte.';
     if(sinPreguntar || confirm(aviso)){
+      /* Envase siguiente del MISMO LOTE (el anterior ya está cerrado): va en una
+         línea propia, para no perder la fecha de cierre del envase anterior, y se
+         marca para que el informe ponga «MISMO LOTE», como en el cuaderno. */
+      if(cerrado){
+        DATA.lotesMP.unshift({id:uid(), producto: yaRegistrado.producto, lote:codigo, fechaApertura, fechaCierre:'',
+                              semana: sems[0], semanas: sems, mismoLote: true, _ts: Date.now()});
+        await saveModule('lotesMP');
+        const ix = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
+        if(ix>=0){ CONFIG.materiasPrimas[ix].stockActual = Math.max(0, CONFIG.materiasPrimas[ix].stockActual - 1); await saveConfig(); }
+        viewMateriasPrimas();
+        renderDashboard();
+        return;
+      }
       yaRegistrado.semanas = juntas;
       yaRegistrado.semana = juntas[0] !== undefined ? juntas[0] : yaRegistrado.semana;
       if(cerrado) yaRegistrado.fechaCierre = '';
@@ -4922,8 +4938,10 @@ function agruparPorLote(lotes){
   const orden = [];
   const porCodigo = {};
   lotes.forEach(r=>{
-    const k = String(r.lote||'').trim().toLowerCase() || ('__sin__'+r.id);
-    if(!porCodigo[k]){ porCodigo[k] = {lote:String(r.lote||''), semanas:[], aperturas:[], cierres:[], abierto:false}; orden.push(k); }
+    /* Un envase marcado «mismo lote» lleva su propio casillero con el rótulo
+       MISMO LOTE y sus fechas, como se apunta en el cuaderno. */
+    const k = r.mismoLote ? ('__ml__'+r.id) : (String(r.lote||'').trim().toLowerCase() || ('__sin__'+r.id));
+    if(!porCodigo[k]){ porCodigo[k] = {lote: r.mismoLote ? 'MISMO LOTE' : String(r.lote||''), semanas:[], aperturas:[], cierres:[], abierto:false}; orden.push(k); }
     const g = porCodigo[k];
     semanasDeLote(r).forEach(n=>{ if(g.semanas.indexOf(n)<0) g.semanas.push(n); });
     if(r.fechaApertura) g.aperturas.push(String(r.fechaApertura));
@@ -5046,7 +5064,7 @@ function hojaDetalleLotes(desde, hasta){
   const cerrados = filas.filter(r=>r.fechaCierre).length;
   const cuerpo = filas.map(r=>`<tr>
     <td>${esc(resolverNombreProducto(r.producto))}</td>
-    <td class="mono">${esc(r.lote)||'—'}</td>
+    <td class="mono">${esc(r.lote)||'—'}${r.mismoLote ? ' <strong>(MISMO LOTE)</strong>' : ''}</td>
     <td>${esc(textoSemanas(r,' '))||'—'}</td>
     <td>${r.fechaApertura?fmtDate(r.fechaApertura):'—'}</td>
     <td>${r.fechaCierre?fmtDate(r.fechaCierre):'en uso'}</td>
