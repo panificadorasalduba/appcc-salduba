@@ -747,6 +747,11 @@ function mezclarLista(local, remoto){
     if(BAJAS[r.id]) return;                       // borrado a propósito
     const otro = fuera.get(r.id);
     if(!otro){ salida.push(r); return; }
+    /* Si alguna copia lleva marca de última modificación (_ts), gana la más
+       reciente: así un lote reabierto (fecha de cierre vacía) no lo pisa la copia
+       cerrada que sigue en Drive. Sin marca, gana la más rellena, como siempre. */
+    const ta = r._ts || 0, tb = otro._ts || 0;
+    if(ta || tb){ salida.push(tb > ta ? otro : r); return; }
     salida.push(relleno(otro) > relleno(r) ? otro : r);
   });
   fuera.forEach((r,id)=>{ if(!vistos.has(id) && !BAJAS[id]) salida.push(r); });
@@ -3399,6 +3404,7 @@ function abrirAjusteInventario(nombre){
     if(isFinite(nuevoStock)) m.stockActual = nuevoStock;
     if(abierto && document.getElementById('ajusteCerrarLote').checked){
       abierto.fechaCierre = document.getElementById('ajusteFechaCierre').value || todayStr();
+      abierto._ts = Date.now();
       await saveModule('lotesMP');
     }
     const nuevoLote = document.getElementById('ajusteLote').value.trim();
@@ -4133,6 +4139,7 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana, sinPreguntar){
       yaRegistrado.semanas = juntas;
       yaRegistrado.semana = juntas[0] !== undefined ? juntas[0] : yaRegistrado.semana;
       if(cerrado) yaRegistrado.fechaCierre = '';
+      yaRegistrado._ts = Date.now();
       await saveModule('lotesMP');
       const ix = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
       if(ix>=0){ CONFIG.materiasPrimas[ix].stockActual = Math.max(0, CONFIG.materiasPrimas[ix].stockActual - 1); await saveConfig(); }
@@ -4146,12 +4153,13 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana, sinPreguntar){
   if(abierto){
     if(confirm(`Ya hay un lote abierto para "${producto}" (lote ${abierto.lote}). ¿Cerrarlo hoy y abrir el nuevo?`)){
       abierto.fechaCierre = todayStr();
+      abierto._ts = Date.now();
     } else {
       return;
     }
   }
   DATA.lotesMP.unshift({id:uid(), producto, lote:codigo, fechaApertura, fechaCierre:'',
-                        semana: sems[0], semanas: sems});
+                        semana: sems[0], semanas: sems, _ts: Date.now()});
   await saveModule('lotesMP');
   /* Un producto escrito a mano se queda en el catálogo: la próxima vez sale en la
      lista y todo el mundo lo abre con el mismo nombre. */
@@ -4264,6 +4272,7 @@ async function cerrarLoteMP(id, idInputFecha){
      primas (T1 · Traza 1-10) que se imprime para la inspección. Solo deja de
      estar en la lista de lotes abiertos. */
   rec.fechaCierre = fecha;
+  rec._ts = Date.now();
   await saveModule('lotesMP');
   renderLotesAbiertos();
   renderLotesMPTable();
@@ -6359,7 +6368,7 @@ async function revNada(i){
   const x = REV_LISTA[i];
   if(x.abiertos.length){
     if(!confirm('En la app figura abierto el lote '+x.abiertos[0].lote+' de "'+x.producto+'".\n\nSi no hay nada abierto en el obrador, lo cierro con la fecha de hoy. ¿Sigo?')) return;
-    x.abiertos.forEach(l=>{ l.fechaCierre = todayStr(); });
+    x.abiertos.forEach(l=>{ l.fechaCierre = todayStr(); l._ts = Date.now(); });
     await saveModule('lotesMP');
   }
   await revGuardarHecho(x.producto, 'nada');
@@ -6371,6 +6380,7 @@ async function revCerrar(i, idLote){
   const l = (DATA.lotesMP||[]).find(r=>r.id===idLote);
   if(!l) return;
   l.fechaCierre = todayStr();
+  l._ts = Date.now();
   await saveModule('lotesMP');
   /* Se ha gastado, pero todavía no está revisado: falta saber si han cogido
      otro envase. La tarjeta se queda pendiente con el selector desplegado. */
@@ -6402,7 +6412,7 @@ async function revAbrir(producto, lote, fecha){
     viewRevision();
     return;
   }
-  abiertos.forEach(r=>{ r.fechaCierre = fecha; });
+  abiertos.forEach(r=>{ r.fechaCierre = fecha; r._ts = Date.now(); });
   DATA.lotesMP.unshift({id:uid(), producto, lote:codigo, fechaApertura:fecha, fechaCierre:'',
                         semana:getWeekNumber(fecha), semanas:[getWeekNumber(fecha)]});
   await saveModule('lotesMP');
