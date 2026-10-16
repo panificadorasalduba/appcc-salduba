@@ -1421,7 +1421,9 @@ function huellasRegistradas(){
 }
 function fotosYaRegistradas(){
   const set = new Set();
-  DATA.recepcion.forEach(r=>{ if(r.fotoHash) set.add(r.fotoHash); });
+  /* Las fotos de albaranes que se guardaron SIN fecha no cuentan como ya
+     registradas: así se pueden volver a subir y se les pone la fecha buena. */
+  DATA.recepcion.forEach(r=>{ if(r.fotoHash && !r.fechaPorConfirmar) set.add(r.fotoHash); });
   return set;
 }
 function avisoAlbaran(html){
@@ -1442,6 +1444,7 @@ function pintarAvisoFechaAlbaran(fechaLeidaMal){
 }
 function confirmarFechaRara(fecha){
   if(!fechaSospechosa(fecha)) return true;
+  if(fechaHistoricaValida(fecha)) return true;   // albarán antiguo de este año: vale
   return confirm('La fecha de recepción es '+fmtDate(fecha)+' y '+motivoFechaSospechosa(fecha)+'.\n\n'+
     '¿Seguro que quieres guardarla así? Si no, pulsa Cancelar y corrígela.');
 }
@@ -1562,6 +1565,22 @@ function fechaHistoricaValida(f){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(f||''))) return false;
   return f >= LOTE_FECHA_MIN && f <= todayStr();
 }
+/* La IA a veces devuelve la fecha como viene en el papel (26/05/26, 26-05-2026,
+   26.05.26…). Se pasa a AAAA-MM-DD; un año de dos cifras es 20XX. */
+function normalizarFechaLeida(f){
+  const s = String(f||'').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  let m = s.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})$/);
+  if(m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
+  if(m){
+    const anio = m[3].length===2 ? '20'+m[3] : m[3];
+    const mes = parseInt(m[2],10), dia = parseInt(m[1],10);
+    if(mes<1 || mes>12 || dia<1 || dia>31) return '';
+    return anio+'-'+String(mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
+  }
+  return '';
+}
 
 async function guardarLotePendiente(){
   try{ await Store.set(LOTE_CLAVE, albaranQueue.slice()); }catch(e){ console.error(e); }
@@ -1658,8 +1677,24 @@ async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
   const proveedor = (parsed.proveedor||'').trim();
   const numAlbaran = (parsed.numAlbaran||'').trim();
   const fechaLeida = (parsed.fecha||'').trim();
-  let fechaOk = fechaHistoricaValida(fechaLeida);
-  let fecha = fechaOk ? fechaLeida : todayStr();
+  const fechaNorm = normalizarFechaLeida(fechaLeida);
+  let fechaOk = fechaHistoricaValida(fechaNorm);
+  let fecha = fechaOk ? fechaNorm : todayStr();
+
+  /* Si este albarán ya se guardó antes SIN fecha (mismo proveedor y número) y
+     ahora sí se ha leído, se le pone la fecha buena a lo guardado en vez de
+     duplicarlo. */
+  if(fechaOk && numAlbaran){
+    const sinFecha = (DATA.recepcion||[]).filter(r=>r.fechaPorConfirmar
+      && normTxt(r.numAlbaran) === normTxt(numAlbaran)
+      && normTxt(r.proveedor) === normTxt(proveedor));
+    if(sinFecha.length){
+      const nueva = huellaAlbaran(proveedor, fecha, numAlbaran, sinFecha.map(r=>({producto:r.producto, lote:r.lote})));
+      sinFecha.forEach(r=>{ r.fecha = fecha; r.fechaOk = true; r.fechaPorConfirmar = false; r.fechaLeida = fechaLeida; r.huella = nueva; });
+      await saveModule('recepcion');
+      return {estado:'fechaCorregida', proveedor, fecha, numAlbaran, n:sinFecha.length};
+    }
+  }
 
   const huella = huellaAlbaran(proveedor, fecha, numAlbaran, lineas);
   const previo = huellasRegistradas().get(huella);
@@ -1689,7 +1724,7 @@ async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
       producto:l.producto, lote:l.lote, cantidad:l.cantidad, tempLlegada:'', estadoEnvase:'Correcto',
       caducidad:l.caducidad, aceptado:true, responsable,
       observaciones: (l.cantidad?('Cantidad: '+l.cantidad+'. '):'') + 'Cargado en bloque desde albarán en papel.',
-      fotoId, huella, fotoHash, fechaOk, fechaPorConfirmar: !fechaOk, cargaMasiva:true});
+      fotoId, huella, fotoHash, fechaOk, fechaPorConfirmar: !fechaOk, fechaLeida, cargaMasiva:true});
   });
   await saveModule('recepcion');
   return {estado: segundaHoja ? 'otrahoja' : 'guardado', proveedor, fecha, numAlbaran, fechaOk, fechaLeida, n:lineas.length};
@@ -1843,6 +1878,8 @@ async function procesarLoteAlbaranes(){
           if(!r.fechaOk) resumen.fechaRara.push(quien + (r.fechaLeida
               ? (' — en el papel leyó ' + r.fechaLeida + ', que no puede ser; lleva la de hoy')
               : ' — no se pudo leer la fecha del papel; lleva la de hoy'));
+        } else if(r.estado==='fechaCorregida'){
+          resumen.hojas.push(quien + ' · ya estaba guardado sin fecha: ahora lleva la del papel, ' + fmtDate(r.fecha));
         } else if(r.estado==='duplicado'){
           resumen.duplicados.push(quien + ' · ' + fmtDate(r.fecha));
         } else {
@@ -2065,7 +2102,7 @@ function viewRecepcion(){
   pintarBotonLote();
   comprobarLotePendiente();
 }
-const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán, y es la fecha de entrega o de emisión del albarán, nunca una fecha de caducidad, de lote ni de un pedido anterior. Si el año no se lee con claridad, deja la fecha vacía "" en vez de inventarlo; es preferible dejarla en blanco a poner un año equivocado. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
+const PROMPT_ALBARAN = 'Esta es la foto de un albarán de entrega de mercancía a una panadería. Responde ÚNICAMENTE con un JSON válido, sin texto antes ni después, sin backticks ni comentarios, con esta forma exacta: {"proveedor":"","numAlbaran":"","fecha":"YYYY-MM-DD","lineas":[{"producto":"","lote":"","cantidad":"","caducidad":"YYYY-MM-DD"}]}. El campo numAlbaran es el número de albarán o de documento que suele ir arriba a la derecha del papel (puede aparecer como "Albarán", "Nº albarán", "Documento" o "Factura"); cópialo tal cual, sin añadir nada. Incluye una línea por cada producto distinto que aparezca en el albarán. Si un dato no aparece en la imagen o no se puede leer con claridad, usa cadena vacía "". La fecha debe ir en formato YYYY-MM-DD si logras deducirla del albarán, y es la fecha de entrega o de emisión del albarán, nunca una fecha de caducidad, de lote ni de un pedido anterior. Todos los albaranes son del año 2026: si el año viene con dos cifras (por ejemplo 26/05/26) o no se ve, el año es 2026. Deja la fecha vacía "" solo si no se leen ni el día ni el mes. Aunque la foto esté borrosa, mal encuadrada o incompleta, haz tu mejor estimación y devuelve el JSON de todas formas; nunca respondas solo texto explicativo.';
 
 async function llamarClaudeSinClave(base64){
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2230,7 +2267,10 @@ async function extraerAlbaran(){
     if(campoNum) campoNum.value = parsed.numAlbaran||'';
     let fechaLeidaMal = '';
     if(parsed.fecha){
-      if(fechaSospechosa(parsed.fecha)){
+      /* Una fecha de este año y anterior a hoy es buena aunque sea antigua: son
+         albaranes viejos que se cargan a propósito. Solo se cambia por la de hoy
+         si es futura o de otro año. */
+      if(fechaSospechosa(parsed.fecha) && !fechaHistoricaValida(parsed.fecha)){
         fechaLeidaMal = parsed.fecha;
         document.getElementById('albaranFecha').value = todayStr();
       }else{
@@ -2238,7 +2278,14 @@ async function extraerAlbaran(){
       }
     }
     pintarAvisoFechaAlbaran(fechaLeidaMal);
-    avisarSiYaRegistrado();
+    /* Albarán repetido: se descarta solo y se pasa a la siguiente foto. */
+    if(avisarSiYaRegistrado()){
+      const quien = (parsed.proveedor||'') + (parsed.numAlbaran ? (' · albarán ' + parsed.numAlbaran) : '');
+      descartarFotoActual('Ya estaba registrado' + (quien ? ': ' + esc(quien) : '') + '.');
+      pintarAvisoFechaAlbaran('');
+      estado.textContent = albaranQueue.length ? 'Repetido y descartado. Pulsa "Extraer datos con IA" para la siguiente.' : 'Repetido y descartado.';
+      return;
+    }
     renderLineasExtraidas();
     delete estado.dataset.reintentosLimite;   // ha salido bien: se reinicia la cuenta
     estado.textContent = recepcionExtraidas.some(l=>l.producto) ? 'Datos leídos. Revisa y corrige cualquier campo antes de guardar.' : 'No se detectó ningún producto claro en la foto. Añádelos manualmente abajo.';
@@ -2433,13 +2480,18 @@ async function confirmarRecepcionFoto(){
     fotoId = uid();
     try{ await Store.set('foto:'+fotoId, recepcionFotoDataUrl); }catch(e){ console.error(e); fotoId=null; }
   }
+  /* Albarán antiguo (de este año pero de hace semanas): la mercancía ya está
+     gastada. Se guarda para la trazabilidad, pero NO se suma al stock, igual
+     que en la carga masiva. Se marca fechaOk para que no salga como fecha rara. */
+  const historico = fechaSospechosa(fecha) && fechaHistoricaValida(fecha);
   lineasValidas.forEach(l=>{
     DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, numAlbaran, producto:l.producto, lote:l.lote, cantidad:l.cantidad||'', tempLlegada, estadoEnvase,
-      caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId, huella, fotoHash});
+      caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId, huella, fotoHash,
+      ...(historico ? {fechaOk:true} : {})});
   });
   await saveModule('recepcion');
   const actualizados = [];
-  for(const l of lineasValidas){
+  if(!historico) for(const l of lineasValidas){
     const nombre = await registrarEntradaStock(l.producto, proveedor, l.cantidad);
     if(nombre) actualizados.push(nombre);
   }
