@@ -1668,6 +1668,66 @@ function pintarResumenLote(resumen, total, parado){
     '<button class="btn secondary small" type="button" onclick="document.getElementById(\'lotePanel\').style.display=\'none\';">Cerrar</button></div>';
 }
 
+/* La IA a veces lee dos veces la misma línea de un albarán (mismo producto y
+   lote), a menudo con la cantidad multiplicada por 10. Se deja una sola: la de
+   cantidad menor, que es la que cuadra con un envase. */
+function cantidadNum(c){
+  const m = String(c||'').match(/[\d.,]+/);
+  if(!m) return Infinity;
+  let s = m[0];
+  if(/,\d+$/.test(s)) s = s.replace(/\./g,'').replace(',', '.'); else s = s.replace(/,/g,'');
+  const n = parseFloat(s);
+  return isFinite(n) ? n : Infinity;
+}
+function quitarLineasRepetidas(lineas){
+  const porClave = new Map();
+  (lineas||[]).forEach(l=>{
+    const k = normTxt(l.producto)+'#'+normTxt(l.lote);
+    const previa = porClave.get(k);
+    if(!previa || cantidadNum(l.cantidad) < cantidadNum(previa.cantidad)) porClave.set(k, l);
+  });
+  return (lineas||[]).filter(l=>porClave.get(normTxt(l.producto)+'#'+normTxt(l.lote)) === l);
+}
+/* Limpia las líneas repetidas que ya están guardadas (mismo proveedor, albarán,
+   producto y lote). Pregunta antes y deja constancia en la lista de bajas para
+   que no vuelvan al sincronizar. */
+async function limpiarLineasRepetidas(){
+  const g = {};
+  (DATA.recepcion||[]).forEach(r=>{
+    if(!r.numAlbaran) return;
+    const k = [normTxt(r.proveedor), normTxt(r.numAlbaran), normTxt(r.producto), normTxt(r.lote)].join('|');
+    (g[k] = g[k] || []).push(r);
+  });
+  const quitar = [];
+  Object.values(g).filter(a=>a.length>1).forEach(a=>{
+    const queda = a.slice().sort((x,y)=>cantidadNum(x.cantidad)-cantidadNum(y.cantidad))[0];
+    a.forEach(r=>{ if(r!==queda) quitar.push(r.id); });
+  });
+  if(!quitar.length){ alert('No hay líneas repetidas.'); return; }
+  if(!confirm('Hay ' + quitar.length + ' línea(s) de albarán leídas dos veces (mismo producto y lote en el mismo albarán).\n\nSe deja una de cada (la de cantidad menor) y se quitan las repetidas. ¿Seguimos?')) return;
+  quitar.forEach(id=>{ BAJAS[id] = Date.now(); });
+  DATA.recepcion = DATA.recepcion.filter(r=>quitar.indexOf(r.id) < 0);
+  await guardarBajas();
+  await saveModule('recepcion');
+  renderRecepTable(); renderDashboard();
+  alert('Listo: ' + quitar.length + ' línea(s) repetidas quitadas.');
+}
+
+/* Albaranes antiguos con la fecha leída del papel (no «por confirmar"): salen en el
+   aviso solo por viejos. Con esto se dan por revisados. */
+async function darPorBuenasFechasLeidas(){
+  const ids = [];
+  gruposFechaRara().forEach(g=>g.ids.forEach(id=>{
+    const r = DATA.recepcion.find(x=>x.id===id);
+    if(r && !r.fechaPorConfirmar && fechaHistoricaValida(r.fecha)) ids.push(id);
+  }));
+  if(!ids.length){ alert('No hay fechas leídas pendientes de revisar.'); return; }
+  if(!confirm('Se dan por buenas las fechas de ' + ids.length + ' línea(s) de albaranes antiguos, que se leyeron del papel. ¿Seguimos?')) return;
+  ids.forEach(id=>{ const r = DATA.recepcion.find(x=>x.id===id); if(r) r.fechaOk = true; });
+  await saveModule('recepcion');
+  renderAvisoFechas(); renderRecepTable();
+}
+
 /* Vuelve a leer con la IA las fotos ya guardadas de los albaranes que se quedaron
    sin fecha y les pone la del papel. Así no hay que repetir las fotos: solo
    funciona en el aparato donde se hicieron, porque las fotos se guardan ahí. */
@@ -1717,9 +1777,9 @@ async function releerFechasPendientes(){
 
 /* Guarda un albarán ya leído, sin pasar por el formulario. Devuelve qué ha pasado. */
 async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
-  const lineas = (parsed.lineas||[])
+  const lineas = quitarLineasRepetidas((parsed.lineas||[])
     .map(l=>({producto:(l.producto||'').trim(), lote:l.lote||'', cantidad:l.cantidad||'', caducidad:l.caducidad||''}))
-    .filter(l=>l.producto);
+    .filter(l=>l.producto));
   if(!lineas.length) return {estado:'sinproductos'};
 
   const proveedor = (parsed.proveedor||'').trim();
@@ -2038,12 +2098,16 @@ function viewRecepcion(){
     <div id="panel-fechas-raras" class="panel" style="display:none;">
       <h2>${icon('truck')} Fechas que no cuadran</h2>
       <p class="hint">Recepciones guardadas con una fecha muy vieja o del futuro. Suele ser que la fecha del albarán se leyó mal en la foto. Corrígelas aquí y se arregla también en los informes.</p>
+      <div style="margin:0 0 10px;"><button class="btn secondary" type="button" onclick="darPorBuenasFechasLeidas()">✔ Dar por buenas las fechas leídas del papel</button>
+        <span class="hint" style="margin-left:8px;">Albaranes antiguos cuya fecha sí se leyó: solo salen aquí por ser viejos.</span></div>
       <div style="margin:0 0 10px;"><button class="btn" type="button" id="btnReleerFechas" onclick="releerFechasPendientes()">🔄 Volver a leer las fechas de las fotos</button>
         <span class="hint" id="releerFechasEstado" style="margin-left:8px;">Hazlo desde el aparato con el que se hicieron las fotos: allí están guardadas.</span></div>
       <div id="aviso-fechas"></div>
     </div>
     <div class="panel">
       <h2>${icon('truck')} Albaranes registrados</h2>
+      <div style="margin:0 0 10px;"><button class="btn secondary small" type="button" onclick="limpiarLineasRepetidas()">🧹 Quitar líneas repetidas</button>
+        <span class="hint" style="margin-left:8px;">Líneas que la IA leyó dos veces en el mismo albarán.</span></div>
       <p class="hint">Un albarán por línea, del más reciente al más antiguo. Despliega y repasa cuáles están metidos; eliges uno y ves sus productos.</p>
       <div id="alb-resumen"></div>
       <div class="filters">
@@ -2317,7 +2381,7 @@ async function extraerAlbaran(){
     let parsed;
     try{ parsed = JSON.parse(clean); }
     catch(jsonErr){ throw new Error('No se pudo interpretar la respuesta como datos ("'+textoRespuesta.slice(0,140)+'"...)'); }
-    recepcionExtraidas = (parsed.lineas||[]).map(l=>({producto:l.producto||'', lote:l.lote||'', cantidad:l.cantidad||'', caducidad:l.caducidad||''}));
+    recepcionExtraidas = quitarLineasRepetidas((parsed.lineas||[]).map(l=>({producto:l.producto||'', lote:l.lote||'', cantidad:l.cantidad||'', caducidad:l.caducidad||''})));
     if(recepcionExtraidas.length===0) recepcionExtraidas.push({producto:'',lote:'',cantidad:'',caducidad:''});
     document.getElementById('albaranProveedor').value = parsed.proveedor||'';
     const campoNum = document.getElementById('albaranNumero');
