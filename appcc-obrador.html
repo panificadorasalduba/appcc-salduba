@@ -2108,15 +2108,15 @@ function viewRecepcion(){
       <h2>${icon('truck')} Albaranes registrados</h2>
       <div style="margin:0 0 10px;"><button class="btn secondary small" type="button" onclick="limpiarLineasRepetidas()">🧹 Quitar líneas repetidas</button>
         <span class="hint" style="margin-left:8px;">Líneas que la IA leyó dos veces en el mismo albarán.</span></div>
-      <p class="hint">Un albarán por línea, del más reciente al más antiguo. Despliega y repasa cuáles están metidos; eliges uno y ves sus productos.</p>
+      <p class="hint">Elige la semana y el proveedor, y luego el albarán que quieras consultar.</p>
       <div id="alb-resumen"></div>
       <div class="filters">
-        <label class="field"><span>Buscar</span><input type="text" id="albBuscar" placeholder="Proveedor, nº de albarán o producto…"></label>
+        <label class="field"><span>Semana</span><select id="albSemana"><option value="">Todas las semanas</option></select></label>
+        <label class="field"><span>Proveedor</span><select id="albProveedor"><option value="">Todos los proveedores</option></select></label>
         <label class="field wide"><span>Albarán</span><select id="albSel" size="1"><option value="">Selecciona un albarán…</option></select></label>
       </div>
       <div id="alb-detalle"></div>
     </div>
-    <div class="panel"><h2>${icon('truck')} Histórico de recepciones</h2><div id="recep-table"></div></div>
   `;
   recepcionExtraidas = []; recepcionFotoDataUrl = null; albaranQueue = []; albaranQueueHash = []; albaranQueueIndex = 0;
   renderLineasExtraidas();
@@ -2213,7 +2213,7 @@ function viewRecepcion(){
     renderAvisoNombres(); renderAvisoFechas();
     renderDashboard();
   });
-  ['albBuscar','albSel'].forEach(id=>{
+  ['albSemana','albProveedor','albSel'].forEach(id=>{
     const el = document.getElementById(id);
     if(el){ el.addEventListener('input', renderAlbaranes); el.addEventListener('change', renderAlbaranes); }
   });
@@ -2678,18 +2678,70 @@ function etiquetaAlbaran(g){
        + ' · ' + (g.numAlbaran ? 'albarán ' + g.numAlbaran : 'SIN Nº DE ALBARÁN')
        + ' · ' + g.lineas.length + ' línea' + (g.lineas.length===1?'':'s');
 }
+/* Un mismo proveedor llega escrito de varias formas ("PURATOS SA", "Puratos",
+   "T 500 PURATOS SA"): se agrupa por su palabra principal. */
+function claveProveedor(p){
+  const genericas = ['distribuidora','materias','primas','electro','harinera','malaga','sociedad'];
+  const palabras = normTxt(p).split(' ').filter(w=>w.length>=4 && genericas.indexOf(w)<0 && !/^\d+$/.test(w));
+  return palabras[0] || normTxt(p) || 'sin proveedor';
+}
+function semanaDeFecha(f){
+  const w = getWeekNumber(f);
+  return w ? String(f).slice(0,4)+'-S'+String(w).padStart(2,'0') : '';
+}
+function etiquetaSemana(k){
+  const m = String(k).match(/^(\d{4})-S(\d+)$/);
+  if(!m) return k;
+  // lunes de esa semana ISO
+  const anio = +m[1], sem = +m[2];
+  const ene4 = new Date(Date.UTC(anio,0,4));
+  const lunes = new Date(ene4.getTime() - ((ene4.getUTCDay()+6)%7)*86400000 + (sem-1)*7*86400000);
+  const domingo = new Date(lunes.getTime() + 6*86400000);
+  const dm = d => String(d.getUTCDate()).padStart(2,'0')+'/'+String(d.getUTCMonth()+1).padStart(2,'0');
+  return 'Semana ' + sem + ' · ' + dm(lunes) + ' al ' + dm(domingo);
+}
 function poblarSelectAlbaranes(){
   const sel = document.getElementById('albSel');
   if(!sel) return [];
-  const b = document.getElementById('albBuscar');
-  const q = normTxt(b ? b.value : '');
-  let lista = albaranesRegistrados();
-  if(q) lista = lista.filter(g=> normTxt(g.proveedor).indexOf(q)>=0
-                              || normTxt(g.numAlbaran).indexOf(q)>=0
-                              || (g.fecha && fmtDate(g.fecha).indexOf(b.value.trim())>=0)
-                              || g.lineas.some(l=>normTxt(l.producto).indexOf(q)>=0) );
+  const selSem = document.getElementById('albSemana');
+  const selProv = document.getElementById('albProveedor');
+  const todos = albaranesRegistrados();
+
+  // Desplegable de semanas (de la más reciente a la más antigua)
+  if(selSem){
+    const previoS = selSem.value;
+    const semanas = {};
+    todos.forEach(g=>{ const k = semanaDeFecha(g.fecha); if(k) semanas[k] = (semanas[k]||0) + 1; });
+    const claves = Object.keys(semanas).sort().reverse();
+    selSem.innerHTML = '<option value="">Todas las semanas</option>'
+      + claves.map(k=>`<option value="${esc(k)}">${esc(etiquetaSemana(k))} (${semanas[k]})</option>`).join('');
+    selSem.value = claves.indexOf(previoS)>=0 ? previoS : '';
+  }
+  const semana = selSem ? selSem.value : '';
+  const enSemana = semana ? todos.filter(g=>semanaDeFecha(g.fecha)===semana) : todos;
+
+  // Desplegable de proveedores (solo los que tienen albaranes en esa semana)
+  if(selProv){
+    const previoP = selProv.value;
+    const provs = {};
+    enSemana.forEach(g=>{
+      const k = claveProveedor(g.proveedor);
+      provs[k] = provs[k] || {n:0, nombres:{}};
+      provs[k].n++;
+      const nom = String(g.proveedor||'Sin proveedor').trim();
+      provs[k].nombres[nom] = (provs[k].nombres[nom]||0) + 1;
+    });
+    const nombre = k => Object.entries(provs[k].nombres).sort((a,b)=>b[1]-a[1])[0][0];
+    const claves = Object.keys(provs).sort((a,b)=>nombre(a).localeCompare(nombre(b),'es'));
+    selProv.innerHTML = '<option value="">Todos los proveedores</option>'
+      + claves.map(k=>`<option value="${esc(k)}">${esc(nombre(k))} (${provs[k].n})</option>`).join('');
+    selProv.value = claves.indexOf(previoP)>=0 ? previoP : '';
+  }
+  const prov = selProv ? selProv.value : '';
+  const lista = prov ? enSemana.filter(g=>claveProveedor(g.proveedor)===prov) : enSemana;
+
   const previo = sel.value;
-  sel.innerHTML = `<option value="">${q ? lista.length+(lista.length===1?' albarán':' albaranes')+' con esa búsqueda' : 'Selecciona un albarán…  ('+lista.length+' registrados)'}</option>`
+  sel.innerHTML = `<option value="">Selecciona un albarán…  (${lista.length})</option>`
     + lista.map(g=>`<option value="${esc(g.clave)}">${esc(etiquetaAlbaran(g))}</option>`).join('');
   sel.value = lista.some(g=>g.clave===previo) ? previo : '';
   return lista;
@@ -2856,15 +2908,20 @@ function renderAlbaranes(){
       <td class="mono">${l.cantidad?esc(l.cantidad):'—'}</td>
       <td class="mono">${l.caducidad?fmtDate(l.caducidad):'—'}</td>
       <td><span class="badge ${l.aceptado?'ok':'danger'}">${l.aceptado?'Aceptado':'Rechazado'}</span></td>
+      <td><button class="btn danger small" onclick="removeRecord('recepcion','${l.id}',renderAlbaranes)">Borrar</button></td>
     </tr>`);
   host.innerHTML = `<p class="hint" style="margin:0 0 8px;">
       <strong>${esc(g.proveedor||'sin proveedor')}</strong> · ${g.numAlbaran?('albarán '+esc(g.numAlbaran)):'<span style="color:var(--warn);">sin número de albarán</span>'}
       · ${g.fecha?fmtDate(g.fecha):'sin fecha'}${g.hora?' a las '+esc(g.hora):''}
       ${g.fotoId?` <button class="btn secondary small" onclick="verFotoAlbaran('${g.fotoId}')">Ver la foto</button>`:''}</p>`
-    + table(['Producto','Lote','Cantidad','Caduca','Estado'], filas);
+    + table(['Producto','Lote','Cantidad','Caduca','Estado',''], filas);
 }
 
+/* La lista larga de recepciones se quitó (16/10/2026): ahora se consulta por
+   semana y proveedor en «Albaranes registrados». Se mantiene el nombre porque
+   la llaman muchos sitios; refresca esa consulta. */
 function renderRecepTable(){
+  if(!document.getElementById('recep-table')){ if(document.getElementById('albSel')) renderAlbaranes(); return; }
   const rows = porFechaDesc(DATA.recepcion).map(r=>`<tr>
     <td class="mono">${fmtDate(r.fecha)}</td><td class="mono">${r.hora}</td><td>${esc(r.proveedor)}</td><td class="mono">${esc(r.numAlbaran)||'—'}</td><td>${esc(r.producto)}</td>
     <td class="mono">${esc(r.lote)||'—'}</td><td class="mono">${r.cantidad?esc(r.cantidad):'—'}</td>
