@@ -1437,9 +1437,10 @@ function pintarAvisoFechaAlbaran(fechaLeidaMal){
   const el = document.getElementById('albaranAvisoFecha');
   if(!el) return;
   if(!fechaLeidaMal){ el.style.display='none'; el.innerHTML=''; return; }
-  el.innerHTML = '<b>Ojo con la fecha.</b> En el albarán he leído <b>'+esc(fmtDate(fechaLeidaMal))+
-    '</b>, y eso no cuadra ('+esc(motivoFechaSospechosa(fechaLeidaMal))+'). He puesto la de hoy, <b>'+
-    fmtDate(todayStr())+'</b>. Si la del papel es otra, cámbiala abajo antes de guardar.';
+  el.innerHTML = '<b>Falta la fecha.</b> ' + (fechaLeidaMal==='(sin leer)'
+      ? 'No he podido leer la fecha del albarán.'
+      : ('En el albarán he leído <b>'+esc(fechaLeidaMal)+'</b>, y eso no es una fecha válida de este año.'))
+    + ' He dejado la fecha en blanco: escribe abajo la que pone el papel antes de guardar.';
   el.style.display = 'block';
 }
 function confirmarFechaRara(fecha){
@@ -1658,7 +1659,7 @@ function pintarResumenLote(resumen, total, parado){
     lista('Guardados', resumen.guardados, 'var(--ok,#2f7a3d)') +
     lista('Segundas hojas añadidas al albarán que ya estaba', resumen.hojas, 'var(--ok,#2f7a3d)') +
     lista('Repetidos — ya los tenías, no se han vuelto a guardar', resumen.duplicados, '#7a5200') +
-    lista('Guardados, pero repasa la fecha en «Fechas que no cuadran»', resumen.fechaRara, '#b7791f') +
+    lista('Sin fecha legible — NO guardados: siguen en la cola para ponerles la fecha a mano', resumen.fechaRara, '#b7791f') +
     lista('No se han podido leer — las fotos siguen en la cola', resumen.fallidos, '#c0392b') +
     '<div class="hint" style="margin-top:12px;">El stock de materias primas no se ha tocado: son entregas antiguas y esa mercancía ya está gastada.</div>' +
     '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">' +
@@ -1742,6 +1743,10 @@ async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
       return {estado:'fechaCorregida', proveedor, fecha, numAlbaran, n:sinFecha.length};
     }
   }
+  /* Sin fecha legible NO se guarda: un albarán con la fecha de hoy puesta a
+     ciegas es un registro falso para el inspector. La foto vuelve a la cola y
+     se le pone la fecha a mano. */
+  if(!fechaOk) return {estado:'sinfecha', proveedor, numAlbaran, fechaLeida};
 
   const huella = huellaAlbaran(proveedor, fecha, numAlbaran, lineas);
   const previo = huellasRegistradas().get(huella);
@@ -1810,7 +1815,7 @@ function textoResumenLote(resumen, total, parado){
   l.push((parado ? 'Parado a mitad. ' : 'Terminado. ') + resumen.guardados.length + ' de ' + total + ' guardados.');
   if(resumen.hojas.length)      l.push('Segundas hojas añadidas: ' + resumen.hojas.length);
   if(resumen.duplicados.length) l.push('Repetidos que ya estaban: ' + resumen.duplicados.length);
-  if(resumen.fechaRara.length)  l.push('OJO: ' + resumen.fechaRara.length + ' sin fecha clara, hay que repasarlos en «Fechas que no cuadran».');
+  if(resumen.fechaRara.length)  l.push('OJO: ' + resumen.fechaRara.length + ' sin fecha legible: no se han guardado y siguen en la cola para ponerles la fecha a mano.');
   if(resumen.fallidos.length)   l.push('No se han podido leer: ' + resumen.fallidos.length + ' (siguen en la cola).');
   return l.join('\n');
 }
@@ -1925,6 +1930,9 @@ async function procesarLoteAlbaranes(){
           if(!r.fechaOk) resumen.fechaRara.push(quien + (r.fechaLeida
               ? (' — en el papel leyó ' + r.fechaLeida + ', que no puede ser; lleva la de hoy')
               : ' — no se pudo leer la fecha del papel; lleva la de hoy'));
+        } else if(r.estado==='sinfecha'){
+          resumen.fechaRara.push(quien + ' — no se ha leído la fecha' + (r.fechaLeida ? (' (leyó «' + r.fechaLeida + '»)') : '') + ': NO se ha guardado, la foto queda en la cola para ponerle la fecha a mano');
+          fallidas.push(dataUrl);
         } else if(r.estado==='fechaCorregida'){
           resumen.hojas.push(quien + ' · ya estaba guardado sin fecha: ahora lleva la del papel, ' + fmtDate(r.fecha));
         } else if(r.estado==='duplicado'){
@@ -2315,16 +2323,14 @@ async function extraerAlbaran(){
     const campoNum = document.getElementById('albaranNumero');
     if(campoNum) campoNum.value = parsed.numAlbaran||'';
     let fechaLeidaMal = '';
-    if(parsed.fecha){
-      /* Una fecha de este año y anterior a hoy es buena aunque sea antigua: son
-         albaranes viejos que se cargan a propósito. Solo se cambia por la de hoy
-         si es futura o de otro año. */
-      if(fechaSospechosa(parsed.fecha) && !fechaHistoricaValida(parsed.fecha)){
-        fechaLeidaMal = parsed.fecha;
-        document.getElementById('albaranFecha').value = todayStr();
-      }else{
-        document.getElementById('albaranFecha').value = parsed.fecha;
-      }
+    /* La fecha nunca se rellena a ciegas con la de hoy: si no se lee bien, el
+       campo se queda en blanco y no se puede guardar hasta escribir la del papel. */
+    const fLeida = normalizarFechaLeida(parsed.fecha);
+    if(fLeida && fechaHistoricaValida(fLeida)){
+      document.getElementById('albaranFecha').value = fLeida;
+    }else{
+      fechaLeidaMal = parsed.fecha || '(sin leer)';
+      document.getElementById('albaranFecha').value = '';
     }
     pintarAvisoFechaAlbaran(fechaLeidaMal);
     /* Albarán repetido: se descarta solo y se pasa a la siguiente foto. */
@@ -2497,7 +2503,8 @@ async function confirmarRecepcionFoto(){
   if(!responsable){ alert('Indica quién recepciona la mercancía.'); return; }
   const proveedor = document.getElementById('albaranProveedor').value;
   const numAlbaran = ((document.getElementById('albaranNumero')||{}).value || '').trim();
-  const fecha = document.getElementById('albaranFecha').value || todayStr();
+  const fecha = document.getElementById('albaranFecha').value;
+  if(!fecha){ alert('Escribe la fecha que pone el albarán antes de guardar.'); const fc = document.getElementById('albaranFecha'); if(fc) fc.focus(); return; }
   if(!confirmarFechaRara(fecha)) return;
   const hora = document.getElementById('albaranHora').value || nowStr();
   const tempLlegada = document.getElementById('albaranTemp').value;
