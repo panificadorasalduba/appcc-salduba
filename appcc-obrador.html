@@ -1667,6 +1667,53 @@ function pintarResumenLote(resumen, total, parado){
     '<button class="btn secondary small" type="button" onclick="document.getElementById(\'lotePanel\').style.display=\'none\';">Cerrar</button></div>';
 }
 
+/* Vuelve a leer con la IA las fotos ya guardadas de los albaranes que se quedaron
+   sin fecha y les pone la del papel. Así no hay que repetir las fotos: solo
+   funciona en el aparato donde se hicieron, porque las fotos se guardan ahí. */
+async function releerFechasPendientes(){
+  const btn = document.getElementById('btnReleerFechas');
+  const est = document.getElementById('releerFechasEstado');
+  const grupos = {};
+  (DATA.recepcion||[]).forEach(r=>{
+    if(!r.fechaPorConfirmar || !r.fotoId) return;
+    (grupos[r.fotoId] = grupos[r.fotoId] || []).push(r);
+  });
+  const ids = Object.keys(grupos);
+  if(!ids.length){ if(est) est.textContent = 'No queda ningún albarán sin fecha.'; return; }
+  if(btn) btn.disabled = true;
+  await mantenerPantallaEncendida();
+  let ok = 0, sinFoto = 0, sinLeer = 0, n = 0;
+  for(const fid of ids){
+    n++;
+    if(est) est.textContent = 'Leyendo ' + n + ' de ' + ids.length + '… no cierres ni bloquees la pantalla.';
+    let dataUrl = null;
+    try{ dataUrl = await Store.get('foto:'+fid); }catch(e){}
+    if(!dataUrl){ sinFoto++; continue; }
+    try{
+      const texto = await reintentarSiSatura(()=>lectorAlbaran(dataUrl.split(',')[1], null), null);
+      let limpio = String(texto||'').replace(/```json|```/g,'').trim();
+      const a = limpio.indexOf('{'), b = limpio.lastIndexOf('}');
+      if(a>=0 && b>a) limpio = limpio.slice(a, b+1);
+      const parsed = JSON.parse(limpio);
+      const f = normalizarFechaLeida(parsed.fecha);
+      if(!fechaHistoricaValida(f)){ sinLeer++; continue; }
+      const regs = grupos[fid];
+      const r0 = regs[0];
+      const nueva = huellaAlbaran(r0.proveedor, f, r0.numAlbaran, regs.map(r=>({producto:r.producto, lote:r.lote})));
+      regs.forEach(r=>{ r.fecha = f; r.fechaOk = true; r.fechaPorConfirmar = false; r.fechaLeida = parsed.fecha; r.huella = nueva; });
+      await saveModule('recepcion');
+      ok++;
+    }catch(err){ console.error(err); guardarUltimoErrorIA(err); sinLeer++; }
+    await new Promise(r=>setTimeout(r, LOTE_PAUSA_MS));
+  }
+  soltarPantalla();
+  if(btn) btn.disabled = false;
+  if(est) est.textContent = ok + ' albarán(es) ya llevan su fecha.'
+    + (sinLeer ? ' ' + sinLeer + ' no se han podido leer: corrígelos a mano abajo.' : '')
+    + (sinFoto ? ' ' + sinFoto + ' no tienen la foto en este aparato: hazlo desde el móvil o tablet con el que se hicieron.' : '');
+  renderAvisoFechas(); renderRecepTable(); renderDashboard();
+}
+
 /* Guarda un albarán ya leído, sin pasar por el formulario. Devuelve qué ha pasado. */
 async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
   const lineas = (parsed.lineas||[])
@@ -1983,6 +2030,8 @@ function viewRecepcion(){
     <div id="panel-fechas-raras" class="panel" style="display:none;">
       <h2>${icon('truck')} Fechas que no cuadran</h2>
       <p class="hint">Recepciones guardadas con una fecha muy vieja o del futuro. Suele ser que la fecha del albarán se leyó mal en la foto. Corrígelas aquí y se arregla también en los informes.</p>
+      <div style="margin:0 0 10px;"><button class="btn" type="button" id="btnReleerFechas" onclick="releerFechasPendientes()">🔄 Volver a leer las fechas de las fotos</button>
+        <span class="hint" id="releerFechasEstado" style="margin-left:8px;">Hazlo desde el aparato con el que se hicieron las fotos: allí están guardadas.</span></div>
       <div id="aviso-fechas"></div>
     </div>
     <div class="panel">
