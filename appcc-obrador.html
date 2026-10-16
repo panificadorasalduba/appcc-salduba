@@ -39,6 +39,7 @@
   #app{display:flex;min-height:100vh;}
 
   /* SIDEBAR */
+  body.modo-obrador .sidebar{display:none !important;}
   .sidebar{
     width:236px;flex:none;background:var(--sidebar);color:#EFE7D8;
     display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
@@ -300,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-09-27-a';
+const APP_VERSION = '2026-10-16-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -538,6 +539,9 @@ function enlaceConfiguracion(){
   let e = location.origin + location.pathname + '?v=' + Date.now().toString(36);
   if(u) e += '&sync=' + encodeURIComponent(u);
   if(k) e += '&ia=' + encodeURIComponent(k);
+  /* Tablet del obrador: además se queda fija en la pantalla Obrador. */
+  const ob = document.getElementById('qrConfigObrador');
+  if(ob && ob.checked) e += '&obrador=1';
   return e;
 }
 function cargarLibreriaQr(){
@@ -1004,6 +1008,7 @@ const VIEWS = [
   {id:'produccion', label:'Producción diaria', icon:'wheat'},
   {id:'trazabilidad', label:'Trazabilidad y reparto', icon:'route'},
   {id:'transporte', label:'Transporte y reparto', icon:'route'},
+  {id:'obrador', label:'Obrador · abrir y cerrar lotes', icon:'box'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
   {id:'revision', label:'Repaso del obrador', icon:'box'},
   {id:'mantenimiento', label:'Mantenimiento', icon:'wrench'},
@@ -4395,7 +4400,9 @@ async function abrirLoteMP(producto, lote, fechaApertura, semana, sinPreguntar){
   }
 
   const abierto = DATA.lotesMP.find(r=>!r.fechaCierre && r.producto.trim().toLowerCase()===producto.trim().toLowerCase());
-  if(abierto){
+  /* sinPreguntar: quien llama ya ha decidido qué hacer con el que estaba abierto
+     (al cerrar un envase, o desde la pantalla Obrador). */
+  if(abierto && !sinPreguntar){
     if(confirm(`Ya hay un lote abierto para "${producto}" (lote ${abierto.lote}). ¿Cerrarlo hoy y abrir el nuevo?`)){
       abierto.fechaCierre = todayStr();
       abierto._ts = Date.now();
@@ -5561,6 +5568,7 @@ function viewAjustes(){
     <div class="panel">
       <h2>${icon('box')} Configurar otro dispositivo</h2>
       <p class="hint">Para que una tablet o un móvil nuevo vean los mismos registros y puedan leer albaranes, hay que darles la dirección de tu Drive y la clave de la IA. Pulsa el botón y <strong>escanea el código con la cámara del otro aparato</strong>: se configura solo y no hay que escribir nada.</p>
+      <label class="field checkline" style="margin:0 0 8px;"><input type="checkbox" id="qrConfigObrador" onchange="if(document.getElementById('qrConfigCaja').style.display!=='none') mostrarQrConfig();"><span>Es la <b>tablet del obrador</b>: que se quede fija en la pantalla «Obrador · abrir y cerrar lotes»</span></label>
       <div class="filters">
         <button class="btn small" id="verQrConfigBtn" type="button">Ver el código de configuración</button>
         <button class="btn secondary small" id="ocultarQrConfigBtn" type="button" style="display:none;">Ocultar</button>
@@ -6676,12 +6684,177 @@ async function revEmpezarDeCero(){
   viewRevision();
 }
 
+/* ================= PANTALLA OBRADOR =================
+   Para la tablet del obrador. Los panaderos de noche necesitan algo muy simple:
+   ver qué está abierto, decir «se ha terminado» y abrir el siguiente que toca
+   (el más antiguo). Botones grandes, letra grande y nada más. Todo lo hace con
+   las mismas funciones que Materias primas (stock, MISMO LOTE, Drive). */
+function obModal(html){
+  let m = document.getElementById('obModal');
+  if(!m){
+    m = document.createElement('div');
+    m.id = 'obModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(20,16,12,.7);display:flex;align-items:center;justify-content:center;padding:16px;';
+    document.body.appendChild(m);
+  }
+  if(!html){ m.style.display = 'none'; m.innerHTML = ''; return; }
+  m.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:90vh;overflow:auto;padding:24px;font-size:20px;line-height:1.45;">' + html + '</div>';
+  m.style.display = 'flex';
+}
+const OB_BTN = 'display:block;width:100%;min-height:64px;margin:10px 0;border:0;border-radius:12px;font-size:22px;font-weight:700;cursor:pointer;';
+const OB_SI = OB_BTN + 'background:#c2410c;color:#fff;';
+const OB_NO = OB_BTN + 'background:#ece6dc;color:#3b2f24;';
+function obAviso(texto){
+  obModal('<div style="font-size:24px;font-weight:700;margin-bottom:12px;">' + texto + '</div>'
+    + '<button style="' + OB_NO + '" onclick="obModal(\'\');viewObrador();">Vale</button>');
+}
+
+function viewObrador(){
+  const host = document.getElementById('view-obrador');
+  if(!host) return;
+  const abiertos = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre)
+    .sort((a,b)=>String(a.producto||'').localeCompare(String(b.producto||''),'es'));
+  const filas = abiertos.map(r=>`
+    <div style="display:flex;align-items:center;gap:14px;padding:14px 4px;border-bottom:1px solid #eadfce;flex-wrap:wrap;">
+      <div style="flex:1;min-width:220px;">
+        <div style="font-size:22px;font-weight:700;">${esc(r.producto)}</div>
+        <div style="font-size:17px;color:#6b5a48;">Lote ${esc(r.lote)}${r.mismoLote?' · <b>MISMO LOTE</b>':''} · abierto el ${fmtDate(r.fechaApertura)}</div>
+      </div>
+      <button style="min-height:60px;padding:0 22px;border:0;border-radius:12px;background:#c2410c;color:#fff;font-size:20px;font-weight:700;cursor:pointer;"
+        onclick="obTerminado('${r.id}')">Se ha terminado</button>
+    </div>`).join('');
+  host.innerHTML = `
+    <div class="panel" style="font-size:18px;">
+      <button style="${OB_SI}min-height:76px;font-size:24px;" onclick="obAbrirOtro()">➕ Abrir un producto</button>
+      <h2 style="font-size:24px;margin:18px 0 6px;">Lotes abiertos ahora (${abiertos.length})</h2>
+      <p class="hint" style="font-size:16px;">Cuando se acabe un saco, cubo o caja, pulsa <b>«Se ha terminado»</b> en su línea.</p>
+      <input type="text" id="obBuscar" placeholder="Buscar producto…" oninput="obFiltrar(this.value)"
+        style="width:100%;font-size:20px;padding:14px;border:1px solid #d6c8b4;border-radius:12px;margin:6px 0 4px;">
+      <div id="obLista">${filas || '<p style="font-size:20px;">No hay ningún lote abierto.</p>'}</div>
+      ${document.body.classList.contains('modo-obrador')
+        ? '<p style="text-align:center;margin-top:28px;"><a href="#" style="font-size:13px;color:#9a8a78;" onclick="if(confirm(\'¿Salir de la pantalla del obrador y ver toda la app?\')){try{localStorage.setItem(\'appcc_modo_obrador\',\'0\')}catch(e){};location.reload();}return false;">Salir de la pantalla del obrador</a></p>'
+        : '<p class="hint" style="margin-top:20px;">Para dejar la tablet fija en esta pantalla, ábrela con <code>?obrador=1</code> al final de la dirección.</p>'}
+    </div>`;
+}
+function obFiltrar(q){
+  const t = normTxt(q);
+  document.querySelectorAll('#obLista > div').forEach(d=>{ d.style.display = !t || normTxt(d.textContent).indexOf(t)>=0 ? '' : 'none'; });
+}
+
+/* 1) «Se ha terminado»: pregunta, cierra y propone el siguiente. */
+function obTerminado(id){
+  const r = (DATA.lotesMP||[]).find(x=>x.id===id);
+  if(!r) return;
+  obModal(`<div style="font-size:24px;font-weight:700;">¿Se ha terminado este?</div>
+    <div style="margin:10px 0 6px;"><b>${esc(r.producto)}</b><br>Lote ${esc(r.lote)}</div>
+    <button style="${OB_SI}" onclick="obConfirmarTerminado('${r.id}')">Sí, se ha terminado</button>
+    <button style="${OB_NO}" onclick="obModal('')">No, volver</button>`);
+}
+async function obConfirmarTerminado(id){
+  const r = (DATA.lotesMP||[]).find(x=>x.id===id);
+  if(!r){ obModal(''); return; }
+  r.fechaCierre = todayStr();
+  r._ts = Date.now();
+  await saveModule('lotesMP');
+  renderDashboard();
+  obProponer(r.producto, r.lote);
+}
+/* 2) Propone el siguiente envase (el más antiguo; si queda del mismo lote, ese). */
+function obProponer(producto, loteCerrado){
+  const sig = siguienteEnvase(producto, loteCerrado);
+  window.__obProd = producto;
+  if(!sig){
+    obModal(`<div style="font-size:22px;font-weight:700;">Cerrado ✔</div>
+      <div style="margin:10px 0;">¿Vais a abrir otro <b>${esc(producto)}</b>?</div>
+      <button style="${OB_SI}" onclick="obLoteAMano()">Sí, escribo su lote</button>
+      <button style="${OB_NO}" onclick="obModal('');viewObrador();">No, ahora no</button>`);
+    return;
+  }
+  window.__obSig = sig;
+  const mismo = sig.tipo === 'mismo';
+  obModal(`<div style="font-size:22px;font-weight:700;">Cerrado ✔</div>
+    <div style="margin:10px 0;">Ahora toca abrir:<br><b style="font-size:24px;">${esc(producto)}</b><br>
+      Lote <b>${esc(sig.lote)}</b>${mismo ? ' · <b>MISMO LOTE</b>' : ''}${sig.fecha ? '<br><span style="font-size:17px;color:#6b5a48;">llegó el ' + fmtDate(sig.fecha) + '</span>' : ''}</div>
+    <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obSig.lote)">Abrir este</button>
+    <button style="${OB_NO}" onclick="obLoteAMano()">Es otro lote (lo escribo)</button>
+    <button style="${OB_NO}" onclick="obModal('');viewObrador();">No abro ninguno ahora</button>`);
+}
+function obLoteAMano(){
+  const producto = window.__obProd;
+  obModal(`<div style="font-size:22px;font-weight:700;">${esc(producto)}</div>
+    <div style="margin:10px 0;">Escribe el número de lote que pone en el saco, cubo o caja:</div>
+    <input type="text" id="obLoteManual" autocomplete="off" style="width:100%;font-size:24px;padding:14px;border:1px solid #d6c8b4;border-radius:12px;">
+    <button style="${OB_SI}" onclick="obAbrirManual()">Abrir</button>
+    <button style="${OB_NO}" onclick="obModal('');viewObrador();">Cancelar</button>`);
+  setTimeout(()=>{ const i = document.getElementById('obLoteManual'); if(i) i.focus(); }, 200);
+}
+function obAbrirManual(){
+  const i = document.getElementById('obLoteManual');
+  const lote = i ? i.value.trim() : '';
+  if(!lote){ if(i) i.focus(); return; }
+  obAbrir(window.__obProd, lote);
+}
+async function obAbrir(producto, lote, decidido){
+  const hoy = todayStr();
+  /* Si ya hay otro lote abierto de ese producto, se pregunta si se ha terminado
+     (a veces hay dos abiertos a la vez, como con la gelatina). */
+  const otros = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre && normTxt(r.producto)===normTxt(producto) && normTxt(r.lote)!==normTxt(lote));
+  if(otros.length && decidido === undefined){
+    window.__obProd = producto; window.__obLote = lote;
+    obModal(`<div style="font-size:22px;font-weight:700;">${esc(producto)}</div>
+      <div style="margin:10px 0;">Ya hay abierto el lote <b>${otros.map(r=>esc(r.lote)).join(', ')}</b>. ¿Se ha terminado?</div>
+      <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obLote, true)">Sí, se ha terminado</button>
+      <button style="${OB_NO}" onclick="obAbrir(window.__obProd, window.__obLote, false)">No, siguen los dos abiertos</button>`);
+    return;
+  }
+  if(decidido === true) otros.forEach(r=>{ r.fechaCierre = hoy; r._ts = Date.now(); });
+  await abrirLoteMP(producto, lote, hoy, getWeekNumber(hoy), true);
+  showView('obrador');
+  obAviso('Abierto ✔<br><span style="font-weight:400;">' + esc(producto) + ' · lote ' + esc(lote) + '</span>');
+}
+/* 3) «Abrir un producto»: elegir el producto y abrir el que toca. */
+function obAbrirOtro(){
+  const conStock = (CONFIG.materiasPrimas||[]).filter(m=>(m.stockActual||0) > 0).map(m=>m.nombre);
+  const todos = nombresConocidos();
+  const lista = conStock.concat(todos.filter(n=>conStock.indexOf(n)<0))
+    .filter((n,i,a)=>n && a.indexOf(n)===i);
+  window.__obLista = lista;
+  obModal(`<div style="font-size:22px;font-weight:700;">¿Qué producto vais a abrir?</div>
+    <input type="text" id="obBuscaProd" placeholder="Escribe parte del nombre…" oninput="obPintarProductos(this.value)" autocomplete="off"
+      style="width:100%;font-size:22px;padding:14px;border:1px solid #d6c8b4;border-radius:12px;margin:10px 0;">
+    <div id="obProductos"></div>
+    <button style="${OB_NO}" onclick="obModal('')">Cancelar</button>`);
+  obPintarProductos('');
+  setTimeout(()=>{ const i = document.getElementById('obBuscaProd'); if(i) i.focus(); }, 200);
+}
+function obPintarProductos(q){
+  const t = normTxt(q);
+  const lista = (window.__obLista||[]).filter(n=>!t || normTxt(n).indexOf(t)>=0).slice(0, 12);
+  const host = document.getElementById('obProductos');
+  if(!host) return;
+  host.innerHTML = lista.map((n,i)=>`<button style="${OB_NO}text-align:left;padding:0 16px;font-weight:600;" onclick="obElegirProducto(${(window.__obLista||[]).indexOf(n)})">${esc(n)}</button>`).join('')
+    || '<p>No hay ningún producto con ese nombre.</p>';
+}
+function obElegirProducto(i){
+  const producto = (window.__obLista||[])[i];
+  if(!producto) return;
+  window.__obProd = producto;
+  const sig = siguienteEnvase(producto, null);
+  if(!sig){ obLoteAMano(); return; }
+  window.__obSig = sig;
+  obModal(`<div style="font-size:22px;font-weight:700;">${esc(producto)}</div>
+    <div style="margin:10px 0;">Toca abrir el lote <b>${esc(sig.lote)}</b>${sig.tipo==='mismo'?' · <b>MISMO LOTE</b>':''}${sig.fecha ? '<br><span style="font-size:17px;color:#6b5a48;">llegó el ' + fmtDate(sig.fecha) + '</span>' : ''}</div>
+    <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obSig.lote)">Abrir este</button>
+    <button style="${OB_NO}" onclick="obLoteAMano()">Es otro lote (lo escribo)</button>
+    <button style="${OB_NO}" onclick="obModal('')">Cancelar</button>`);
+}
+
 /* ---------- RENDERERS MAP & BOOT ---------- */
 const RENDERERS = {
   dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
   recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, produccion:viewProduccion, trazabilidad:viewTrazabilidad,
   transporte:viewTransporte,
-  materiasprimas:viewMateriasPrimas, revision:viewRevision,
+  obrador:viewObrador, materiasprimas:viewMateriasPrimas, revision:viewRevision,
   mantenimiento:viewMantenimiento, plagas:viewPlagas, noconformidades:viewNoConformidades, listeria:viewListeria,
   informes:viewInformes, ajustes:viewAjustes
 };
@@ -6701,6 +6874,17 @@ async function boot(){
   arrancarSync();
   document.querySelector('.navitem[data-view="dashboard"]').classList.add('active');
   document.getElementById('view-dashboard').classList.add('active');
+  /* Tablet del obrador: con ?obrador=1 se queda fija en la pantalla Obrador,
+     sin menú (se recuerda en ese aparato). ?obrador=0 lo quita. */
+  try{
+    const q = new URLSearchParams(location.search);
+    if(q.has('obrador')) localStorage.setItem('appcc_modo_obrador', q.get('obrador')==='0' ? '0' : '1');
+    if(localStorage.getItem('appcc_modo_obrador')==='1'){
+      document.body.classList.add('modo-obrador');
+      document.getElementById('view-dashboard').classList.remove('active');
+      showView('obrador');
+    }
+  }catch(e){}
   comprobarVersion();
 }
 
