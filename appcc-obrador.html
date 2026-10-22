@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-21-b';
+const APP_VERSION = '2026-10-22-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -6779,32 +6779,61 @@ async function obConfirmarTerminado(id){
   renderDashboard();
   obProponer(r.producto, r.lote);
 }
-/* 2) Propone el siguiente envase (el más antiguo; si queda del mismo lote, ese). */
-function obProponer(producto, loteCerrado){
-  const sig = siguienteEnvase(producto, loteCerrado);
+/* 2) Elegir qué lote se abre: un desplegable con los lotes que quedan en stock,
+   del que llegó primero al último (viene marcado el primero; si queda del lote
+   que se acaba de cerrar, ese, como MISMO LOTE). Se pueden abrir 1 o 2 a la vez. */
+function obLotesEnStock(producto, loteCerrado){
+  const disp = lotesRecibidos(producto)                 // ya viene ordenado por fecha, FIFO
+    .map(x=>({...x, quedan: x.cantidadRecibida - x.abiertos}))
+    .filter(x=>x.quedan > 0);
+  const i = loteCerrado ? disp.findIndex(x=>mismoLote(x.lote, loteCerrado)) : -1;
+  if(i > 0) disp.unshift(disp.splice(i,1)[0]);
+  return disp.map((x,k)=>({...x, mismo: k===0 && i>=0}));
+}
+function obProponer(producto, loteCerrado, titulo){
   window.__obProd = producto;
-  if(!sig){
-    obModal(`<div style="font-size:22px;font-weight:700;">Cerrado ✔</div>
-      <div style="margin:10px 0;">¿Vais a abrir otro <b>${esc(producto)}</b>?</div>
-      <button style="${OB_SI}" onclick="obLoteAMano()">Sí, escribo su lote</button>
+  const disp = obLotesEnStock(producto, loteCerrado);
+  window.__obDisp = disp;
+  const cab = titulo === undefined ? 'Cerrado ✔' : titulo;
+  if(!disp.length){
+    obModal(`${cab ? '<div style="font-size:22px;font-weight:700;">'+cab+'</div>' : ''}
+      <div style="margin:10px 0;">¿Vais a abrir ${cab ? 'otro ' : ''}<b>${esc(producto)}</b>?<br><span style="font-size:17px;color:#6b5a48;">No consta ningún envase cerrado en el stock.</span></div>
+      <button style="${OB_SI}" onclick="obLoteAMano(1)">Sí, escribo su lote</button>
       <button style="${OB_NO}" onclick="obModal('');viewObrador();">No, ahora no</button>`);
     return;
   }
-  window.__obSig = sig;
-  const mismo = sig.tipo === 'mismo';
-  obModal(`<div style="font-size:22px;font-weight:700;">Cerrado ✔</div>
-    <div style="margin:10px 0;">Ahora toca abrir:<br><b style="font-size:24px;">${esc(producto)}</b><br>
-      Lote <b>${esc(sig.lote)}</b>${mismo ? ' · <b>MISMO LOTE</b>' : ''}${sig.fecha ? '<br><span style="font-size:17px;color:#6b5a48;">llegó el ' + fmtDate(sig.fecha) + '</span>' : ''}</div>
-    <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obSig.lote)">Abrir este</button>
-    <button style="${OB_NO}" onclick="obLoteAMano()">Es otro lote (lo escribo)</button>
+  const opciones = disp.map((x,k)=>`<option value="${k}">${x.mismo ? 'MISMO LOTE · ' : k===0 ? '★ ' : ''}${esc(x.lote)} · ${x.fecha ? 'llegó el ' + fmtDate(x.fecha) : 'sin fecha'} · quedan ${x.quedan}</option>`).join('');
+  obModal(`${cab ? '<div style="font-size:22px;font-weight:700;">'+cab+'</div>' : ''}
+    <div style="font-size:24px;font-weight:700;margin:6px 0;">${esc(producto)}</div>
+    <div style="font-size:17px;color:#6b5a48;">¿Qué lote abrís? Viene marcado el que llegó primero.</div>
+    <select id="obSelLote" onchange="document.getElementById('obAvisoOrden').style.display = this.value!=='otro' && Number(this.value)>0 ? 'block' : 'none'"
+      style="width:100%;font-size:21px;padding:14px;border:2px solid #d6c8b4;border-radius:12px;margin:8px 0;background:#fff;">${opciones}<option value="otro">Otro lote (lo escribo)</option></select>
+    <div id="obAvisoOrden" style="display:none;font-size:17px;color:#8a5a00;background:#fff4e0;border-radius:10px;padding:8px 12px;">Ojo: hay un lote que llegó antes. Abrid primero el más antiguo salvo que ya no quede.</div>
+    <button style="${OB_SI}" onclick="obAbrirElegido(1)">Abrir 1</button>
+    <button style="${OB_SI}" onclick="obAbrirElegido(2)">Abrir 2 a la vez</button>
     <button style="${OB_NO}" onclick="obModal('');viewObrador();">No abro ninguno ahora</button>`);
 }
-function obLoteAMano(){
+/* Los envases que se abren: n a partir del lote elegido, siguiendo el orden de llegada. */
+function obAbrirElegido(n){
+  const sel = document.getElementById('obSelLote');
+  if(!sel) return;
+  if(sel.value === 'otro'){ obLoteAMano(n); return; }
+  const disp = window.__obDisp || [];
+  const lotes = [];
+  disp.slice(Number(sel.value)).forEach(x=>{ for(let k=0; k<x.quedan && lotes.length<n; k++) lotes.push(x.lote); });
+  if(lotes.length < n){
+    if(!confirm('Solo consta ' + lotes.length + ' envase cerrado en el stock. ¿Abrir igualmente ' + n + '?')) return;
+    while(lotes.length < n) lotes.push(lotes[lotes.length-1] || disp[Number(sel.value)].lote);
+  }
+  obAbrir(window.__obProd, lotes);
+}
+function obLoteAMano(n){
   const producto = window.__obProd;
+  window.__obCuantos = n || 1;
   obModal(`<div style="font-size:22px;font-weight:700;">${esc(producto)}</div>
-    <div style="margin:10px 0;">Escribe el número de lote que pone en el saco, cubo o caja:</div>
+    <div style="margin:10px 0;">Escribe el número de lote que pone en el saco, cubo o caja${window.__obCuantos>1 ? ' (se abren ' + window.__obCuantos + ' de este lote)' : ''}:</div>
     <input type="text" id="obLoteManual" autocomplete="off" style="width:100%;font-size:24px;padding:14px;border:1px solid #d6c8b4;border-radius:12px;">
-    <button style="${OB_SI}" onclick="obAbrirManual()">Abrir</button>
+    <button style="${OB_SI}" onclick="obAbrirManual()">${window.__obCuantos>1 ? 'Abrir ' + window.__obCuantos : 'Abrir'}</button>
     <button style="${OB_NO}" onclick="obModal('');viewObrador();">Cancelar</button>`);
   setTimeout(()=>{ const i = document.getElementById('obLoteManual'); if(i) i.focus(); }, 200);
 }
@@ -6812,25 +6841,42 @@ function obAbrirManual(){
   const i = document.getElementById('obLoteManual');
   const lote = i ? i.value.trim() : '';
   if(!lote){ if(i) i.focus(); return; }
-  obAbrir(window.__obProd, lote);
+  obAbrir(window.__obProd, Array(window.__obCuantos || 1).fill(lote));
 }
-async function obAbrir(producto, lote, decidido){
+async function obAbrir(producto, lotes, decidido){
+  if(!Array.isArray(lotes)) lotes = [lotes];
   const hoy = todayStr();
   /* Si ya hay otro lote abierto de ese producto, se pregunta si se ha terminado
      (a veces hay dos abiertos a la vez, como con la gelatina). */
-  const otros = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre && normTxt(r.producto)===normTxt(producto) && normTxt(r.lote)!==normTxt(lote));
+  const otros = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre && normTxt(r.producto)===normTxt(producto) && !lotes.some(l=>normTxt(r.lote)===normTxt(l)));
   if(otros.length && decidido === undefined){
-    window.__obProd = producto; window.__obLote = lote;
+    window.__obProd = producto; window.__obLotes = lotes;
     obModal(`<div style="font-size:22px;font-weight:700;">${esc(producto)}</div>
       <div style="margin:10px 0;">Ya hay abierto el lote <b>${otros.map(r=>esc(r.lote)).join(', ')}</b>. ¿Se ha terminado?</div>
-      <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obLote, true)">Sí, se ha terminado</button>
-      <button style="${OB_NO}" onclick="obAbrir(window.__obProd, window.__obLote, false)">No, siguen los dos abiertos</button>`);
+      <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obLotes, true)">Sí, se ha terminado</button>
+      <button style="${OB_NO}" onclick="obAbrir(window.__obProd, window.__obLotes, false)">No, se quedan abiertos a la vez</button>`);
     return;
   }
   if(decidido === true) otros.forEach(r=>{ r.fechaCierre = hoy; r._ts = Date.now(); });
-  await abrirLoteMP(producto, lote, hoy, getWeekNumber(hoy), true);
+  for(let i=0; i<lotes.length; i++){
+    /* Dos envases del mismo lote a la vez: el segundo va en su propia línea
+       (abrirLoteMP lo juntaría con el primero) y cuenta como MISMO LOTE. */
+    if(lotes.slice(0,i).some(l=>normTxt(l)===normTxt(lotes[i]))) await obAbrirOtroEnvase(producto, lotes[i], hoy);
+    else await abrirLoteMP(producto, lotes[i], hoy, getWeekNumber(hoy), true);
+  }
   showView('obrador');
-  obAviso('Abierto ✔<br><span style="font-weight:400;">' + esc(producto) + ' · lote ' + esc(lote) + '</span>');
+  const txt = lotes.filter((l,i,a)=>a.indexOf(l)===i)
+    .map(l=>{ const n = lotes.filter(x=>x===l).length; return 'lote ' + esc(l) + (n>1 ? ' (×' + n + ')' : ''); }).join(' y ');
+  obAviso((lotes.length>1 ? 'Abiertos ✔' : 'Abierto ✔') + '<br><span style="font-weight:400;">' + esc(producto) + ' · ' + txt + '</span>');
+}
+async function obAbrirOtroEnvase(producto, lote, hoy){
+  const sem = getWeekNumber(hoy);
+  DATA.lotesMP.unshift({id:uid(), producto, lote:String(lote).trim(), fechaApertura:hoy, fechaCierre:'',
+                        semana: sem, semanas:[sem], mismoLote: true, _ts: Date.now()});
+  await saveModule('lotesMP');
+  const ix = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===producto.trim().toLowerCase());
+  if(ix>=0){ CONFIG.materiasPrimas[ix].stockActual = Math.max(0, CONFIG.materiasPrimas[ix].stockActual - 1); await saveConfig(); }
+  renderDashboard();
 }
 /* 3) «Abrir un producto»: elegir el producto y abrir el que toca. */
 function obAbrirOtro(){
@@ -6858,15 +6904,7 @@ function obPintarProductos(q){
 function obElegirProducto(i){
   const producto = (window.__obLista||[])[i];
   if(!producto) return;
-  window.__obProd = producto;
-  const sig = siguienteEnvase(producto, null);
-  if(!sig){ obLoteAMano(); return; }
-  window.__obSig = sig;
-  obModal(`<div style="font-size:22px;font-weight:700;">${esc(producto)}</div>
-    <div style="margin:10px 0;">Toca abrir el lote <b>${esc(sig.lote)}</b>${sig.tipo==='mismo'?' · <b>MISMO LOTE</b>':''}${sig.fecha ? '<br><span style="font-size:17px;color:#6b5a48;">llegó el ' + fmtDate(sig.fecha) + '</span>' : ''}</div>
-    <button style="${OB_SI}" onclick="obAbrir(window.__obProd, window.__obSig.lote)">Abrir este</button>
-    <button style="${OB_NO}" onclick="obLoteAMano()">Es otro lote (lo escribo)</button>
-    <button style="${OB_NO}" onclick="obModal('')">Cancelar</button>`);
+  obProponer(producto, null, '');
 }
 
 /* ================= TABLET DEL OBRADOR: INICIO CON BOTONES GRANDES =================
