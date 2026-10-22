@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-c';
+const APP_VERSION = '2026-10-22-d';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -4791,10 +4791,36 @@ function materiaDelAlbaran(nombre){
   }
   return idx;
 }
+/* Envases (sacos, cajas, cubos…) de una línea de albarán. Algunos proveedores
+   ponen la cantidad en kilos o litros («56.000 KG» de «Cremmy 4X4 Saco 14Kg») y
+   otros repiten el peso del saco («25.00» de «PROKORN 25 KG.»): se pasa a envases
+   con el tamaño que dice el nombre del producto. */
+function tamanoEnvase(producto){
+  const t = String(producto||'').toLowerCase().replace(',', '.');
+  const base = (n, u)=> /^(g|gr|ml)$/.test(u) ? n/1000 : n;
+  let m = /(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(kg|k|l|lt|g|gr|ml)\b/.exec(t);
+  if(m) return parseFloat(m[1]) * base(parseFloat(m[2]), m[3]);
+  const todos = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(kg|kgs|k|l|lt|litros?|g|gr|ml)\b/g)];
+  if(!todos.length) return 0;
+  const u = todos[todos.length-1];
+  return base(parseFloat(u[1]), u[2]);
+}
+function envasesDeLinea(producto, cantidadStr){
+  const s = String(cantidadStr==null?'':cantidadStr).toLowerCase();
+  let n = parseFloat(s.replace(',', '.'));
+  if(!isFinite(n) || n <= 0) return 1;
+  const tam = tamanoEnvase(producto);
+  if(/\b(kg|kgs|kilos?|l|lt|litros?|g|gr|ml)\b/.test(s)){
+    const enBase = /\b(g|gr|ml)\b/.test(s) ? n/1000 : n;
+    return tam ? Math.max(1, Math.round(enBase / tam)) : 1;
+  }
+  const conUnidad = /[a-z]/.test(s.replace(/[\d.,\s]/g,''));
+  if(!conUnidad && tam >= 5 && n >= tam && Math.abs(n/tam - Math.round(n/tam)) < 0.01) return Math.round(n/tam);
+  return n;
+}
 async function registrarEntradaStock(nombre, proveedor, cantidadStr){
   if(!nombre || !nombre.trim()) return null;
-  let cantidad = parseFloat(String(cantidadStr).replace(',','.'));
-  if(!isFinite(cantidad) || cantidad<=0) cantidad = 1;
+  const cantidad = envasesDeLinea(nombre, cantidadStr);
   const idx = materiaDelAlbaran(nombre);
   if(idx>=0){
     CONFIG.materiasPrimas[idx].stockActual = (Number(CONFIG.materiasPrimas[idx].stockActual)||0) + cantidad;
@@ -4834,7 +4860,7 @@ async function limpiarAlbaranesDuplicados(){
   for(const r of quitar){
     if(r.stockSumado){
       const idx = materiaDelAlbaran(r.producto);
-      if(idx >= 0) CONFIG.materiasPrimas[idx].stockActual = Math.max(0, (Number(CONFIG.materiasPrimas[idx].stockActual)||0) - (parseFloat(String(r.cantidad).replace(',','.')) || 1));
+      if(idx >= 0) CONFIG.materiasPrimas[idx].stockActual = Math.max(0, (Number(CONFIG.materiasPrimas[idx].stockActual)||0) - envasesDeLinea(r.producto, r.cantidad));
     }
     BAJAS[r.id] = Date.now();
   }
@@ -4855,7 +4881,7 @@ async function sumarStockRecepcionesPendientes(desde){
   for(const r of pend){
     if(r.cargaMasiva){
       const n = await registrarEntradaStock(r.producto, r.proveedor, r.cantidad);
-      if(n) sumados[n] = (sumados[n]||0) + (parseFloat(String(r.cantidad).replace(',','.')) || 1);
+      if(n) sumados[n] = (sumados[n]||0) + envasesDeLinea(r.producto, r.cantidad);
     }
     r.stockSumado = true;   // las de foto de una en una ya sumaron al guardarse
   }
