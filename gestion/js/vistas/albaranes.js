@@ -136,16 +136,81 @@
     return 'rcp-' + Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 28);
   }
 
+  // La IA lee el mismo papel con pequeñas diferencias (una letra del nº, «FD-004613» /
+  // «SD-004613»; el código del proveedor delante del producto…). Por eso se compara:
+  // misma entrega = mismo proveedor y mismas CIFRAS del nº (o misma fecha si falta);
+  // misma línea = mismo lote y producto parecido. Si una línea coincide, es una copia.
+  const cifras = (n) => String(n || '').replace(/\D/g, '').replace(/^0+/, '');
+  const sinCodigo = (t) => N(String(t || '').replace(/^\s*\d{4,8}\s+/, '')).replace(/[^a-z0-9]+/g, ' ').trim();
+  const alnum = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  function mismoProveedor(a, b) {
+    const x = sinCodigo(a), y = sinCodigo(b);
+    return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
+  }
+  function mismaEntrega(r, d) {
+    if (!mismoProveedor(r.proveedor, d.proveedor)) return false;
+    const a = cifras(r.numAlbaran), b = cifras(d.numAlbaran);
+    return a.length >= 3 && b.length >= 3 ? a === b : r.fecha === d.fecha;
+  }
+  function mismoLote(a, b) {
+    const x = alnum(a), y = alnum(b);
+    if (!x || !y) return false;
+    const [c, l] = x.length <= y.length ? [x, y] : [y, x];
+    return x === y || (c.length >= 4 && l.includes(c));
+  }
+  function mismoProducto(a, b) {
+    const x = sinCodigo(a).split(' ').filter(Boolean), y = sinCodigo(b).split(' ').filter(Boolean);
+    if (!x.length || !y.length) return false;
+    if (x.join(' ') === y.join(' ')) return true;
+    const [c, l] = x.length <= y.length ? [x, y] : [y, x];
+    return c.length >= 2 && c.some((w) => w.length >= 4) && c.every((w) => l.includes(w));
+  }
+  // Dentro de la misma entrega, el mismo lote ya identifica la línea (el nombre puede venir
+  // como el del proveedor o como el nuestro); sin lote, mismo producto y misma cantidad.
+  // (un lote muy corto, «148», puede repetirse entre productos: entonces también el producto).
+  const lineaRepetida = (r, l) =>
+    r.lote && l.lote
+      ? mismoLote(r.lote, l.lote) && (alnum(l.lote).length >= 4 || mismoProducto(r.producto, l.producto))
+      : !r.lote && !l.lote && mismoProducto(r.producto, l.producto) && U.num(r.cantidad) === U.num(l.cantidad);
+
+  // Envases de una línea: algunos albaranes ponen kilos o litros («56.000 KG» de
+  // «Cremmy 4X4 Saco 14Kg») o repiten el peso del saco («25.00» de «PROKORN 25 KG»).
+  function tamanoEnvase(producto) {
+    const t = String(producto || '').toLowerCase().replace(',', '.');
+    const base = (n, u) => (/^(g|gr|ml)$/.test(u) ? n / 1000 : n);
+    const m = /(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(kg|k|l|lt|g|gr|ml)\b/.exec(t);
+    if (m) return parseFloat(m[1]) * base(parseFloat(m[2]), m[3]);
+    const todos = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(kg|kgs|k|l|lt|litros?|g|gr|ml)\b/g)];
+    return todos.length ? base(parseFloat(todos[todos.length - 1][1]), todos[todos.length - 1][2]) : 0;
+  }
+  function envasesDeLinea(producto, cantidad) {
+    const s = String(cantidad ?? '').toLowerCase();
+    const n = parseFloat(s.replace(',', '.'));
+    if (!isFinite(n) || n <= 0) return '';
+    const tam = tamanoEnvase(producto);
+    if (/\b(kg|kgs|kilos?|l|lt|litros?|g|gr|ml)\b/.test(s)) return tam ? Math.max(1, Math.round((/\b(g|gr|ml)\b/.test(s) ? n / 1000 : n) / tam)) : 1;
+    const conUnidad = /[a-z]/.test(s.replace(/[\d.,\s]/g, ''));
+    if (!conUnidad && tam >= 5 && n >= tam && Math.abs(n / tam - Math.round(n / tam)) < 0.01) return Math.round(n / tam);
+    return n;
+  }
+  // Albaranes de hace más de 60 días: se guardan para la trazabilidad, pero esa mercancía ya se gastó
+  const DIAS_STOCK = 60;
+  const esAntiguo = (fecha) => !!fecha && U.diasEntre(fecha, U.hoy()) > DIAS_STOCK;
+
   // Devuelve { resultado: 'nuevo' | 'segunda-hoja' | 'duplicado', nuevas }
   App.guardarAlbaran = async (d, lineas, fotos, { forzarNuevo = false, sinStock = false, origen = 'foto', extra = () => ({}) } = {}) => {
     if (db.modoNube) await db.sincronizar(); // ver lo que hayan guardado otros aparatos
-    const base = d.numAlbaran ? [d.proveedor, 'num', d.numAlbaran] : [d.proveedor, 'fecha', d.fecha];
+    const num = cifras(d.numAlbaran);
+    const base = num.length >= 3 ? [d.proveedor, 'num', num] : d.numAlbaran ? [d.proveedor, 'num', d.numAlbaran] : [d.proveedor, 'fecha', d.fecha];
     const sufijo = forzarNuevo ? U.uid() : '';
     const albaranId = await idFijo(...base, sufijo);
+    const misma = forzarNuevo ? [] : recepciones().filter((r) => mismaEntrega(r, d));
+    if (lineas.some((l) => misma.some((r) => lineaRepetida(r, l)))) return { resultado: 'duplicado', nuevas: 0 };
     const ids = await Promise.all(lineas.map((l) => idFijo(...base, l.producto, l.lote, sufijo)));
     const nuevas = lineas.map((l, i) => ({ l, id: ids[i] })).filter(({ id }) => !db.obtener('registros', id));
     if (!nuevas.length) return { resultado: 'duplicado', nuevas: 0 };
-    const yaHabia = recepciones().some((r) => r.albaranId === albaranId);
+    const yaHabia = misma.length > 0 || recepciones().some((r) => r.albaranId === albaranId);
+    sinStock = sinStock || esAntiguo(d.fecha);
 
     const rutas = [];
     for (const [i, f] of (fotos || []).entries()) {
@@ -168,7 +233,7 @@
     return { resultado: yaHabia ? 'segunda-hoja' : 'nuevo', nuevas: nuevas.length };
   };
 
-  App.Albaranes = { prepararFoto: (f) => prepararFoto(f), fechaLeida: (s) => fechaLeida(s), revisar: (...a) => revisar(...a) };
+  App.Albaranes = { prepararFoto: (f) => prepararFoto(f), fechaLeida: (s) => fechaLeida(s), revisar: (...a) => revisar(...a), envasesDeLinea, esAntiguo };
 
   // ---------- Paso 2: revisar lo leído y guardar ----------
   function revisar(datos, fotos, opciones = {}) {
@@ -180,7 +245,7 @@
       return `<tr data-i="${i}">
         <td><input name="producto" list="dl-materias-alb" value="${esc(m ? m.nombre : l.producto)}" class="${m ? '' : 'sin-catalogo'}" required></td>
         <td><input name="lote" value="${esc(l.lote)}" required style="width:130px"></td>
-        <td><input name="cantidad" inputmode="numeric" value="${esc((String(l.cantidad ?? '').match(/\d+(?:[.,]\d+)?/) || [''])[0])}" style="width:70px"></td>
+        <td><input name="cantidad" inputmode="numeric" value="${esc(String(envasesDeLinea(l.producto, l.cantidad)).replace('.', ','))}" style="width:70px"></td>
         <td><input name="caducidad" type="date" value="${esc(fechaLeida(l.caducidad))}"></td>
         <td><select name="conservacion"><option value="ambiente">Ambiente</option><option value="refrigerado">Refrigerado</option><option value="congelado">Congelado</option></select></td>
         <td><input name="temp" inputmode="decimal" placeholder="ºC" style="width:64px"></td>

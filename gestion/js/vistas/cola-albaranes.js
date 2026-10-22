@@ -69,9 +69,8 @@
           <input type="file" accept="image/*" multiple hidden id="in-cola"></label>
         <div class="fila-campos">
           ${App.selectPersona('quien', undefined, '¿Quién recepciona?')}
-          <label class="check"><input type="checkbox" id="suma-stock"> La mercancía acaba de llegar (suma al stock de materias primas)</label>
         </div>
-        <p class="tenue">Si son albaranes antiguos de la carpeta, deja la casilla sin marcar: esa mercancía ya se gastó y no debe contar en el stock.</p>
+        <p class="tenue">Lo que llega en los albaranes suma al stock de materias primas. Los albaranes de hace más de 60 días se guardan para la trazabilidad, pero no suman: esa mercancía ya se gastó.</p>
         <div class="progreso"><div class="progreso-barra" style="width:${items.length ? Math.round((hechos / items.length) * 100) : 0}%"></div></div>
         <p class="estado-ia" id="estado-cola">${items.length ? `${hechos} de ${items.length} terminados · ${pend} en cola · ${cuenta('revisar')} para revisar · ${cuenta('duplicado')} ya estaban` : 'La cola está vacía.'}</p>
         <div class="acciones izq">
@@ -168,7 +167,6 @@
     const quien = App.vista().querySelector('[name=quien]')?.value || '';
     if (!quien) return U.toast('Elige quién recepciona', 'error');
     U.ultimoUsuario(quien);
-    const sinStock = !App.vista().querySelector('#suma-stock')?.checked;
     corriendo = true;
     parar = false;
     try {
@@ -199,7 +197,7 @@
           const d = { proveedor: (datos.proveedor || '').trim(), numAlbaran: (datos.numAlbaran || '').trim(), fecha: App.Albaranes.fechaLeida(datos.fecha), hora: '', quien, estado: 'ok', vehiculo: 'ok' };
           const lineas = (datos.lineas || [])
             .filter((l) => l.producto || l.lote)
-            .map((l) => ({ producto: l.producto, lote: l.lote, cantidad: (String(l.cantidad ?? '').match(/\d+(?:[.,]\d+)?/) || [''])[0], caducidad: App.Albaranes.fechaLeida(l.caducidad), conservacion: 'ambiente' }));
+            .map((l) => ({ producto: l.producto, lote: l.lote, cantidad: App.Albaranes.envasesDeLinea(l.producto, l.cantidad), caducidad: App.Albaranes.fechaLeida(l.caducidad), conservacion: 'ambiente' }));
           const motivo = !d.fecha
             ? `no se lee bien la fecha${datos.fecha ? ` («${datos.fecha}»)` : ''}`
             : d.fecha > U.hoy()
@@ -216,7 +214,7 @@
             Object.assign(it, { estado: 'revisar', mensaje: `${quienEs}: ${motivo}` });
             resumen.revisar++;
           } else {
-            const r = await App.guardarAlbaran(d, lineas, [{ blob: it.blob, hash: it.hash }], { sinStock, origen: 'carga-masiva' });
+            const r = await App.guardarAlbaran(d, lineas, [{ blob: it.blob, hash: it.hash }], { origen: 'carga-masiva' });
             if (r.resultado === 'duplicado') {
               Object.assign(it, { estado: 'duplicado', mensaje: `${quienEs}: ya estaba guardado, no se ha duplicado` });
               resumen.duplicados++;
@@ -270,7 +268,6 @@
 
   function revisarItem(it) {
     App.Albaranes.revisar(it.datos || { proveedor: '', numAlbaran: '', fecha: '', lineas: [] }, [{ blob: it.blob, hash: it.hash, vista: URL.createObjectURL(it.blob) }], {
-      sinStock: !App.vista().querySelector('#suma-stock')?.checked,
       alGuardar: async (r) => {
         Object.assign(it, { estado: r.resultado === 'duplicado' ? 'duplicado' : 'guardado', mensaje: r.resultado === 'duplicado' ? 'Ya estaba guardado' : `Revisado y guardado: ${r.nuevas} producto(s)` });
         await Cola.poner(it);
