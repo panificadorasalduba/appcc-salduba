@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-g';
+const APP_VERSION = '2026-10-22-h';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -4873,6 +4873,11 @@ function materiaDelAlbaran(nombre){
   const mps = CONFIG.materiasPrimas || [];
   let idx = mps.findIndex(m=>normTxt(m.nombre)===normTxt(bueno));
   if(idx < 0) idx = mps.findIndex(m=>normTxt(m.nombre)===normTxt(limpiaCodigoProveedor(nombre)));
+  // Otros nombres guardados al juntar productos repetidos («PROKORN 25 KG.» → Prokorn)
+  if(idx < 0){
+    const n = normTxt(nombre);
+    if(n.length >= 6) idx = mps.findIndex(m=>m.alias && normTxt(m.alias).includes(n));
+  }
   if(idx < 0){
     const mejor = mejorProductoPara(nombre, mps.map(m=>m.nombre));
     if(mejor) idx = mps.findIndex(m=>m.nombre===mejor);
