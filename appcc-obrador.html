@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-d';
+const APP_VERSION = '2026-10-22-e';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1429,12 +1429,13 @@ function mismaEntrega(r, proveedor, fecha, numAlbaran){
   if(a.length >= 3 && b.length >= 3) return a === b;
   return r.fecha === fecha;
 }
+/* Dentro de la misma entrega el mismo lote ya identifica la línea (el nombre puede
+   venir leído de dos maneras); si el lote es muy corto («148»), también el producto. */
 function lineaYaGuardada(r, l){
   const mismoNombre = normTxt(limpiaCodigoProveedor(r.producto)) === normTxt(limpiaCodigoProveedor(l.producto))
     || mismoProducto(r.producto, l.producto);
-  if(!mismoNombre) return false;
-  if(r.lote && l.lote) return mismoLote(r.lote, l.lote);
-  return !r.lote && !l.lote && cantidadNum(r.cantidad) === cantidadNum(l.cantidad);
+  if(r.lote && l.lote) return mismoLote(r.lote, l.lote) && (String(l.lote).replace(/[^a-z0-9]/gi,'').length >= 4 || mismoNombre);
+  return mismoNombre && !r.lote && !l.lote && cantidadNum(r.cantidad) === cantidadNum(l.cantidad);
 }
 /** ¿Este albarán ya está guardado? previo: la línea guardada que coincide (es una
     copia); misma: lo guardado de esa misma entrega (si no coincide nada, es otra hoja). */
