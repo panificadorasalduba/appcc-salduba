@@ -205,9 +205,9 @@
       <button class="btn btn-grande bloque" data-cerrar>Cancelar</button>`);
     const pintar = (q) => {
       const t = N(q);
-      const f = lista.filter((m) => !t || N(m.nombre).includes(t)).slice(0, 12);
+      const f = lista.filter((m) => !t || N(`${m.nombre} ${m.alias || ''}`).includes(t)).slice(0, 12);
       v.el.querySelector('#lista-materias').innerHTML = f.length
-        ? f.map((m) => `<button class="btn btn-grande bloque izq" data-id="${m.id}">${esc(m.nombre)} <small>${App.stockMateria(m)} cerrados</small></button>`).join('')
+        ? f.map((m) => `<button class="btn btn-grande bloque izq" data-id="${m.id}">${esc(m.nombre)}${m.alias ? ` <small>· ${esc(m.alias)}</small>` : ''} <small>${App.stockMateria(m)} cerrados</small></button>`).join('')
         : `<p>No hay ningún producto con ese nombre.${db.esAdmin() && !App.modoObrador() ? ' Dalo de alta en «Materias primas».' : ' Avisa al encargado para que lo dé de alta.'}</p>`;
     };
     pintar('');
@@ -304,6 +304,7 @@
       defecto: { categoria: 'Pastelería', unidad: 'envase', stockMinimo: 0 },
       campos: [
         { n: 'nombre', l: 'Nombre (como aparece en el albarán)', req: true },
+        { n: 'alias', l: 'Otros nombres en el obrador (p. ej. papel de horno)' },
         { n: 'categoria', l: 'Categoría', t: 'select', ops: ['Panadería', 'Pastelería', 'Común', 'Envases y material'], req: true },
         { n: 'proveedor', l: 'Proveedor habitual' },
         { n: 'unidad', l: 'Envase', t: 'select', ops: ['saco', 'caja', 'cubo', 'bote', 'garrafa', 'bolsa', 'envase'] },
@@ -311,7 +312,7 @@
       ],
       columnas: [
         ['Categoría', (m) => esc(m.categoria || '')],
-        ['Materia prima', (m) => `<b>${esc(m.nombre)}</b>`],
+        ['Materia prima', (m) => `<b>${esc(m.nombre)}</b>${m.alias ? `<br><small>${esc(m.alias)}</small>` : ''}`],
         ['Cerrados', (m) => {
           const s = App.stockMateria(m);
           return s <= (m.stockMinimo || 0) && m.stockMinimo ? App.chip('fuera', `${s} ${m.unidad || ''}`) : `${s} ${esc(m.unidad || '')}`;
