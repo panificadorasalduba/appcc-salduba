@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-a';
+const APP_VERSION = '2026-10-22-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3697,6 +3697,7 @@ function renderCatalogoMP(){
   if(elegido) lista = lista.filter(x=> x.m.nombre === elegido);
   else if(q) lista = lista.filter(x=>
     (x.m.nombre||'').toLowerCase().includes(q) ||
+    (x.m.alias||'').toLowerCase().includes(q) ||
     (x.m.proveedor||'').toLowerCase().includes(q) ||
     (x.m.categoria||'').toLowerCase().includes(q));
   if(cuentaEl) cuentaEl.textContent = lista.length+' producto'+(lista.length===1?'':'s')+' de '+CONFIG.materiasPrimas.length+' en total';
@@ -3706,6 +3707,7 @@ function renderCatalogoMP(){
   }
   const rows = lista.map(({m, i})=>`<tr>
     <td><input type="text" value="${esc(m.nombre)}" style="width:170px;" onchange="updateMPField(${i},'nombre',this.value)"></td>
+    <td><input type="text" value="${esc(m.alias||'')}" style="width:130px;" onchange="updateMPField(${i},'alias',this.value.trim())" placeholder="p. ej. papel de horno"></td>
     <td><input type="text" value="${esc(m.categoria)}" style="width:90px;" onchange="updateMPField(${i},'categoria',this.value)"></td>
     <td><input type="text" value="${esc(m.proveedor)}" style="width:110px;" onchange="updateMPField(${i},'proveedor',this.value)" placeholder="Proveedor"></td>
     <td><input type="text" value="${esc(m.unidad)}" style="width:70px;" onchange="updateMPField(${i},'unidad',this.value)"></td>
@@ -3713,7 +3715,7 @@ function renderCatalogoMP(){
     <td><input type="number" value="${m.stockActual}" style="width:55px;${m.stockActual<=m.stockMinimo?'color:var(--danger);font-weight:700;':''}" onchange="updateMPField(${i},'stockActual',parseFloat(this.value)||0)"></td>
     <td><button class="btn danger small" onclick="removeMP(${i})">Quitar</button></td>
   </tr>`);
-  document.getElementById('catalogo-mp-table').innerHTML = table(['Producto','Categoría','Proveedor','Ud.','Mín.','Actual',''], rows);
+  document.getElementById('catalogo-mp-table').innerHTML = table(['Producto','Otros nombres (para buscar)','Categoría','Proveedor','Ud.','Mín.','Actual',''], rows);
 }
 async function updateMPField(i, field, value){
   CONFIG.materiasPrimas[i][field] = value;
@@ -6893,12 +6895,17 @@ function obAbrirOtro(){
   obPintarProductos('');
   setTimeout(()=>{ const i = document.getElementById('obBuscaProd'); if(i) i.focus(); }, 200);
 }
+/* Otros nombres con los que se conoce un producto en el obrador (p. ej. «papel de horno»), del catálogo de materias primas. */
+function obAliasDe(n){
+  const m = (CONFIG.materiasPrimas||[]).find(x=>normTxt(x.nombre)===normTxt(n));
+  return m && m.alias ? String(m.alias) : '';
+}
 function obPintarProductos(q){
   const t = normTxt(q);
-  const lista = (window.__obLista||[]).filter(n=>!t || normTxt(n).indexOf(t)>=0).slice(0, 12);
+  const lista = (window.__obLista||[]).filter(n=>!t || normTxt(n + ' ' + obAliasDe(n)).indexOf(t)>=0).slice(0, 12);
   const host = document.getElementById('obProductos');
   if(!host) return;
-  host.innerHTML = lista.map((n,i)=>`<button style="${OB_NO}text-align:left;padding:0 16px;font-weight:600;" onclick="obElegirProducto(${(window.__obLista||[]).indexOf(n)})">${esc(n)}</button>`).join('')
+  host.innerHTML = lista.map((n,i)=>`<button style="${OB_NO}text-align:left;padding:0 16px;font-weight:600;" onclick="obElegirProducto(${(window.__obLista||[]).indexOf(n)})">${esc(n)}${obAliasDe(n) ? ' <span style="font-weight:400;color:#6b5a48;">· ' + esc(obAliasDe(n)) + '</span>' : ''}</button>`).join('')
     || '<p>No hay ningún producto con ese nombre.</p>';
 }
 function obElegirProducto(i){
