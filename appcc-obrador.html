@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-b';
+const APP_VERSION = '2026-10-22-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1410,6 +1410,42 @@ function huellaAlbaran(proveedor, fecha, numAlbaran, lineas){
     .filter(x=>x.replace(/[#\s]/g,'')).sort().join('|');
   return 'c:'+prov+'|'+(fecha||'')+'|'+huellaTexto(cuerpo);
 }
+/* La huella exacta no basta: la IA lee el mismo papel con pequeñas diferencias
+   (una letra del número, «FD-004613» / «SD-004613»; el código delante del nombre
+   del producto…). Por eso además se compara así:
+   - misma entrega: mismo proveedor y las mismas CIFRAS del nº de albarán (o la
+     misma fecha si alguno no tiene número);
+   - misma línea: el mismo producto (con la tabla de equivalencias) y el mismo lote.
+   Si una sola línea ya está guardada en esa entrega, el albarán es una copia. */
+function cifrasAlbaran(n){ return String(n||'').replace(/\D/g,'').replace(/^0+/,''); }
+function mismoProveedor(a, b){
+  const x = normTxt(a), y = normTxt(b);
+  if(!x || !y) return x === y;
+  return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+}
+function mismaEntrega(r, proveedor, fecha, numAlbaran){
+  if(!mismoProveedor(r.proveedor, proveedor)) return false;
+  const a = cifrasAlbaran(r.numAlbaran), b = cifrasAlbaran(numAlbaran);
+  if(a.length >= 3 && b.length >= 3) return a === b;
+  return r.fecha === fecha;
+}
+function lineaYaGuardada(r, l){
+  const mismoNombre = normTxt(limpiaCodigoProveedor(r.producto)) === normTxt(limpiaCodigoProveedor(l.producto))
+    || mismoProducto(r.producto, l.producto);
+  if(!mismoNombre) return false;
+  if(r.lote && l.lote) return mismoLote(r.lote, l.lote);
+  return !r.lote && !l.lote && cantidadNum(r.cantidad) === cantidadNum(l.cantidad);
+}
+/** ¿Este albarán ya está guardado? previo: la línea guardada que coincide (es una
+    copia); misma: lo guardado de esa misma entrega (si no coincide nada, es otra hoja). */
+function albaranRepetido(proveedor, fecha, numAlbaran, lineas){
+  const misma = (DATA.recepcion||[]).filter(r=>mismaEntrega(r, proveedor, fecha, numAlbaran));
+  for(const l of (lineas||[])){
+    const r = misma.find(x=>lineaYaGuardada(x, l));
+    if(r) return {previo:r, misma};
+  }
+  return {previo:null, misma};
+}
 /** Huellas de todo lo ya registrado, incluidos los registros antiguos que
     todavía no llevaban huella guardada. */
 function huellasRegistradas(){
@@ -1821,36 +1857,37 @@ async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
   if(!fechaOk) return {estado:'sinfecha', proveedor, numAlbaran, fechaLeida};
 
   const huella = huellaAlbaran(proveedor, fecha, numAlbaran, lineas);
-  const previo = huellasRegistradas().get(huella);
-  let segundaHoja = false;
-  if(previo){
-    /* Un albarán de dos hojas se fotografía en dos veces y lleva el MISMO número,
-       así que el freno de duplicados lo tomaría por repetido y se perderían los
-       productos de la segunda hoja. Se distingue así: si NINGUNO de los productos
-       leídos está ya guardado en ese albarán, es otra hoja y se añade. Si alguno
-       coincide, es la misma hoja leída otra vez y se descarta entera — más vale
-       descartar de más que inventar una línea que no existe. */
-    const yaEstan = new Set();
-    (DATA.recepcion||[]).forEach(r=>{
-      if(r.huella === huella) yaEstan.add(normTxt(r.producto)+'#'+normTxt(r.lote));
-    });
-    const todasNuevas = yaEstan.size > 0 && lineas.every(l=>!yaEstan.has(normTxt(l.producto)+'#'+normTxt(l.lote)));
-    if(!todasNuevas) return {estado:'duplicado', previo, proveedor, fecha};
-    segundaHoja = true;
-  }
+  /* Un albarán de dos hojas se fotografía en dos veces y lleva el MISMO número,
+     así que el freno de duplicados lo tomaría por repetido y se perderían los
+     productos de la segunda hoja. Se distingue así: si NINGUNO de los productos
+     leídos está ya guardado en esa entrega, es otra hoja y se añade. Si alguno
+     coincide, es la misma hoja leída otra vez y se descarta entera — más vale
+     descartar de más que inventar una línea que no existe. */
+  const rep = albaranRepetido(proveedor, fecha, numAlbaran, lineas);
+  if(rep.previo) return {estado:'duplicado', previo:rep.previo, proveedor, fecha};
+  const segundaHoja = rep.misma.length > 0 || huellasRegistradas().has(huella);
 
   const fotoHash = huellaFoto(dataUrl);
   let fotoId = uid();
   try{ await Store.set('foto:'+fotoId, dataUrl); }catch(e){ console.error(e); fotoId=null; }
 
+  /* La mercancía de un albarán reciente entra en el stock, como al hacer la foto
+     de uno en uno. Los albaranes antiguos (más de DIAS_ATRAS_MAX días) se guardan
+     para la trazabilidad pero no suman: esa mercancía ya se gastó. */
+  const sumaStock = !fechaSospechosa(fecha);
   lineas.forEach(l=>{
     DATA.recepcion.unshift({id:uid(), fecha, hora:'', proveedor, numAlbaran,
       producto:l.producto, lote:l.lote, cantidad:l.cantidad, tempLlegada:'', estadoEnvase:'Correcto',
       caducidad:l.caducidad, aceptado:true, responsable,
       observaciones: (l.cantidad?('Cantidad: '+l.cantidad+'. '):'') + 'Cargado en bloque desde albarán en papel.',
-      fotoId, huella, fotoHash, fechaOk, fechaPorConfirmar: !fechaOk, fechaLeida, cargaMasiva:true});
+      fotoId, huella, fotoHash, fechaOk, fechaPorConfirmar: !fechaOk, fechaLeida, cargaMasiva:true,
+      ...(sumaStock ? {stockSumado:true} : {})});
   });
   await saveModule('recepcion');
+  if(sumaStock){
+    for(const l of lineas) await registrarEntradaStock(l.producto, proveedor, l.cantidad);
+    await saveConfig();
+  }
   return {estado: segundaHoja ? 'otrahoja' : 'guardado', proveedor, fecha, numAlbaran, fechaOk, fechaLeida, n:lineas.length};
 }
 
@@ -2120,6 +2157,8 @@ function viewRecepcion(){
       <h2>${icon('truck')} Albaranes registrados</h2>
       <div style="margin:0 0 10px;"><button class="btn secondary small" type="button" onclick="limpiarLineasRepetidas()">🧹 Quitar líneas repetidas</button>
         <span class="hint" style="margin-left:8px;">Líneas que la IA leyó dos veces en el mismo albarán.</span></div>
+      <div style="margin:0 0 10px;"><button class="btn secondary small" type="button" onclick="limpiarAlbaranesDuplicados().then(n=>{ if(n) alert('Listo: ' + n + ' línea(s) de albaranes repetidos quitadas.'); })">🧹 Quitar albaranes subidos dos veces</button>
+        <span class="hint" style="margin-left:8px;">El mismo albarán fotografiado o subido otra vez (aunque la IA leyera alguna letra distinta).</span></div>
       <p class="hint">Elige la semana y el proveedor, y luego el albarán que quieras consultar.</p>
       <div id="alb-resumen"></div>
       <div class="filters">
@@ -2589,7 +2628,7 @@ async function confirmarRecepcionFoto(){
   // ---- freno de duplicados: nada se guarda si este albarán ya está registrado ----
   const huella = huellaAlbaran(proveedor, fecha, numAlbaran, lineasValidas);
   const fotoHash = recepcionFotoDataUrl ? huellaFoto(recepcionFotoDataUrl) : '';
-  const previo = huellasRegistradas().get(huella);
+  const previo = huellasRegistradas().get(huella) || albaranRepetido(proveedor, fecha, numAlbaran, lineasValidas).previo;
   if(previo && !forzarGuardadoDuplicado){
     avisoAlbaran('<b>ALBARÁN DUPLICADO — no se ha guardado.</b><br>'+
       'Ya hay una recepción registrada de '+esc(previo.proveedor||'—')+
@@ -2619,7 +2658,7 @@ async function confirmarRecepcionFoto(){
   lineasValidas.forEach(l=>{
     DATA.recepcion.unshift({id:uid(), fecha, hora, proveedor, numAlbaran, producto:l.producto, lote:l.lote, cantidad:l.cantidad||'', tempLlegada, estadoEnvase,
       caducidad:l.caducidad, aceptado:true, responsable, observaciones: l.cantidad?('Cantidad: '+l.cantidad):'', fotoId, huella, fotoHash,
-      ...(historico ? {fechaOk:true} : {})});
+      ...(historico ? {fechaOk:true} : {stockSumado:true})});
   });
   await saveModule('recepcion');
   const actualizados = [];
@@ -4737,18 +4776,92 @@ function renderLotesMPTable(){
   </tr>`);
   document.getElementById('lotesmp-table').innerHTML = table(['Producto','Lote','Semanas','F. apertura','F. cierre',''], rows);
 }
+/* El albarán trae el nombre del proveedor («PAPEL SILIC.MULTIBAKE 1 X 500») y el
+   inventario el nuestro («Papel silicona Multibake»): se busca con la tabla de
+   equivalencias y, si no está, por palabras. Solo si no se parece a ninguno se da
+   de alta un producto nuevo. */
+function materiaDelAlbaran(nombre){
+  const bueno = resolverNombreProducto(nombre);
+  const mps = CONFIG.materiasPrimas || [];
+  let idx = mps.findIndex(m=>normTxt(m.nombre)===normTxt(bueno));
+  if(idx < 0) idx = mps.findIndex(m=>normTxt(m.nombre)===normTxt(limpiaCodigoProveedor(nombre)));
+  if(idx < 0){
+    const mejor = mejorProductoPara(nombre, mps.map(m=>m.nombre));
+    if(mejor) idx = mps.findIndex(m=>m.nombre===mejor);
+  }
+  return idx;
+}
 async function registrarEntradaStock(nombre, proveedor, cantidadStr){
   if(!nombre || !nombre.trim()) return null;
   let cantidad = parseFloat(String(cantidadStr).replace(',','.'));
   if(!isFinite(cantidad) || cantidad<=0) cantidad = 1;
-  const idx = CONFIG.materiasPrimas.findIndex(m=>m.nombre.trim().toLowerCase()===nombre.trim().toLowerCase());
+  const idx = materiaDelAlbaran(nombre);
   if(idx>=0){
-    CONFIG.materiasPrimas[idx].stockActual += cantidad;
+    CONFIG.materiasPrimas[idx].stockActual = (Number(CONFIG.materiasPrimas[idx].stockActual)||0) + cantidad;
     if(proveedor && proveedor.trim()) CONFIG.materiasPrimas[idx].proveedor = proveedor.trim();
     return CONFIG.materiasPrimas[idx].nombre;
   }
-  CONFIG.materiasPrimas.push({nombre:nombre.trim(), categoria:'', proveedor:proveedor?proveedor.trim():'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:cantidad});
-  return nombre.trim();
+  const nuevo = limpiaCodigoProveedor(resolverNombreProducto(nombre)) || nombre.trim();
+  CONFIG.materiasPrimas.push({nombre:nuevo, categoria:'', proveedor:proveedor?proveedor.trim():'', telefono:'', unidad:'unidades', stockMinimo:1, stockActual:cantidad});
+  return nuevo;
+}
+
+/* ---- LIMPIEZA DE ALBARANES SUBIDOS DOS VECES ----
+   Cada foto guardada es un grupo (fotoId). Si las líneas de un grupo ya estaban en
+   otro grupo anterior de la misma entrega (mismo producto y lote), son una copia y
+   se quitan; las que no coinciden se dejan (pueden ser otra hoja). soloVer: no
+   borra, devuelve lo que quitaría. */
+function duplicadosDeAlbaranes(){
+  const creado = r=>{ const t = parseInt(String(r.id).slice(0,8),36); return isFinite(t) ? t : 0; };
+  const grupos = {};
+  (DATA.recepcion||[]).forEach(r=>{ const k = r.fotoId || r.huella || ('id:'+r.id); (grupos[k] = grupos[k] || []).push(r); });
+  const lista = Object.values(grupos).sort((a,b)=>Math.min(...a.map(creado)) - Math.min(...b.map(creado)));
+  const quitar = [];
+  lista.forEach((g, i)=>{
+    const r0 = g[0];
+    const anteriores = [].concat(...lista.slice(0, i)).filter(x=>quitar.indexOf(x)<0 && mismaEntrega(x, r0.proveedor, r0.fecha, r0.numAlbaran));
+    if(!anteriores.length) return;
+    g.forEach(r=>{ if(anteriores.some(x=>lineaYaGuardada(x, r))) quitar.push(r); });
+  });
+  return quitar;
+}
+async function limpiarAlbaranesDuplicados(){
+  const quitar = duplicadosDeAlbaranes();
+  if(!quitar.length){ alert('No hay albaranes subidos dos veces.'); return 0; }
+  const resumen = quitar.slice(0, 12).map(r=>'· ' + fmtDate(r.fecha) + ' ' + (r.proveedor||'') + ' ' + (r.numAlbaran||'') + ' — ' + r.producto + ' (lote ' + (r.lote||'—') + ')').join('\n');
+  if(!confirm('Hay ' + quitar.length + ' línea(s) de albaranes subidos dos veces:\n\n' + resumen + (quitar.length>12 ? '\n…' : '') +
+              '\n\nSe quita la copia y se deja la primera. Si la copia había sumado al stock, se le resta. ¿Seguimos?')) return 0;
+  for(const r of quitar){
+    if(r.stockSumado){
+      const idx = materiaDelAlbaran(r.producto);
+      if(idx >= 0) CONFIG.materiasPrimas[idx].stockActual = Math.max(0, (Number(CONFIG.materiasPrimas[idx].stockActual)||0) - (parseFloat(String(r.cantidad).replace(',','.')) || 1));
+    }
+    BAJAS[r.id] = Date.now();
+  }
+  const ids = new Set(quitar.map(r=>r.id));
+  DATA.recepcion = DATA.recepcion.filter(r=>!ids.has(r.id));
+  await guardarBajas();
+  await saveModule('recepcion');
+  await saveConfig();
+  if(typeof renderRecepTable === 'function') renderRecepTable();
+  renderDashboard();
+  return quitar.length;
+}
+/* Recepciones recientes que entraron sin sumar al stock (carga en bloque antes de
+   que sumara): se suman una sola vez y quedan marcadas. */
+async function sumarStockRecepcionesPendientes(desde){
+  const pend = (DATA.recepcion||[]).filter(r=>r.fecha >= desde && !r.stockSumado && !fechaSospechosa(r.fecha));
+  const sumados = {};
+  for(const r of pend){
+    if(r.cargaMasiva){
+      const n = await registrarEntradaStock(r.producto, r.proveedor, r.cantidad);
+      if(n) sumados[n] = (sumados[n]||0) + (parseFloat(String(r.cantidad).replace(',','.')) || 1);
+    }
+    r.stockSumado = true;   // las de foto de una en una ya sumaron al guardarse
+  }
+  await saveModule('recepcion');
+  await saveConfig();
+  return sumados;
 }
 
 /* ================= CLASIFICACIÓN LISTERIA (referencia) ================= */
