@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-e';
+const APP_VERSION = '2026-10-22-f';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3403,6 +3403,11 @@ function viewMateriasPrimas(){
     <div class="panel">
       <h2>${icon('box')} Inventario</h2>
       <p class="hint">Un "sobre" por cada materia prima — pulsa encima para desplegarlo y ver sus entradas ordenadas por fecha, cada una con su lote. Solo consulta — para editar cantidades ve al catálogo de abajo.</p>
+      <div style="margin:0 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn" type="button" onclick="imprimirHojaRecuento()">🖨 Hoja de recuento</button>
+        <button class="btn secondary" type="button" onclick="abrirRecuento()">📝 Apuntar el recuento</button>
+        <span class="hint">${CONFIG.ultimoRecuento ? 'Último recuento: ' + fmtDate(CONFIG.ultimoRecuento.fecha) + (CONFIG.ultimoRecuento.quien ? ' (' + esc(CONFIG.ultimoRecuento.quien) + ')' : '') : 'Todavía no se ha hecho ningún recuento.'}</span>
+      </div>
       <div class="filters">
         <label class="field"><span>Buscar</span><input type="text" id="inventarioSearch" placeholder="Ej: harina, sal, bolsas..."></label>
       </div>
@@ -3615,6 +3620,88 @@ function entradasDe(nombre){
       return {fecha:r.fecha, lote:r.lote, caducidad:r.caducidad, cantidad:r.cantidad, proveedor:r.proveedor, estadoLote};
     })
     .sort((a,b)=> a.fecha.localeCompare(b.fecha));
+}
+/* ---- RECUENTO DEL STOCK REAL ----
+   Hoja para imprimir y contar en el obrador (solo los envases CERRADOS: los
+   abiertos ya están en Lotes) y una pantalla para pasar lo contado de una vez.
+   Mismo orden en las dos: por categoría y por nombre. */
+const ORDEN_CATEGORIAS = ['Panadería', 'Pastelería', 'Común', 'Envases'];
+function productosParaRecuento(){
+  const pos = c => { const i = ORDEN_CATEGORIAS.indexOf(c); return i < 0 ? (c ? ORDEN_CATEGORIAS.length : ORDEN_CATEGORIAS.length + 1) : i; };
+  const abiertos = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre);
+  return (CONFIG.materiasPrimas||[]).map((m, i)=>({m, i, abiertos: abiertos.filter(r=>normTxt(r.producto)===normTxt(m.nombre) || mismoProducto(r.producto, m.nombre)).length}))
+    .sort((a,b)=>pos(a.m.categoria)-pos(b.m.categoria) || String(a.m.categoria||'').localeCompare(String(b.m.categoria||''),'es') || a.m.nombre.localeCompare(b.m.nombre,'es'));
+}
+function imprimirHojaRecuento(){
+  const lista = productosParaRecuento();
+  let cat = null, n = 0, filas = '';
+  lista.forEach(({m, abiertos})=>{
+    const c = m.categoria || 'Sin categoría';
+    if(c !== cat){ cat = c; filas += `<tr class="cat"><td colspan="6">${esc(c)}</td></tr>`; }
+    n++;
+    filas += `<tr><td class="n">${n}</td><td>${esc(m.nombre)}${m.alias ? ' <small>(' + esc(m.alias) + ')</small>' : ''}</td><td>${esc(m.unidad||'')}</td>
+      <td class="c">${Number(m.stockActual)||0}</td><td class="c">${abiertos || ''}</td><td class="hay"></td></tr>`;
+  });
+  const emp = (CONFIG.empresa && CONFIG.empresa.nombre) || 'Panificadora Salduba';
+  const w = window.open('', '_blank');
+  if(!w){ alert('El navegador ha bloqueado la ventana. Permite las ventanas emergentes para esta página.'); return; }
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Recuento de stock</title><style>
+    body{font-family:Arial,sans-serif;font-size:12px;margin:18px;color:#222}
+    h1{font-size:18px;margin:0 0 4px} .cab{display:flex;gap:30px;margin:8px 0 6px;font-size:13px}
+    .nota{font-size:12px;margin:0 0 10px;padding:6px 8px;border:1px solid #999;background:#f6f1e8}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #888;padding:4px 6px;vertical-align:middle}
+    th{background:#eee;font-size:11px} td.n{width:26px;text-align:right;color:#666} td.c{width:62px;text-align:center}
+    td.hay{width:110px} tr{height:24px} tr.cat td{background:#6e3a12;color:#fff;font-weight:bold;font-size:12px}
+    small{color:#666} .pie{margin-top:14px;font-size:12px} button{font-size:15px;padding:8px 18px;margin-bottom:10px}
+    @media print{button{display:none} body{margin:8mm} tr{page-break-inside:avoid}}
+  </style></head><body>
+    <button onclick="window.print()">🖨 Imprimir</button>
+    <h1>Recuento de stock · ${esc(emp)}</h1>
+    <div class="cab"><span>Fecha: ____ / ____ / ________</span><span>Quién cuenta: ______________________</span></div>
+    <p class="nota"><b>Contad solo los envases CERRADOS</b> (sacos, cajas, cubos, botes… sin abrir) y escribid el número en «Cerrados que hay». Los que están abiertos ya los lleva la app en Lotes. Si algo no está en la lista, apuntadlo al final.</p>
+    <table><thead><tr><th>Nº</th><th>Producto</th><th>Envase</th><th>La app dice</th><th>Abiertos ahora</th><th>Cerrados que hay</th></tr></thead>
+    <tbody>${filas}
+      ${'<tr><td class="n"></td><td></td><td></td><td></td><td></td><td class="hay"></td></tr>'.repeat(8)}</tbody></table>
+    <p class="pie">Cuando esté contado, pasadlo a la app en Materias primas → «📝 Apuntar el recuento».</p>
+  </body></html>`);
+  w.document.close();
+}
+function abrirRecuento(){
+  const lista = productosParaRecuento();
+  let cat = null, n = 0, filas = '';
+  lista.forEach(({m, i})=>{
+    const c = m.categoria || 'Sin categoría';
+    if(c !== cat){ cat = c; filas += `<div style="font-size:15px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6b5a48;margin:16px 0 6px;">${esc(c)}</div>`; }
+    n++;
+    filas += `<label style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eadfce;">
+      <span style="width:28px;text-align:right;color:#9a8a78;font-size:15px;">${n}</span>
+      <span style="flex:1;font-size:18px;">${esc(m.nombre)} <span style="font-size:14px;color:#6b5a48;">· la app dice ${Number(m.stockActual)||0} ${esc(m.unidad||'')}</span></span>
+      <input type="text" inputmode="decimal" data-recuento="${i}" autocomplete="off" placeholder="—" style="width:84px;font-size:20px;padding:8px;border:1px solid #d6c8b4;border-radius:10px;text-align:center;"></label>`;
+  });
+  obModal(`<div style="font-size:24px;font-weight:700;">📝 Apuntar el recuento</div>
+    <div style="font-size:16px;color:#6b5a48;margin:6px 0 10px;">Escribe los envases <b>cerrados</b> que habéis contado. Lo que dejes en blanco no se cambia.</div>
+    <input type="text" id="recuentoQuien" placeholder="Quién ha contado" value="${esc(obNombre())}" style="width:100%;font-size:20px;padding:12px;border:1px solid #d6c8b4;border-radius:12px;">
+    ${filas}
+    <button style="${OB_SI}" onclick="guardarRecuento()">Guardar recuento</button>
+    <button style="${OB_NO}" onclick="obModal('')">Cancelar</button>`);
+}
+async function guardarRecuento(){
+  const cambios = [];
+  for(const inp of document.querySelectorAll('[data-recuento]')){
+    const t = inp.value.trim();
+    if(!t) continue;
+    const v = parseFloat(t.replace(',', '.'));
+    if(!isFinite(v) || v < 0){ inp.focus(); alert('Hay un número que no se entiende: «' + t + '».'); return; }
+    cambios.push([Number(inp.dataset.recuento), v]);
+  }
+  if(!cambios.length){ alert('No has escrito ninguna cantidad.'); return; }
+  cambios.forEach(([i, v])=>{ CONFIG.materiasPrimas[i].stockActual = v; });
+  const quien = (document.getElementById('recuentoQuien')||{}).value || '';
+  CONFIG.ultimoRecuento = {fecha: todayStr(), quien: quien.trim(), productos: cambios.length};
+  await saveConfig();
+  obModal('');
+  viewMateriasPrimas();
+  alert('Recuento guardado: ' + cambios.length + ' producto(s) actualizados.');
 }
 function renderInventario(){
   const el = document.getElementById('inventario-table');
