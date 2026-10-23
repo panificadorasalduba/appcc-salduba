@@ -5,7 +5,7 @@
 
   const registroDelDia = (fecha) => db.registros(TIPO).find((r) => r.fecha === fecha) || null;
 
-  const textoLimite = (e) => `Objetivo ≤ ${U.fmtNum(e.objetivoMax)} ºC · crítico > ${U.fmtNum(e.criticoMax)} ºC`;
+  const textoLimite = (e) => `Objetivo ${App.rangoNormal(e)} · crítico ${App.limiteCritico(e)}`;
 
   function render(params) {
     const fecha = params.get('fecha') || U.hoy();
@@ -17,7 +17,7 @@
     const filas = equipos
       .map((e) => {
         const v = lect[e.id];
-        const est = App.evaluarTemp(v, e.objetivoMax, e.criticoMax);
+        const est = App.evaluarTemp(v, e.objetivoMax, e.criticoMax, e.objetivoMin, e.criticoMin);
         return `<div class="temp-fila" data-eq="${e.id}" data-estado="${est}">
           <div class="temp-nombre"><b>${esc(e.nombre)}</b><small>${textoLimite(e)}</small></div>
           <div class="temp-input"><input name="t_${e.id}" inputmode="decimal" autocomplete="off" value="${esc(U.fmtNum(v))}" placeholder="ºC"><span>ºC</span></div>
@@ -48,7 +48,7 @@
       const fila = e.target.closest('.temp-fila');
       if (!fila || !e.target.name.startsWith('t_')) return;
       const eq = db.obtener('equipos', fila.dataset.eq);
-      const est = App.evaluarTemp(U.num(e.target.value), eq.objetivoMax, eq.criticoMax);
+      const est = App.evaluarTemp(U.num(e.target.value), eq.objetivoMax, eq.criticoMax, eq.objetivoMin, eq.criticoMin);
       fila.dataset.estado = est;
       fila.querySelector('.temp-accion').hidden = est !== 'fuera';
     });
@@ -66,7 +66,7 @@
         const v = U.num(raw);
         if (v === null) return U.toast(`Temperatura no válida en ${eq.nombre}`, 'error');
         lecturas[eq.id] = v;
-        if (App.evaluarTemp(v, eq.objetivoMax, eq.criticoMax) === 'fuera') {
+        if (App.evaluarTemp(v, eq.objetivoMax, eq.criticoMax, eq.objetivoMin, eq.criticoMin) === 'fuera') {
           if (!d['a_' + eq.id]) return U.toast(`Indica la acción correctora para ${eq.nombre}`, 'error');
           acciones[eq.id] = d['a_' + eq.id];
           fuera.push(eq);
@@ -86,7 +86,7 @@
         if (r.incidencias[eq.id]) continue; // ya abierta en un guardado anterior
         const inc = await App.crearIncidencia({
           plan: 'Temperaturas',
-          descripcion: `${eq.nombre}: ${U.fmtNum(lecturas[eq.id])} ºC (límite crítico ${U.fmtNum(eq.criticoMax)} ºC) el ${U.fmtFecha(d.fecha)}`,
+          descripcion: `${eq.nombre}: ${U.fmtNum(lecturas[eq.id])} ºC (límite crítico ${App.limiteCritico(eq)}) el ${U.fmtFecha(d.fecha)}`,
           accion: acciones[eq.id],
           quien: d.quien,
           origen: { tipo: TIPO, fecha: d.fecha },
@@ -128,7 +128,7 @@
       const celdas = equipos
         .map((e) => {
           const v = r?.lecturas?.[e.id];
-          const est = App.evaluarTemp(v, e.objetivoMax, e.criticoMax);
+          const est = App.evaluarTemp(v, e.objetivoMax, e.criticoMax, e.objetivoMin, e.criticoMin);
           return `<td class="c-${est}">${U.fmtNum(v)}</td>`;
         })
         .join('');

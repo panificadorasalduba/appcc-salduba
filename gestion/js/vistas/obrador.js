@@ -34,7 +34,7 @@
     const equipos = db.activos('equipos');
     const t = tempHoy();
     const nTemp = equipos.filter((e) => t?.lecturas?.[e.id] !== undefined).length;
-    const alertas = equipos.filter((e) => App.evaluarTemp(t?.lecturas?.[e.id], e.objetivoMax, e.criticoMax) === 'fuera').length;
+    const alertas = equipos.filter((e) => App.evaluarTemp(t?.lecturas?.[e.id], e.objetivoMax, e.criticoMax, e.objetivoMin, e.criticoMin) === 'fuera').length;
     const agua = aguaSemana();
     const boton = (href, icono, titulo, detalle, color) =>
       `<a class="boton-obrador" style="background:${color}" href="${href}"><span class="bo-icono">${icono}</span><span><span class="bo-titulo">${esc(titulo)}</span><span class="bo-detalle">${esc(detalle)}</span></span></a>`;
@@ -67,9 +67,9 @@
         ${equipos
           .map((e) => {
             const v = lect[e.id];
-            const est = App.evaluarTemp(v, e.objetivoMax, e.criticoMax);
+            const est = App.evaluarTemp(v, e.objetivoMax, e.criticoMax, e.objetivoMin, e.criticoMin);
             return `<button type="button" class="ob-fila ob-${est || 'vacia'}" data-eq="${e.id}">
-              <span><b>${esc(e.nombre)}</b><small>Máximo ${U.fmtNum(e.criticoMax)} ºC${e.objetivoMax != null ? ` · lo normal ≤ ${U.fmtNum(e.objetivoMax)} ºC` : ''}</small></span>
+              <span><b>${esc(e.nombre)}</b><small>Crítico ${App.limiteCritico(e)}${e.objetivoMax != null ? ` · lo normal ${App.rangoNormal(e)}` : ''}</small></span>
               <span class="ob-valor">${v !== undefined ? U.fmtNum(v) + ' º' : 'Tocar'}</span></button>`;
           })
           .join('')}
@@ -82,7 +82,7 @@
       const q = quien();
       if (!q) return;
       const e = db.obtener('equipos', b.dataset.eq);
-      const valor = await App.teclado(`🌡️ ${esc(e.nombre)}`, `Máximo ${U.fmtNum(e.criticoMax)} ºC. Usa «− bajo cero» en congeladores.`, { negativo: true, valor: tempHoy()?.lecturas?.[e.id] ?? '' });
+      const valor = await App.teclado(`🌡️ ${esc(e.nombre)}`, `Lo normal ${App.rangoNormal(e)}. Usa «− bajo cero» en congeladores.`, { negativo: true, valor: tempHoy()?.lecturas?.[e.id] ?? '' });
       if (valor === null) return;
       const r = tempHoy() || { tipo: App.TEMP_TIPO, fecha: U.hoy(), lecturas: {}, acciones: {}, incidencias: {} };
       r.lecturas = { ...(r.lecturas || {}), [e.id]: valor };
@@ -90,12 +90,12 @@
       r.incidencias = r.incidencias || {};
       const ya = String(r.quien || '').split(/\s*,\s*/).filter(Boolean);
       r.quien = ya.includes(q) ? r.quien : [...ya, q].join(', ');
-      const fuera = App.evaluarTemp(valor, e.objetivoMax, e.criticoMax) === 'fuera';
+      const fuera = App.evaluarTemp(valor, e.objetivoMax, e.criticoMax, e.objetivoMin, e.criticoMin) === 'fuera';
       if (fuera && !r.incidencias[e.id]) {
         r.acciones[e.id] = 'Avisado el encargado desde la tablet';
         const inc = await App.crearIncidencia({
           plan: 'Temperaturas',
-          descripcion: `${e.nombre}: ${U.fmtNum(valor)} ºC (límite crítico ${U.fmtNum(e.criticoMax)} ºC) el ${U.fmtFecha(r.fecha)}`,
+          descripcion: `${e.nombre}: ${U.fmtNum(valor)} ºC (límite crítico ${App.limiteCritico(e)}) el ${U.fmtFecha(r.fecha)}`,
           accion: r.acciones[e.id],
           quien: q,
           origen: { tipo: App.TEMP_TIPO, fecha: r.fecha },
@@ -104,7 +104,7 @@
       }
       await db.guardar('registros', r);
       U.ultimoUsuario(q);
-      if (fuera) await avisoEncargado(`<b>${esc(e.nombre)}</b> marca <b>${U.fmtNum(valor)} ºC</b> y el máximo es ${U.fmtNum(e.criticoMax)} ºC.`);
+      if (fuera) await avisoEncargado(`<b>${esc(e.nombre)}</b> marca <b>${U.fmtNum(valor)} ºC</b> y el límite es ${App.limiteCritico(e)}.`);
       App.recargar();
     });
   }

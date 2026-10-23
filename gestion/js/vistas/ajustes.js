@@ -148,7 +148,9 @@
       campos: [
         { n: 'nombre', l: 'Nombre', req: true },
         { n: 'tipo', l: 'Tipo', t: 'select', ops: [['refrigeracion', 'Refrigeración'], ['congelacion', 'Congelación'], ['sala', 'Sala climatizada']], req: true },
+        { n: 'objetivoMin', l: 'Temperatura objetivo mín. (ºC)', t: 'numero' },
         { n: 'objetivoMax', l: 'Temperatura objetivo máx. (ºC)', t: 'numero', req: true },
+        { n: 'criticoMin', l: 'Límite crítico mín. (ºC)', t: 'numero' },
         { n: 'criticoMax', l: 'Límite crítico máx. (ºC)', t: 'numero', req: true },
         { n: 'orden', l: 'Orden en el registro', t: 'numero' },
       ],
@@ -156,8 +158,8 @@
         ['Orden', (e) => esc(e.orden ?? '')],
         ['Equipo', (e) => `<b>${esc(e.nombre)}</b>`],
         ['Tipo', (e) => ({ refrigeracion: 'Refrigeración', congelacion: 'Congelación', sala: 'Sala' }[e.tipo] || e.tipo)],
-        ['Objetivo', (e) => `≤ ${U.fmtNum(e.objetivoMax)} ºC`],
-        ['Crítico', (e) => `> ${U.fmtNum(e.criticoMax)} ºC`],
+        ['Objetivo', (e) => esc(App.rangoNormal(e))],
+        ['Crítico', (e) => esc(App.limiteCritico(e))],
       ],
     });
 

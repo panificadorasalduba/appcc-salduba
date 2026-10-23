@@ -67,7 +67,7 @@
         <label class="campo campo-ancho accion-correctora" hidden><span>Qué queda pendiente y qué se hace mientras</span>
           <textarea name="accion" rows="2" placeholder="Pedir pieza, usar otro equipo, trasladar el género…">${esc(reg?.accion || '')}</textarea></label>
         <datalist id="dl-prov-mant">${db.activos('proveedores').map((p) => `<option value="${esc(p.nombre)}">`).join('')}</datalist>
-        <datalist id="dl-equipos-mant">${[...db.activos('equipos').map((e) => e.nombre), 'Horno', 'Amasadora', 'Laminadora', 'Lavavajillas', 'Instalación eléctrica', 'Fontanería', 'Techos y paredes'].map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+        <datalist id="dl-equipos-mant">${[...db.activos('equipos').map((e) => e.nombre), ...db.activos('instalaciones').map((e) => e.nombre), 'Instalación eléctrica', 'Fontanería', 'Techos y paredes'].map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
         <div class="acciones"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn btn-primario" type="submit">Guardar</button></div>
       </form>`,
       {
@@ -141,7 +141,7 @@
           <label class="campo"><span>Última vez que se hizo</span><input type="date" name="ultima" value="${esc(reg?.ultima || '')}" max="${U.hoy()}"></label>
           <label class="campo"><span>Quién lo hace</span><input name="responsable" value="${esc(reg?.responsable || '')}" placeholder="Empresa o persona"></label>
         </div>
-        <datalist id="dl-equipos-plan">${db.activos('equipos').map((e) => `<option value="${esc(e.nombre)}">`).join('')}</datalist>
+        <datalist id="dl-equipos-plan">${[...db.activos('equipos'), ...db.activos('instalaciones')].map((e) => `<option value="${esc(e.nombre)}">`).join('')}</datalist>
         <div class="acciones"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn btn-primario" type="submit">Guardar</button></div>
       </form>`,
       {

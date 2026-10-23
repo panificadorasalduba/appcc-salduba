@@ -13,6 +13,10 @@
         return `<label class="check"><input type="checkbox" name="${c.n}" ${v ? 'checked' : ''}> ${esc(c.l)}</label>`;
       case 'textarea':
         return `<label class="campo campo-ancho"><span>${esc(c.l)}</span><textarea name="${c.n}" rows="2">${esc(v || '')}</textarea></label>`;
+      case 'ingredientes': {
+        const txt = (v || []).map((i) => [i.nombre, i.cantidad, i.unidad].filter((x) => x !== undefined && x !== null && x !== '').join(' | ')).join('\n');
+        return `<label class="campo campo-ancho"><span>${esc(c.l)}</span><textarea name="${c.n}" rows="6" placeholder="Un ingrediente por línea: nombre | cantidad | unidad">${esc(txt)}</textarea></label>`;
+      }
       case 'alergenos':
         return `<div class="campo campo-ancho"><span>${esc(c.l)}</span><div class="alergenos-sel">${window.ALERGENOS.map(
           (a) => `<label><input type="checkbox" name="${c.n}" data-grupo="1" value="${esc(a)}" ${(v || []).includes(a) ? 'checked' : ''}> ${esc(a)}</label>`
@@ -54,6 +58,8 @@
                 d[c.n] = U.num(d[c.n]);
               }
               if (c.t === 'alergenos' && !d[c.n]) d[c.n] = [];
+              if (c.t === 'ingredientes')
+                d[c.n] = String(d[c.n] || '').split('\n').map((l) => l.split('|').map((x) => x.trim())).filter(([n]) => n).map(([nombre, cantidad = '', unidad = '']) => ({ nombre, cantidad, unidad }));
             }
             Object.assign(o, d);
             if (o.orden === undefined) o.orden = db.lista(col).length + 1;
@@ -90,18 +96,47 @@
       nuevoTxt: 'Nuevo producto',
       campos: [
         { n: 'nombre', l: 'Nombre', req: true },
-        { n: 'familia', l: 'Familia', t: 'select', ops: ['Pan', 'Bollería', 'Repostería', 'Brioche', 'Hojaldre', 'Galletas', 'Bizcochos', 'Tartas', 'Temporada', 'Otros'], req: true },
+        { n: 'familia', l: 'Familia', t: 'select', ops: ['Pan', 'Bollería', 'Repostería', 'Pastelería', 'Brioche', 'Hojaldre', 'Galletas', 'Bizcochos', 'Tartas', 'Temporada', 'Bases y cremas', 'Otros'], req: true },
         { n: 'grupo', l: 'Grupo (letra)' },
         { n: 'listeria', l: 'Categoría Listeria', t: 'select', ops: () => window.CATEGORIAS_LISTERIA },
         { n: 'alergenos', l: 'Alérgenos', t: 'alergenos' },
         { n: 'trazas', l: 'Puede contener trazas de' },
-        { n: 'vidaUtil', l: 'Vida útil / conservación' },
+        { n: 'vidaUtil', l: 'Vida útil' },
+        { n: 'conservacion', l: 'Conservación' },
+        { n: 'ingredientes', l: 'Receta: ingredientes', t: 'ingredientes' },
+        { n: 'proceso', l: 'Proceso de elaboración', t: 'textarea' },
+        { n: 'horno', l: 'Horno (temperatura / tiempo)' },
+        { n: 'presentacion', l: 'Presentación' },
+        { n: 'recetaFuente', l: 'Origen de la receta' },
+        { n: 'recetaDudas', l: 'Dudas pendientes de la receta', t: 'textarea' },
       ],
       columnas: [
         ['Familia', (p) => esc(p.familia)],
-        ['Producto', (p) => `<b>${esc(p.nombre)}</b>`],
+        ['Producto', (p) => `<b>${esc(p.nombre)}</b>${p.ingredientes?.length ? ' <span class="etq" title="Tiene receta">receta</span>' : ''}${p.recetaDudas ? ' <span class="etq" title="' + esc(p.recetaDudas) + '">⚠ dudas</span>' : ''}`],
         ['Listeria', (p) => `<small>${esc(p.listeria || '')}</small>`],
         ['Alérgenos', chipsAlergenos],
+      ],
+    });
+
+  App.vistas['instalaciones'] = () =>
+    App.crud({
+      col: 'instalaciones',
+      titulo: 'Equipos e instalaciones',
+      sub: 'Inventario del Plan de Mantenimiento (hornos, amasadoras, laminadora, freidora…). Los equipos de frío y sus temperaturas están en Ajustes.',
+      nuevoTxt: 'Nuevo equipo',
+      campos: [
+        { n: 'nombre', l: 'Nombre', req: true },
+        { n: 'tipo', l: 'Tipo' },
+        { n: 'zona', l: 'Zona' },
+        { n: 'cantidad', l: 'Cantidad', t: 'numero' },
+        { n: 'mantenimiento', l: 'Mantenimiento (qué, cada cuánto, quién)', t: 'textarea' },
+      ],
+      columnas: [
+        ['Equipo', (x) => `<b>${esc(x.nombre)}</b>`],
+        ['Tipo', (x) => esc(x.tipo || '')],
+        ['Zona', (x) => esc(x.zona || '')],
+        ['Cant.', (x) => esc(x.cantidad ?? '')],
+        ['Mantenimiento', (x) => `<small>${esc(x.mantenimiento || '')}</small>`],
       ],
     });
 
