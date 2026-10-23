@@ -42,6 +42,8 @@
     if ((hay(objetivoMax) && valor > objetivoMax) || (hay(objetivoMin) && valor < objetivoMin)) return 'aviso';
     return 'ok';
   };
+  // Equipos que se apuntan en el obrador (las vitrinas de tienda tienen su propio registro, PCC5)
+  App.equiposObrador = () => db.activos('equipos').filter((e) => e.tipo !== 'vitrina');
   // Textos de límites de un equipo: «0 a 5 ºC» y «> 8 ºC o < -1 ºC»
   App.rangoNormal = (e) =>
     e.objetivoMin !== null && e.objetivoMin !== undefined ? `${U.fmtNum(e.objetivoMin)} a ${U.fmtNum(e.objetivoMax)} ºC` : `≤ ${U.fmtNum(e.objetivoMax)} ºC`;

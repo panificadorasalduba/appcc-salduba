@@ -19,7 +19,7 @@
     } catch {}
   };
   // Pantallas a las que se puede llegar desde la tablet del obrador
-  const RUTAS_OBRADOR = ['', 'obrador-temperaturas', 'obrador-agua', 'lotes', 'produccion', 'cola-albaranes', 'temperaturas', 'limpieza', 'recepcion', 'agua', 'transporte', 'aceite', 'acrilamida', 'incidencias'];
+  const RUTAS_OBRADOR = ['', 'obrador-temperaturas', 'obrador-agua', 'lotes', 'produccion', 'cola-albaranes', 'temperaturas', 'limpieza', 'recepcion', 'agua', 'transporte', 'aceite', 'acrilamida', 'control-alergenos', 'vitrinas', 'vitrinas/mes', 'incidencias'];
 
   async function navegar() {
     let [ruta, query] = location.hash.replace(/^#\/?/, '').split('?');
