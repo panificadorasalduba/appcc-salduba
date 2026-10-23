@@ -30,6 +30,9 @@
     const params = new URLSearchParams(query || '');
     menu.classList.remove('abierto');
     for (const a of menu.querySelectorAll('a')) a.classList.toggle('activo', a.getAttribute('href').replace(/^#\/?/, '').split('?')[0] === ruta);
+    // Las vitrinas solo salen en el menú si la empresa lleva sus despachos en este APPCC
+    const enlaceVitrinas = menu.querySelector('a[href="#/vitrinas"]');
+    if (enlaceVitrinas) enlaceVitrinas.hidden = !App.tiendasConVitrina().length;
     document.getElementById('btn-inicio').hidden = !(App.modoObrador() && ruta !== '');
 
     if (db.modoNube) {
