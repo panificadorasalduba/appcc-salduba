@@ -79,7 +79,7 @@
       const u = ultimaVisita(cat);
       if (!u || U.diasEntre(u, hoy) > 365) av.push({ estado: 'aviso', titulo: txt, detalle: u ? `Última: ${U.fmtFecha(u)} (hace más de un año)` : 'No consta ninguna registrada', enlace });
     }
-    av.push(...App.avisosPlagas(), ...App.avisosMantenimiento(), ...App.avisosFormacion());
+    av.push(...App.avisosPlagas(), ...App.avisosMantenimiento(), ...App.avisosFormacion(), ...App.avisosVitrinas());
     return av;
   };
 

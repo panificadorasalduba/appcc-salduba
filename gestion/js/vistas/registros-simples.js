@@ -177,6 +177,47 @@
       ],
     },
 
+    // Formato «Registro de control de alérgenos» del anexo del manual
+    control_alergenos: {
+      titulo: 'Control de alérgenos',
+      sub: 'Elaboraciones de temporada (pestiños, borrachuelos, torrijas, susos, decoraciones), peticiones de clientes con alergia o intolerancia y cambios por contaminación cruzada',
+      plan: 'Alérgenos',
+      nuevo: 'Nuevo control',
+      campos: [
+        { n: 'fecha', t: 'fecha' },
+        { n: 'elaboracion', t: 'producto', l: 'Elaboración (temporada / torrijas / susos)', ayuda: 'Pestiños, borrachuelos, decoraciones, torrijas, susos…' },
+        { n: 'dorada', t: 'texto', l: 'Dorada' },
+        { n: 'tiempo', t: 'texto', l: 'Tiempo' },
+        { n: 'alergia', t: 'texto', l: 'Alergia o intolerancia comunicada', ayuda: 'Si un cliente avisa de una alergia: ¿cuál?' },
+        { n: 'clienteQue', t: 'texto', l: 'Cliente: ¿qué pide?' },
+        { n: 'clienteConSin', t: 'select', l: 'Cliente: ¿con o sin el alérgeno?', ops: [['con', 'Con'], ['sin', 'Sin']] },
+        { n: 'cambio', t: 'select', l: 'Cambio por contaminación cruzada', ops: [['no', 'No'], ['si', 'Sí']] },
+        { n: 'limpieza', t: 'select', l: 'Limpieza del aparato', ops: [['si', 'Sí, limpiado'], ['no', 'No']] },
+        { n: 'quien', t: 'persona', l: 'Quién hace la acción' },
+        { n: 'venta', t: 'select', l: 'Venta en tienda', ops: [['C', 'C · correcto'], ['INC', 'INC · incidencia']] },
+        { n: 'ventaQue', t: 'texto', l: 'Venta en tienda: ¿qué?' },
+        { n: 'supervisor', t: 'persona', l: 'Supervisa' },
+      ],
+      evaluar: (d) => [
+        ...(d.venta === 'INC' ? [`Incidencia de alérgenos en la venta${d.ventaQue ? ': ' + d.ventaQue : ''}`] : []),
+        ...(d.cambio === 'si' && d.limpieza === 'no' ? ['Cambio por contaminación cruzada sin limpiar el aparato'] : []),
+      ],
+      ayudaAccion: 'Retirar el producto, limpiar el aparato y avisar al cliente / encargada',
+      columnas: [
+        ['Fecha', (r) => U.fmtFecha(r.fecha)],
+        ['Elaboración', (r) => esc(r.elaboracion || '')],
+        ['Dorada', (r) => esc(r.dorada || '')],
+        ['Tiempo', (r) => esc(r.tiempo || '')],
+        ['Alergia', (r) => esc(r.alergia || '')],
+        ['Cliente', (r) => esc([r.clienteQue, r.clienteConSin && (r.clienteConSin === 'con' ? 'con' : 'sin')].filter(Boolean).join(' · '))],
+        ['Cambio C.C.', (r) => (r.cambio === 'si' ? 'Sí' : r.cambio === 'no' ? 'No' : '')],
+        ['Limpieza', (r) => (r.limpieza === 'si' ? 'Sí' : r.limpieza === 'no' ? 'No' : '')],
+        ['Quién', (r) => esc(r.quien || '')],
+        ['Venta', (r) => esc([r.venta, r.ventaQue].filter(Boolean).join(' · '))],
+        ['Supervisa', (r) => esc(r.supervisor || '')],
+      ],
+    },
+
     visita: {
       titulo: 'Visitas, análisis y documentos externos',
       sub: 'Partes de plagas (PLAGUIRONDA), mantenimiento y averías, análisis de agua, auditorías de la consultora, formación, retirada de aceite…',
@@ -400,6 +441,6 @@
 
   App.DEFS_REGISTROS = DEFS;
   App.abrirFormularioRegistro = abrirFormulario;
-  App.rutaRegistro = (tipo) => ({ visita: 'visitas', muestra: 'muestras' }[tipo] || tipo);
+  App.rutaRegistro = (tipo) => ({ visita: 'visitas', muestra: 'muestras', control_alergenos: 'control-alergenos' }[tipo] || tipo);
   for (const tipo of Object.keys(DEFS)) App.vistas[App.rutaRegistro(tipo)] = (params) => renderLista(tipo, params);
 })();

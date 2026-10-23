@@ -31,7 +31,7 @@
 
   // ---------- Inicio ----------
   function render() {
-    const equipos = db.activos('equipos');
+    const equipos = App.equiposObrador();
     const t = tempHoy();
     const nTemp = equipos.filter((e) => t?.lecturas?.[e.id] !== undefined).length;
     const alertas = equipos.filter((e) => App.evaluarTemp(t?.lecturas?.[e.id], e.objetivoMax, e.criticoMax, e.objetivoMin, e.criticoMin) === 'fuera').length;
@@ -55,7 +55,7 @@
 
   // ---------- Temperaturas: un botón por cámara ----------
   function renderTemperaturas() {
-    const equipos = db.activos('equipos');
+    const equipos = App.equiposObrador();
     const t = tempHoy();
     const lect = t?.lecturas || {};
     const hechas = equipos.filter((e) => lect[e.id] !== undefined).length;

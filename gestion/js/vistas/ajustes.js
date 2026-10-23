@@ -147,7 +147,8 @@
       defecto: { tipo: 'refrigeracion', objetivoMax: 5, criticoMax: 8 },
       campos: [
         { n: 'nombre', l: 'Nombre', req: true },
-        { n: 'tipo', l: 'Tipo', t: 'select', ops: [['refrigeracion', 'Refrigeración'], ['congelacion', 'Congelación'], ['sala', 'Sala climatizada']], req: true },
+        { n: 'tipo', l: 'Tipo', t: 'select', ops: [['refrigeracion', 'Refrigeración'], ['congelacion', 'Congelación'], ['sala', 'Sala climatizada'], ['vitrina', 'Vitrina de tienda (PCC5)']], req: true },
+        { n: 'tienda', l: 'Tienda (solo vitrinas)', t: 'select', ops: () => db.activos('tiendas').map((t) => t.nombre) },
         { n: 'objetivoMin', l: 'Temperatura objetivo mín. (ºC)', t: 'numero' },
         { n: 'objetivoMax', l: 'Temperatura objetivo máx. (ºC)', t: 'numero', req: true },
         { n: 'criticoMin', l: 'Límite crítico mín. (ºC)', t: 'numero' },
@@ -157,7 +158,7 @@
       columnas: [
         ['Orden', (e) => esc(e.orden ?? '')],
         ['Equipo', (e) => `<b>${esc(e.nombre)}</b>`],
-        ['Tipo', (e) => ({ refrigeracion: 'Refrigeración', congelacion: 'Congelación', sala: 'Sala' }[e.tipo] || e.tipo)],
+        ['Tipo', (e) => ({ refrigeracion: 'Refrigeración', congelacion: 'Congelación', sala: 'Sala', vitrina: `Vitrina · ${esc(e.tienda || 'sin tienda')}` }[e.tipo] || e.tipo)],
         ['Objetivo', (e) => esc(App.rangoNormal(e))],
         ['Crítico', (e) => esc(App.limiteCritico(e))],
       ],

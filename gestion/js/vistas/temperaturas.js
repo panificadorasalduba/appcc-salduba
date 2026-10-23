@@ -10,7 +10,7 @@
   function render(params) {
     const fecha = params.get('fecha') || U.hoy();
     const reg = registroDelDia(fecha);
-    const equipos = db.activos('equipos');
+    const equipos = App.equiposObrador();
     const lect = reg?.lecturas || {};
     const acc = reg?.acciones || {};
 
@@ -116,7 +116,7 @@
 
   // Tabla reutilizada también por los informes
   App.tablaTemperaturasMes = (anio, mes, enlaces = false) => {
-    const equipos = db.activos('equipos');
+    const equipos = App.equiposObrador();
     const regs = db.registros(TIPO).filter((r) => r.fecha.startsWith(`${anio}-${U.pad(mes)}`));
     const porDia = Object.fromEntries(regs.map((r) => [r.fecha, r]));
     const hoy = U.hoy();

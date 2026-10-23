@@ -5,6 +5,8 @@
   const TIPOS = [
     ['completo', 'Todos los registros del periodo'],
     ['temperaturas', 'Temperaturas de equipos'],
+    ['vitrinas', 'Vitrinas de las tiendas (PCC5)'],
+    ['control_alergenos', 'Control de alérgenos'],
     ['limpieza', 'Limpieza y desinfección'],
     ['lotes', 'Lotes de materias primas (apertura y cierre)'],
     ['produccion', 'Producción diaria (lote interno = día)'],
@@ -37,6 +39,18 @@
         m++;
         if (m > 12) (m = 1), a++;
       }
+    } else if (tipo === 'vitrinas') {
+      // Una tabla por tienda y mes
+      for (const t of App.tiendasConVitrina()) {
+        let [a, m] = desde.split('-').map(Number);
+        const [a2, m2] = hasta.split('-').map(Number);
+        while (a < a2 || (a === a2 && m <= m2)) {
+          cuerpo += `<h3>${esc(t)} — ${U.MESES[m - 1]} ${a}</h3>${App.tablaVitrinasMes(t, a, m)}`;
+          m++;
+          if (m > 12) (m = 1), a++;
+        }
+      }
+      if (!cuerpo) cuerpo = '<p class="vacio">No hay vitrinas dadas de alta.</p>';
     } else if (tipo === 'limpieza') {
       const regs = db.registros('limpieza').filter((r) => enRango(r.fecha)).sort((x, y) => x.fecha.localeCompare(y.fecha));
       cuerpo = App.tablaLimpiezaMes(regs);
@@ -98,7 +112,7 @@
     const hasta = params.get('hasta') || hoy;
     const e = db.empresa();
 
-    const tipos = tipo === 'completo' ? ['temperaturas', 'limpieza', 'lotes', 'produccion', 'montaje', 'recepcion', 'agua', 'transporte', 'aceite', 'acrilamida', 'visita', 'muestra', 'incidencias'] : [tipo];
+    const tipos = tipo === 'completo' ? ['temperaturas', 'vitrinas', 'limpieza', 'lotes', 'produccion', 'montaje', 'recepcion', 'agua', 'transporte', 'aceite', 'acrilamida', 'control_alergenos', 'visita', 'muestra', 'incidencias'] : [tipo];
 
     App.vista().innerHTML = `
       <div class="no-imprimir">
