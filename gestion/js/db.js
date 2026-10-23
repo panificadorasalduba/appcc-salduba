@@ -17,6 +17,7 @@
     'ajustes', // recuentos de inventario: corrigen el stock por lote
     'cuadernos', // cuadernos de producción diaria (productos por grupo)
     'tiendas', // despachos de venta a los que se reparte (montaje)
+    'instalaciones', // equipos que no son de frío (Plan de Mantenimiento)
   ];
   const CLAVE_EMPRESA = 'go_empresa_activa';
   const CLAVE_LOCAL_EMPRESAS = 'go_empresas_local';

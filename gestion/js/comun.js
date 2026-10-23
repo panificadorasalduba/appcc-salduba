@@ -34,12 +34,19 @@
 
   // ---------- Evaluación de temperaturas ----------
   // Devuelve 'ok' | 'aviso' | 'fuera' según el objetivo y el límite crítico
-  App.evaluarTemp = (valor, objetivoMax, criticoMax) => {
+  // Los mínimos son opcionales: el manual fija rangos (refrigeración 0-5 ºC, congelación -18 ± 2 ºC)
+  App.evaluarTemp = (valor, objetivoMax, criticoMax, objetivoMin, criticoMin) => {
     if (valor === null || valor === undefined) return '';
-    if (criticoMax !== null && criticoMax !== undefined && valor > criticoMax) return 'fuera';
-    if (objetivoMax !== null && objetivoMax !== undefined && valor > objetivoMax) return 'aviso';
+    const hay = (x) => x !== null && x !== undefined;
+    if ((hay(criticoMax) && valor > criticoMax) || (hay(criticoMin) && valor < criticoMin)) return 'fuera';
+    if ((hay(objetivoMax) && valor > objetivoMax) || (hay(objetivoMin) && valor < objetivoMin)) return 'aviso';
     return 'ok';
   };
+  // Textos de límites de un equipo: «0 a 5 ºC» y «> 8 ºC o < -1 ºC»
+  App.rangoNormal = (e) =>
+    e.objetivoMin !== null && e.objetivoMin !== undefined ? `${U.fmtNum(e.objetivoMin)} a ${U.fmtNum(e.objetivoMax)} ºC` : `≤ ${U.fmtNum(e.objetivoMax)} ºC`;
+  App.limiteCritico = (e) =>
+    `> ${U.fmtNum(e.criticoMax)} ºC` + (e.criticoMin !== null && e.criticoMin !== undefined ? ` o < ${U.fmtNum(e.criticoMin)} ºC` : '');
 
   // ---------- Incidencias ----------
   App.siguienteNumeroIncidencia = () => {

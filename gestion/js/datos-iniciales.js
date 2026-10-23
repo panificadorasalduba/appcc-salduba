@@ -10,7 +10,7 @@
     cif: 'B-93033744',
     direccion: 'Plaza Juan de Austria, 1 · 29603 Marbella (Málaga)',
     telefono: '952 76 52 07',
-    titular: 'Mª José Benítez Bermúdez',
+    titular: 'María José Benítez Morales',
     edicionAppcc: 'Ed. 04 · Mayo 2026',
     consultora: 'Laboratorio Vázquez',
   };
@@ -40,7 +40,6 @@
     { nombre: 'Arcón congelador 3', ...C },
     { nombre: 'Arcón congelador 4', ...C },
     { nombre: 'Arcón congelador 5', ...C },
-    { nombre: 'Arcón congelador 6', ...C },
     { nombre: 'Cámara refrigeración pan (interior)', ...R },
     { nombre: 'Cámara refrigeración exterior', ...R },
     { nombre: 'Congelador tartas', ...C },
