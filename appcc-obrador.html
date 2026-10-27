@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-27-a';
+const APP_VERSION = '2026-10-27-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -4330,12 +4330,22 @@ function lotesRecibidos(nombre){
       }
     });
   const aperturas = DATA.lotesMP.filter(r=>mismoProducto(r.producto, nombre));
-  return Object.keys(porLote)
+  const lista = Object.keys(porLote)
     .map(key=>({...porLote[key],
                 /* Un lote reconstruido desde el albarán cuenta todos los envases que llegaron */
                 abiertos: aperturas.filter(r=>mismoLote(r.lote, porLote[key].lote))
                                    .reduce((n,r)=>n + (Number(r.envases)||1), 0)}))
     .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));   // el más antiguo primero (FIFO)
+  /* Se gasta por orden de llegada: si ya se ha abierto un lote que llegó después,
+     los que llegaron antes se dan por gastados aunque no se apuntaran todos sus
+     envases. Si no, la tablet propondría abrir sacos de hace meses. */
+  const ultimoAbierto = lista.filter(l=>l.abiertos > 0).map(l=>String(l.fecha||'')).sort().pop() || '';
+  lista.forEach(l=>{
+    if(String(l.fecha||'') < ultimoAbierto && l.abiertos < l.cantidadRecibida){
+      l.abiertos = l.cantidadRecibida; l.supuestoGastado = true;
+    }
+  });
+  return lista;
 }
 /** Tabla para elegir de qué lote se abre el envase, y cerrar los que sigan abiertos.
 
