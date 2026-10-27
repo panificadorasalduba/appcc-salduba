@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-27-b';
+const APP_VERSION = '2026-10-27-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -4149,9 +4149,10 @@ function getWeekNumber(dateStr){
   const diff = target - firstThursday;
   return 1 + Math.round(diff/(7*24*3600*1000));
 }
+/* En envases, no en kilos: el «quedan» de cada lote cuenta sacos, cajas o cubos. */
 function cantidadRecepcion(r){
   let cant = parseFloat(String(r.cantidad||'').replace(',','.'));
-  if(isFinite(cant) && cant>0) return cant;
+  if(isFinite(cant) && cant>0) return envasesDeLinea(r.producto, r.cantidad);
   const m = /Cantidad:\s*([\d.,]+)/.exec(r.observaciones||'');
   if(m){ const v = parseFloat(m[1].replace(',','.')); if(isFinite(v)&&v>0) return v; }
   return 1;
@@ -4903,8 +4904,9 @@ function materiaDelAlbaran(nombre){
 function tamanoEnvase(producto){
   const t = String(producto||'').toLowerCase().replace(',', '.');
   const base = (n, u)=> /^(g|gr|ml)$/.test(u) ? n/1000 : n;
+  /* «10 X 1 K», «12x1L»: el envase es lo que se abre (el bloque, el brick), no la caja */
   let m = /(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(kg|k|l|lt|g|gr|ml)\b/.exec(t);
-  if(m) return parseFloat(m[1]) * base(parseFloat(m[2]), m[3]);
+  if(m) return base(parseFloat(m[2]), m[3]);
   const todos = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(kg|kgs|k|l|lt|litros?|g|gr|ml)\b/g)];
   if(!todos.length) return 0;
   const u = todos[todos.length-1];
@@ -4919,9 +4921,38 @@ function envasesDeLinea(producto, cantidadStr){
     const enBase = /\b(g|gr|ml)\b/.test(s) ? n/1000 : n;
     return tam ? Math.max(1, Math.round(enBase / tam)) : 1;
   }
+  // «10,000 C» de «AMBAR … 6x2 Kg»: cajas de 6 bloques
+  const porCaja = /(\d+)\s*x\s*\d+(?:[.,]\d+)?\s*(kg|k|l|lt|g|gr|ml)\b/.exec(String(producto||'').toLowerCase());
+  if(porCaja && /\b(c|cajas?)\b/.test(s)) return n * parseFloat(porCaja[1]);
+  // «50 sacos (1,250 t)», «20,000 U», «2 BOL»: ya vienen en envases
+  if(/\b(sacos?|u|ud|uds|unidades?|bol|bal|cajas?|cubos?|paq|paquetes?|botes?)\b/.test(s)) return n;
+  // «1,250 t» o «1,500» de harina en sacos de 25 kg: son toneladas
+  if(/\bt\b/.test(s) || (tam >= 20 && n < 5 && /^\s*\d+,\d{3}\s*$/.test(s)))
+    return tam ? Math.max(1, Math.round(n*1000 / tam)) : n;
   const conUnidad = /[a-z]/.test(s.replace(/[\d.,\s]/g,''));
-  if(!conUnidad && tam >= 5 && n >= tam && Math.abs(n/tam - Math.round(n/tam)) < 0.01) return Math.round(n/tam);
+  if(!conUnidad && tam >= 5 && n >= tam && Math.abs(n/tam - Math.round(n/tam)) < 0.01
+     && cantidadEnKilos(producto, tam)) return Math.round(n/tam);
   return n;
+}
+/* ¿Este proveedor pone la cantidad en kilos? Solo si todas sus cantidades sin
+   unidad son justo el peso del saco o un múltiplo («25», «25,00»). La harina
+   viene en sacos («70», «74») y entonces un «50» son 50 sacos, no dos. */
+let CACHE_KILOS = null;
+function cantidadEnKilos(producto, tam){
+  const lista = DATA.recepcion || [];
+  if(!CACHE_KILOS || CACHE_KILOS.n !== lista.length){
+    CACHE_KILOS = {n: lista.length, porProd: {}};
+    lista.forEach(r=>{
+      const s = String(r.cantidad==null?'':r.cantidad).toLowerCase();
+      if(/[a-z]/.test(s.replace(/[\d.,\s]/g,''))) return;
+      const v = parseFloat(s.replace(',', '.'));
+      if(!isFinite(v) || v <= 0) return;
+      const k = normTxt(limpiaCodigoProveedor(r.producto));
+      (CACHE_KILOS.porProd[k] = CACHE_KILOS.porProd[k] || []).push(v);
+    });
+  }
+  const vals = CACHE_KILOS.porProd[normTxt(limpiaCodigoProveedor(producto))] || [];
+  return vals.every(v=> v >= tam && Math.abs(v/tam - Math.round(v/tam)) < 0.01);
 }
 async function registrarEntradaStock(nombre, proveedor, cantidadStr){
   if(!nombre || !nombre.trim()) return null;
