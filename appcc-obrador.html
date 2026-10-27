@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-22-h';
+const APP_VERSION = '2026-10-27-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -4332,7 +4332,9 @@ function lotesRecibidos(nombre){
   const aperturas = DATA.lotesMP.filter(r=>mismoProducto(r.producto, nombre));
   return Object.keys(porLote)
     .map(key=>({...porLote[key],
-                abiertos: aperturas.filter(r=>mismoLote(r.lote, porLote[key].lote)).length}))
+                /* Un lote reconstruido desde el albarán cuenta todos los envases que llegaron */
+                abiertos: aperturas.filter(r=>mismoLote(r.lote, porLote[key].lote))
+                                   .reduce((n,r)=>n + (Number(r.envases)||1), 0)}))
     .sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));   // el más antiguo primero (FIFO)
 }
 /** Tabla para elegir de qué lote se abre el envase, y cerrar los que sigan abiertos.
@@ -5418,8 +5420,9 @@ function agruparPorLote(lotes){
     /* Un envase marcado «mismo lote» lleva su propio casillero con el rótulo
        MISMO LOTE y sus fechas, como se apunta en el cuaderno. */
     const k = r.mismoLote ? ('__ml__'+r.id) : (String(r.lote||'').trim().toLowerCase() || ('__sin__'+r.id));
-    if(!porCodigo[k]){ porCodigo[k] = {lote: r.mismoLote ? 'MISMO LOTE' : String(r.lote||''), semanas:[], aperturas:[], cierres:[], abierto:false}; orden.push(k); }
+    if(!porCodigo[k]){ porCodigo[k] = {lote: r.mismoLote ? 'MISMO LOTE' : String(r.lote||''), semanas:[], aperturas:[], cierres:[], abierto:false, reconstruido:false}; orden.push(k); }
     const g = porCodigo[k];
+    if(r.reconstruido) g.reconstruido = true;
     semanasDeLote(r).forEach(n=>{ if(g.semanas.indexOf(n)<0) g.semanas.push(n); });
     if(r.fechaApertura) g.aperturas.push(String(r.fechaApertura));
     if(r.fechaCierre) g.cierres.push(String(r.fechaCierre)); else g.abierto = true;
@@ -5428,14 +5431,14 @@ function agruparPorLote(lotes){
     const g = porCodigo[k];
     g.semanas.sort((a,b)=>a-b);
     g.aperturas.sort(); g.cierres.sort();
-    return {lote:g.lote, semanas:g.semanas,
+    return {lote:g.lote, semanas:g.semanas, reconstruido:g.reconstruido,
             fechaApertura: g.aperturas[0] || '',
             fechaCierre: g.abierto ? '' : (g.cierres[g.cierres.length-1] || '')};
   }).sort((a,b)=> String(a.fechaApertura||'\uffff').localeCompare(String(b.fechaApertura||'\uffff')));
 }
 function casilleroLote(g){
   if(!g) return {lote:'', semanas:'', abro:'', cierro:''};
-  return {lote:String(g.lote||''),
+  return {lote:String(g.lote||'') + (g.reconstruido ? ' *' : ''),
           semanas:(g.semanas||[]).map(n=>'S'+n).join(' '),
           abro:ddmm(g.fechaApertura), cierro:ddmm(g.fechaCierre)};
 }
@@ -5504,6 +5507,7 @@ function hojasLotesMP(desde, hasta){
       lista.forEach(p=>{ const n = casilleros[normTxt(p)].length; if(n > bloques) bloques = n; });
       const cuerpo = lista.map(p=> filasProductoLote(p, casilleros[normTxt(p)], bloques) ).join('');
       const usados = lista.reduce((n,p)=> n + casilleros[normTxt(p)].length, 0);
+      const hayReconstruidos = lista.some(p=> casilleros[normTxt(p)].some(g=>g.reconstruido));
       const ancha = bloques > LOTES_BLOQUES ? ' ancha' : '';   // apaisada si no cabe de pie
       out.push(`<section class="hoja hoja-lotes${ancha}" data-bloques="${bloques}">
         ${cabeceraHoja('Materias primas · registro de lotes','T1 · Traza 1-10','Año '+anio+' · '+titulo)}
@@ -5511,7 +5515,7 @@ function hojasLotesMP(desde, hasta){
           <thead><tr><th colspan="${1+2*bloques}" class="banda">${esc(titulo.toUpperCase())}</th></tr></thead>
           ${cuerpo}
         </table>
-        <p class="pie-nota">${usados} lote${usados===1?'':'s'} anotado${usados===1?'':'s'} en esta hoja. Cada casillero es un número de lote con todas las semanas en que se pidió. Las casillas en blanco son las del cuaderno que aún no se han usado.</p>
+        <p class="pie-nota">${usados} lote${usados===1?'':'s'} anotado${usados===1?'':'s'} en esta hoja. Cada casillero es un número de lote con todas las semanas en que se pidió. Las casillas en blanco son las del cuaderno que aún no se han usado.${hayReconstruidos ? ' <b>*</b> Lote sin apertura y cierre anotados en su día: las fechas están reconstruidas a partir del albarán de recepción y la cantidad recibida.' : ''}</p>
         <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`);
     });
   });
@@ -5541,7 +5545,7 @@ function hojaDetalleLotes(desde, hasta){
   const cerrados = filas.filter(r=>r.fechaCierre).length;
   const cuerpo = filas.map(r=>`<tr>
     <td>${esc(resolverNombreProducto(r.producto))}</td>
-    <td class="mono">${esc(r.lote)||'—'}${r.mismoLote ? ' <strong>(MISMO LOTE)</strong>' : ''}</td>
+    <td class="mono">${esc(r.lote)||'—'}${r.mismoLote ? ' <strong>(MISMO LOTE)</strong>' : ''}${r.reconstruido ? ' <strong>*</strong>' : ''}</td>
     <td>${esc(textoSemanas(r,' '))||'—'}</td>
     <td>${r.fechaApertura?fmtDate(r.fechaApertura):'—'}</td>
     <td>${r.fechaCierre?fmtDate(r.fechaCierre):'en uso'}</td>
@@ -5551,7 +5555,7 @@ function hojaDetalleLotes(desde, hasta){
     <table class="rejilla"><thead><tr>
       <th>Producto</th><th>Lote</th><th>Semanas pedidas</th><th>Fecha de apertura</th><th>Fecha de cierre</th>
     </tr></thead><tbody>${cuerpo}</tbody></table>
-    <p class="pie-nota">${filas.length} envase${filas.length===1?'':'s'} registrado${filas.length===1?'':'s'}: ${cerrados} ya gastado${cerrados===1?'':'s'} y ${filas.length-cerrados} en uso. Cada línea es un envase concreto; si de un mismo lote se han abierto varios, aparece uno por línea.</p>
+    <p class="pie-nota">${filas.length} envase${filas.length===1?'':'s'} registrado${filas.length===1?'':'s'}: ${cerrados} ya gastado${cerrados===1?'':'s'} y ${filas.length-cerrados} en uso. Cada línea es un envase concreto; si de un mismo lote se han abierto varios, aparece uno por línea.${filas.some(r=>r.reconstruido) ? ' <b>*</b> Sin apertura y cierre anotados en su día: fechas reconstruidas a partir del albarán de recepción y la cantidad recibida (la línea agrupa todos los envases de esa entrega).' : ''}</p>
     <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
 }
 
