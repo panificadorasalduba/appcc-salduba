@@ -301,7 +301,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-27-c';
+const APP_VERSION = '2026-10-28-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -882,6 +882,7 @@ async function sincronizar(motivo){
     SYNC.ultima = new Date(); SYNC.fallos = 0;
     marcarSync('Guardado en Drive a las '+SYNC.ultima.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})+
                ' · '+ahoraHay+' registros');
+    setTimeout(()=>subirFotosAlbaranes(10), 2000);
     return true;
   }catch(err){
     SYNC.fallos++;
@@ -2693,7 +2694,14 @@ async function confirmarRecepcionFoto(){
 async function verFotoAlbaran(fotoId){
   try{
     const dataUrl = await Store.get('foto:'+fotoId);
-    if(!dataUrl){ alert('La foto no está disponible.'); return; }
+    if(!dataUrl){
+      // No está en este aparato: se abre la copia de Drive
+      const conEnlace = (DATA.recepcion||[]).find(r=>r.fotoId===fotoId && r.fotoUrl);
+      if(conEnlace){ window.open(conEnlace.fotoUrl, '_blank', 'noopener'); return; }
+      alert('La foto está en el aparato que la hizo y todavía no se ha subido a Drive. Se sube sola la próxima vez que ese aparato guarde en Drive.');
+      return;
+    }
+    if(/^data:application\/pdf/i.test(String(dataUrl).slice(0,40))){ verFotoLocal(fotoId); return; }
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,16,12,0.82);display:flex;align-items:center;justify-content:center;z-index:999;cursor:zoom-out;padding:20px;';
     overlay.innerHTML = `<img src="${dataUrl}" style="max-width:92vw;max-height:92vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,0.4);">`;
@@ -6607,6 +6615,39 @@ async function subirFotoADrive(dataUrl, nombre, mime){
   if(!r.ok) throw new Error(r.error || 'Drive no guardó la foto');
   if(!r.url) throw new Error('Drive no devolvió el enlace de la foto');
   return r;
+}
+/* ---- fotos de albaranes en Drive ----
+   La foto se guarda primero en el aparato que la hizo. Después de cada guardado
+   en Drive se suben las que falten (unas pocas cada vez, para no atascar la
+   tablet) y el enlace queda en las líneas del albarán: así se abre desde
+   cualquier aparato aunque la tablet se pierda o se rompa. */
+let SUBIENDO_ALBARANES = false;
+async function subirFotosAlbaranes(maximo){
+  if(SUBIENDO_ALBARANES || !syncActiva()) return 0;
+  SUBIENDO_ALBARANES = true;
+  let subidas = 0;
+  try{
+    const porFoto = {};
+    (DATA.recepcion||[]).forEach(r=>{ if(r.fotoId && !r.fotoUrl) (porFoto[r.fotoId] = porFoto[r.fotoId] || []).push(r); });
+    for(const fotoId of Object.keys(porFoto)){
+      if(subidas >= (maximo||10)) break;
+      const dataUrl = await Store.get('foto:'+fotoId);
+      if(!dataUrl) continue;               // la hizo otro aparato: la subirá él
+      const l = porFoto[fotoId][0];
+      const pdf = /^data:application\/pdf/i.test(String(dataUrl).slice(0,40));
+      const nombre = 'albaran-' + (l.fecha||'sin-fecha') + '-'
+                   + normTxt(l.proveedor||'proveedor').replace(/ /g,'-').slice(0,40)
+                   + (l.numAlbaran ? '-' + normTxt(l.numAlbaran).replace(/ /g,'') : '')
+                   + '-' + fotoId + (pdf ? '.pdf' : '.jpg');
+      try{
+        const r = await subirFotoADrive(dataUrl, nombre);
+        porFoto[fotoId].forEach(x=>{ x.fotoUrl = r.url; x.fotoDriveId = r.id || ''; x._ts = Date.now(); });
+        subidas++;
+      }catch(err){ console.error('foto de albarán', err); break; }
+    }
+    if(subidas) await saveModule('recepcion');
+  }finally{ SUBIENDO_ALBARANES = false; }
+  return subidas;
 }
 async function subirFotosPendientes(avisar){
   const pendientes = [];
