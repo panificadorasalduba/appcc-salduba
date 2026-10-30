@@ -302,7 +302,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-30-b';
+const APP_VERSION = '2026-10-30-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -508,6 +508,15 @@ function pintarEstadoDispositivo(extra){
       registros > 0 ? 'Si el número cuadra con el del ordenador, la sincronización va bien.' : 'No hay ningún registro todavía.')
     + lineaEstado(null, 'Versión de la app: ' + APP_VERSION, 'Si no coincide con la del ordenador, este aparato tiene una copia vieja; ciérrala y vuelve a abrirla.')
     + (function(){
+        const f = (typeof FOTOS_ESTADO !== 'undefined') ? FOTOS_ESTADO : null;
+        if(!f || !f.revisado) return '';
+        const ok = f.aqui === 0;
+        return lineaEstado(ok, 'Fotos de albaranes: ' + f.aqui + ' de este aparato sin subir a Drive',
+          'Faltan ' + f.faltanEnDrive + ' en Drive en total (revisado a las ' + esc(f.revisado) + ').'
+          + (f.ultimoError ? ' Último fallo: ' + esc(f.ultimoError) : '')
+          + (!ok && !f.ultimoError ? ' Se están subiendo; deja la app abierta.' : ''));
+      })()
+    + (function(){
         const u = ultimoErrorIA();
         if(!u) return '';
         return lineaEstado(null, 'Último fallo de la IA',
@@ -519,6 +528,7 @@ async function comprobarDispositivo(){
   let extra = '';
   if(getAppsScriptUrl()){
     try{ await sincronizar('comprobación'); }catch(e){}
+    try{ await subirFotosAlbaranes(10); }catch(e){}
   }
   if(getGeminiKey()){
     /* Se le manda una imagen de un píxel: basta para ver si la clave responde. */
@@ -6659,6 +6669,9 @@ async function subirFotoADrive(dataUrl, nombre, mime){
    tablet) y el enlace queda en las líneas del albarán: así se abre desde
    cualquier aparato aunque la tablet se pierda o se rompa. */
 let SUBIENDO_ALBARANES = false;
+/* Lo que pasa con las fotos en ESTE aparato, para enseñarlo en Ajustes. Una foto
+   que falla se apunta y se salta: antes paraba la subida y las de detrás no subían. */
+var FOTOS_ESTADO = {faltanEnDrive:0, aqui:0, fallidas:{}, ultimoError:'', revisado:''};
 async function subirFotosAlbaranes(maximo){
   if(SUBIENDO_ALBARANES || !syncActiva()) return 0;
   SUBIENDO_ALBARANES = true;
@@ -6666,10 +6679,13 @@ async function subirFotosAlbaranes(maximo){
   try{
     const porFoto = {};
     (DATA.recepcion||[]).forEach(r=>{ if(r.fotoId && !r.fotoUrl) (porFoto[r.fotoId] = porFoto[r.fotoId] || []).push(r); });
+    FOTOS_ESTADO.faltanEnDrive = Object.keys(porFoto).length;
+    FOTOS_ESTADO.aqui = 0;
     for(const fotoId of Object.keys(porFoto)){
-      if(subidas >= (maximo||10)) break;
       const dataUrl = await Store.get('foto:'+fotoId);
       if(!dataUrl) continue;               // la hizo otro aparato: la subirá él
+      FOTOS_ESTADO.aqui++;
+      if(subidas >= (maximo||10) || FOTOS_ESTADO.fallidas[fotoId] >= 3) continue;
       const l = porFoto[fotoId][0];
       const pdf = /^data:application\/pdf/i.test(String(dataUrl).slice(0,40));
       const nombre = 'albaran-' + (l.fecha||'sin-fecha') + '-'
@@ -6680,8 +6696,15 @@ async function subirFotosAlbaranes(maximo){
         const r = await subirFotoADrive(dataUrl, nombre);
         porFoto[fotoId].forEach(x=>{ x.fotoUrl = r.url; x.fotoDriveId = r.id || ''; x._ts = Date.now(); });
         subidas++;
-      }catch(err){ console.error('foto de albarán', err); break; }
+        FOTOS_ESTADO.aqui--;
+      }catch(err){
+        console.error('foto de albarán', err);
+        FOTOS_ESTADO.fallidas[fotoId] = (FOTOS_ESTADO.fallidas[fotoId]||0) + 1;
+        FOTOS_ESTADO.ultimoError = fmtDate(l.fecha) + ' ' + (l.proveedor||'') + ' (' + Math.round(String(dataUrl).length*0.75/1024) + ' KB): ' + err.message;
+      }
     }
+    FOTOS_ESTADO.faltanEnDrive -= subidas;
+    FOTOS_ESTADO.revisado = new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
     if(subidas) await saveModule('recepcion');
   }finally{ SUBIENDO_ALBARANES = false; }
   return subidas;
