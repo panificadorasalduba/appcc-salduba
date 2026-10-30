@@ -150,6 +150,7 @@
   }
   .stamp.ok{color:#8CD08A;}
   .stamp.danger{color:#E79486;}
+  .stamp.warn{color:#F2C46D;}
 
   .grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:22px;}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
@@ -301,7 +302,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-28-a';
+const APP_VERSION = '2026-10-30-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -5615,8 +5616,6 @@ function hojaDetalleLotes(desde, hasta){
    inspector vea el cuadro entero y no una lista de lo que se hizo. */
 const FRECUENCIA_OPCIONES = 'Diario / semanal / mensual / anual';
 function hojasLimpiezaPorZona(desde, hasta){
-  const zonas = CONFIG.zonasLimpieza || [];
-  if(!zonas.length) return [];
   const dentroRango = r => dentro(r.fecha, desde, hasta);
   const registros = (DATA.limpieza||[]).filter(dentroRango);
   const porElemento = {};
@@ -5624,6 +5623,16 @@ function hojasLimpiezaPorZona(desde, hasta){
     const k = normTxt(r.area)+'|'+normTxt(r.elemento);
     (porElemento[k] = porElemento[k] || []).push(r);
   });
+  /* Las salas y elementos del plan (Ajustes) van primero, como en el cuaderno.
+     Todo lo registrado que no esté en el plan se añade detrás: el informe no
+     puede esconder ninguna limpieza apuntada. */
+  const zonas = (CONFIG.zonasLimpieza || []).map(z=>({area:z.area, elementos:(z.elementos||[]).slice()}));
+  registros.forEach(r=>{
+    let z = zonas.find(x=>normTxt(x.area)===normTxt(r.area));
+    if(!z){ z = {area:r.area||'Sin sala', elementos:[]}; zonas.push(z); }
+    if(!z.elementos.some(e=>normTxt(e)===normTxt(r.elemento))) z.elementos.push(r.elemento||'Sin elemento');
+  });
+  if(!zonas.length) return [];
   const filasDe = z => (z.elementos||[]).map(el=>{
     const lista = (porElemento[normTxt(z.area)+'|'+normTxt(el)] || [])
       .slice().sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')));
@@ -5634,6 +5643,9 @@ function hojasLimpiezaPorZona(desde, hasta){
     const superv = [...new Set(lista.map(r=>r.supervisor).filter(Boolean))].join(' / ');
     const inc = [...new Set(lista.map(r=>r.incidenciaNum || r.observaciones).filter(Boolean))].join(' · ');
     const frec = [...new Set(lista.map(r=>r.frecuencia).filter(Boolean))].join(' / ');
+    // Las que se apuntaron como NO hechas salen a la vista, no se pierden
+    const noHechas = lista.filter(r=>!r.realizado).map(r=>fmtDate(r.fecha));
+    const noTxt = noHechas.length ? `<b class="lim-no" style="color:#b42318;">NO HECHA: ${esc(noHechas.join(' · '))}</b>` : '';
     return `<tr>
       <td class="lim-el">${esc(el)}</td>
       <td class="lim-frec">${frec ? esc(frec) : FRECUENCIA_OPCIONES}</td>
@@ -5641,7 +5653,7 @@ function hojasLimpiezaPorZona(desde, hasta){
       <td>${esc(fechas)}</td>
       <td>${esc(quien)}</td>
       <td>${esc(superv)}</td>
-      <td>${esc(inc)}</td>
+      <td>${noTxt}${noTxt && inc ? ' · ' : ''}${esc(inc)}</td>
     </tr>`;
   }).join('');
   const cuerpo = zonas.map(z=>`
@@ -5652,10 +5664,11 @@ function hojasLimpiezaPorZona(desde, hasta){
       <th>Quién supervisa</th><th>Incidencia nº</th>
     </tr></thead><tbody>${filasDe(z)}</tbody></table>`).join('');
   const hechas = registros.filter(r=>r.realizado).length;
+  const noHechas = registros.length - hechas;
   return [`<section class="hoja ancha hoja-limpieza">
     ${cabeceraHoja('Registro · control de limpieza y desinfección','T4 · Limpieza',rotuloRango(desde,hasta))}
     ${cuerpo}
-    <p class="pie-nota">${hechas} limpieza${hechas===1?'':'s'} registrada${hechas===1?'':'s'} en este periodo. Las casillas en blanco son las del cuaderno que todavía no se han rellenado.</p>
+    <p class="pie-nota">${hechas} limpieza${hechas===1?'':'s'} registrada${hechas===1?'':'s'} en este periodo${noHechas ? ' y ' + noHechas + ' apuntada' + (noHechas===1?'':'s') + ' como NO hecha' + (noHechas===1?'':'s') : ''}. Las casillas en blanco son las del cuaderno que todavía no se han rellenado.</p>
     <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div>
   </section>`];
 }
@@ -6075,30 +6088,42 @@ function renderDashboard(){
 
   const critico = tempAlertas>0 || recepRechazadas>0 || ncAbiertas>0 || aguaRevisar>0 || aceiteCambiar>0;
 
+  /* Lo que falta por apuntar hoy. Sin esto el inicio ponía «OK» aunque no se
+     hubiera registrado nada. El domingo el obrador no limpia (en el cuaderno va «-»).
+     El agua es semanal: basta un control entre el lunes y hoy. */
+  const esDomingo = new Date(today+'T12:00:00').getDay() === 0;
+  const faltanEquipos = CONFIG.equipos.length - tempRegistradas;
+  const limpiezaFalta = !esDomingo && !limpiezaHoy.some(r=>r.realizado);
+  const lunes = (()=>{ const d = new Date(today+'T12:00:00'); d.setDate(d.getDate() - ((d.getDay()+6)%7)); return d.toISOString().slice(0,10); })();
+  const aguaSemana = DATA.agua.filter(r=>r.fecha>=lunes && r.fecha<=today).length;
+  const pendiente = faltanEquipos>0 || limpiezaFalta || aguaSemana===0;
+  const tempBadge = tempAlertas>0 ? ['danger','Alerta'] : tempRegistradas===0 ? ['warn','Falta'] : faltanEquipos>0 ? ['warn','Faltan '+faltanEquipos] : ['ok','OK'];
+  const tempSub = tempRegistradas===0 ? 'Falta el registro de hoy' : tempAlertas+' equipos fuera de rango hoy'+(faltanEquipos>0 ? ' · faltan '+faltanEquipos+' equipos' : '');
+
   el.innerHTML = `
     <div class="dash-hero">
       <div>
         <h2>${esc(CONFIG.empresa.nombre)}</h2>
         <p>Resumen de autocontrol APPCC de hoy, ${fmtDate(today)}. ${esc(CONFIG.empresa.obrador)} · Reg. sanitario ${esc(CONFIG.empresa.registroSanitario)}. Reparto a ${CONFIG.tiendas.length} tiendas.</p>
       </div>
-      <div class="stamp ${critico?'danger':'ok'}">${critico?'Revisar':'Controlado'}</div>
+      <div class="stamp ${critico?'danger':pendiente?'warn':'ok'}">${critico?'Revisar':pendiente?'Falta registrar':'Controlado'}</div>
     </div>
 
     <div class="grid-cards">
       <div class="card">
-        <div class="card-top">${icon('temp')}<span class="badge ${tempAlertas>0?'danger':'ok'}">${tempAlertas>0?'Alerta':'OK'}</span></div>
+        <div class="card-top">${icon('temp')}<span class="badge ${tempBadge[0]}">${tempBadge[1]}</span></div>
         <h3>Temperaturas</h3><div class="metric mono">${tempRegistradas}/${CONFIG.equipos.length}</div>
-        <div class="sub">${tempAlertas} equipos fuera de rango hoy</div>
+        <div class="sub">${tempSub}</div>
       </div>
       <div class="card">
-        <div class="card-top">${icon('clean')}<span class="badge ${elementosCompletados>=totalElementos?'ok':'warn'}">${elementosCompletados}/${totalElementos}</span></div>
+        <div class="card-top">${icon('clean')}<span class="badge ${limpiezaFalta?'warn':elementosCompletados>=totalElementos?'ok':'warn'}">${limpiezaFalta?'Falta':elementosCompletados+'/'+totalElementos}</span></div>
         <h3>Limpieza</h3><div class="metric mono">${limpiezaHoy.length}</div>
-        <div class="sub">Elementos con tarea registrada hoy</div>
+        <div class="sub">${limpiezaFalta ? 'Falta el registro de hoy' : esDomingo && !limpiezaHoy.length ? 'Domingo: sin limpieza' : 'Elementos con tarea registrada hoy'}</div>
       </div>
       <div class="card">
-        <div class="card-top">${icon('water')}<span class="badge ${aguaRevisar>0?'danger':'ok'}">${aguaRevisar>0?'Revisar':'OK'}</span></div>
-        <h3>Control de agua</h3><div class="metric mono">${aguaHoy.length}</div>
-        <div class="sub">Controles registrados hoy</div>
+        <div class="card-top">${icon('water')}<span class="badge ${aguaRevisar>0?'danger':aguaSemana===0?'warn':'ok'}">${aguaRevisar>0?'Revisar':aguaSemana===0?'Falta':'OK'}</span></div>
+        <h3>Control de agua</h3><div class="metric mono">${aguaSemana}</div>
+        <div class="sub">${aguaSemana===0 ? 'Falta el control de esta semana' : 'Controles esta semana (es semanal)'}</div>
       </div>
       <div class="card">
         <div class="card-top">${icon('truck')}<span class="badge ${recepRechazadas>0?'danger':'ok'}">${recepRechazadas>0?'Rechazos':'OK'}</span></div>
