@@ -302,7 +302,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-30-c';
+const APP_VERSION = '2026-10-30-d';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -766,8 +766,13 @@ function mezclarLista(local, remoto){
        reciente: así un lote reabierto (fecha de cierre vacía) no lo pisa la copia
        cerrada que sigue en Drive. Sin marca, gana la más rellena, como siempre. */
     const ta = r._ts || 0, tb = otro._ts || 0;
-    if(ta || tb){ salida.push(tb > ta ? otro : r); return; }
-    salida.push(relleno(otro) > relleno(r) ? otro : r);
+    let gana;
+    if(ta || tb) gana = tb > ta ? otro : r;
+    else gana = relleno(otro) > relleno(r) ? otro : r;
+    // El enlace a la foto en Drive no se pierde aunque gane la otra copia
+    const pierde = gana === r ? otro : r;
+    if(pierde.fotoUrl && !gana.fotoUrl){ gana.fotoUrl = pierde.fotoUrl; gana.fotoDriveId = pierde.fotoDriveId || ''; }
+    salida.push(gana);
   });
   fuera.forEach((r,id)=>{ if(!vistos.has(id) && !BAJAS[id]) salida.push(r); });
   return salida;
@@ -1822,7 +1827,7 @@ async function releerFechasPendientes(){
       const regs = grupos[fid];
       const r0 = regs[0];
       const nueva = huellaAlbaran(r0.proveedor, f, r0.numAlbaran, regs.map(r=>({producto:r.producto, lote:r.lote})));
-      regs.forEach(r=>{ r.fecha = f; r.fechaOk = true; r.fechaPorConfirmar = false; r.fechaLeida = parsed.fecha; r.huella = nueva; });
+      regs.forEach(r=>{ r.fecha = f; r.fechaOk = true; r.fechaPorConfirmar = false; r.fechaLeida = parsed.fecha; r.huella = nueva; r._ts = Date.now(); });
       await saveModule('recepcion');
       ok++;
     }catch(err){ console.error(err); guardarUltimoErrorIA(err); sinLeer++; }
@@ -1859,7 +1864,7 @@ async function guardarAlbaranDirecto(parsed, dataUrl, responsable){
       && normTxt(r.proveedor) === normTxt(proveedor));
     if(sinFecha.length){
       const nueva = huellaAlbaran(proveedor, fecha, numAlbaran, sinFecha.map(r=>({producto:r.producto, lote:r.lote})));
-      sinFecha.forEach(r=>{ r.fecha = fecha; r.fechaOk = true; r.fechaPorConfirmar = false; r.fechaLeida = fechaLeida; r.huella = nueva; });
+      sinFecha.forEach(r=>{ r.fecha = fecha; r.fechaOk = true; r.fechaPorConfirmar = false; r.fechaLeida = fechaLeida; r.huella = nueva; r._ts = Date.now(); });
       await saveModule('recepcion');
       return {estado:'fechaCorregida', proveedor, fecha, numAlbaran, n:sinFecha.length};
     }
@@ -2888,6 +2893,7 @@ async function corregirFechaRecepcion(i){
       r.fecha = nueva;
       delete r.fechaPorConfirmar;          // ya la ha confirmado una persona
       r.fechaOk = true;
+      r._ts = Date.now();                  // que no la pise la copia vieja de otro aparato
       n++;
     }
   });
@@ -5270,7 +5276,11 @@ function dentro(f, desde, hasta){
 /** Fecha del registro más antiguo que hay guardado (para el historial completo). */
 function primeraFechaConDatos(){
   let min = '';
-  const mira = f => { if(f && /^\d{4}-\d{2}-\d{2}$/.test(f) && (!min || f < min)) min = f; };
+  /* Una fecha mal leída de un albarán («2016-09-16») haría salir hojas vacías de
+     años enteros. Se ignora lo que tenga más de dos años o sea futuro. */
+  const hoy = todayStr();
+  const suelo = (parseInt(hoy.slice(0,4),10) - 2) + hoy.slice(4);
+  const mira = f => { if(f && /^\d{4}-\d{2}-\d{2}$/.test(f) && f >= suelo && f <= hoy && (!min || f < min)) min = f; };
   Object.keys(DATA.temperaturas||{}).forEach(mes=>{
     (DATA.temperaturas[mes]||[]).forEach(r=> mira(mes+'-'+String(r.day).padStart(2,'0')) );
   });
@@ -6694,7 +6704,9 @@ async function subirFotosAlbaranes(maximo){
                    + '-' + fotoId + (pdf ? '.pdf' : '.jpg');
       try{
         const r = await subirFotoADrive(dataUrl, nombre);
-        porFoto[fotoId].forEach(x=>{ x.fotoUrl = r.url; x.fotoDriveId = r.id || ''; x._ts = Date.now(); });
+        /* Sin marca de hora: si esta copia de la línea es vieja, no debe pisar a la
+           buena de Drive. El enlace pasa de una copia a otra al mezclar. */
+        porFoto[fotoId].forEach(x=>{ x.fotoUrl = r.url; x.fotoDriveId = r.id || ''; });
         subidas++;
         FOTOS_ESTADO.aqui--;
       }catch(err){
