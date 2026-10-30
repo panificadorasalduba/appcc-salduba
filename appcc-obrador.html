@@ -302,7 +302,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-30-a';
+const APP_VERSION = '2026-10-30-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -5295,6 +5295,18 @@ function cabeceraHoja(titulo, traza, sub){
 function hojaVacia(txt){ return `<p class="hoja-vacia">${esc(txt)}</p>`; }
 
 /** Rejilla mensual de temperaturas, igual que la hoja de papel. */
+/* Cómo se enseña el límite de cada equipo. Los congeladores no tienen mínimo en el
+   manual (Ed. 04): objetivo -18 ºC y límite crítico -16 ºC. El -30 de Ajustes es
+   solo un tope técnico y no debe salir en las hojas. */
+function rangoEquipo(e){
+  if(e.max < 0) return '≤ ' + e.max + ' °C (objetivo -18 °C)';
+  return e.min + '…' + e.max + ' °C';
+}
+/** Lo mismo, dicho para la tablet del obrador. */
+function rangoEquipoTexto(e){
+  if(e.max < 0) return 'a ' + e.max + ' ºC o menos (lo normal, -18 ºC)';
+  return 'entre ' + e.min + ' y ' + e.max + ' ºC';
+}
 function hojaTemperaturas(mes, desde, hasta){
   const filas = DATA.temperaturas[mes];
   if(!filas) return '';
@@ -5318,7 +5330,7 @@ function hojaTemperaturas(mes, desde, hasta){
   }
   if(!hay) return '';
   return `<section class="hoja ancha">${cabeceraHoja('Control de temperaturas de equipos','T3 · Temperaturas', nombreMes(mes))}
-    <table class="rejilla"><thead><tr><th>Día</th>${equipos.map(e=>`<th>${esc(e.nombre)}<br><span class="lim">${e.min}…${e.max}°C</span></th>`).join('')}<th>Responsable</th><th>Incid.</th></tr></thead>
+    <table class="rejilla"><thead><tr><th>Día</th>${equipos.map(e=>`<th>${esc(e.nombre)}<br><span class="lim">${esc(rangoEquipo(e))}</span></th>`).join('')}<th>Responsable</th><th>Incid.</th></tr></thead>
     <tbody>${cuerpo}</tbody></table>
     <div class="firma">Verificado y conforme: ______________________________  Fecha: ____________</div></section>`;
 }
@@ -7376,7 +7388,7 @@ function obTemperaturas(host){
     const fondo = !hay ? '#ece6dc' : mal ? '#fde8e6' : '#e3f4ea';
     const borde = !hay ? '#d6c8b4' : mal ? '#b42318' : '#1e7b46';
     return `<button onclick="obApuntarTemp(${i})" style="display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;min-height:76px;margin:0 0 10px;padding:12px 18px;border:2px solid ${borde};border-radius:14px;background:${fondo};cursor:pointer;text-align:left;color:#3b2f24;">
-      <span><span style="font-size:22px;font-weight:700;display:block;">${esc(e.nombre)}</span><span style="font-size:15px;color:#6b5a48;">entre ${e.min} y ${e.max} ºC</span></span>
+      <span><span style="font-size:22px;font-weight:700;display:block;">${esc(e.nombre)}</span><span style="font-size:15px;color:#6b5a48;">${esc(rangoEquipoTexto(e))}</span></span>
       <span style="font-size:30px;font-weight:800;white-space:nowrap;color:${mal?'#b42318':'#3b2f24'};">${hay ? String(v).replace('.',',')+' º' : 'Tocar'}</span>
     </button>`;
   }).join('');
@@ -7393,7 +7405,7 @@ function obApuntarTemp(i){
   obConNombre(()=>{
     const e = (CONFIG.equipos||[])[i];
     if(!e) return;
-    obTeclado('🌡️ ' + esc(e.nombre), 'Debe estar entre ' + e.min + ' y ' + e.max + ' ºC. Usa «−» para los grados bajo cero.', true, v=>obGuardarTemp(i, v));
+    obTeclado('🌡️ ' + esc(e.nombre), 'Debe estar ' + rangoEquipoTexto(e) + '. Usa «−» para los grados bajo cero.', true, v=>obGuardarTemp(i, v));
   });
 }
 async function obGuardarTemp(i, v){
@@ -7409,7 +7421,7 @@ async function obGuardarTemp(i, v){
   renderDashboard();
   if(!within(v, e.min, e.max)){
     obModal(`<div style="font-size:28px;font-weight:800;color:#b42318;">⚠ Fuera de rango</div>
-      <div style="margin:12px 0;font-size:22px;"><b>${esc(e.nombre)}</b> marca <b>${String(v).replace('.',',')} ºC</b>.<br>Debe estar entre ${e.min} y ${e.max} ºC.</div>
+      <div style="margin:12px 0;font-size:22px;"><b>${esc(e.nombre)}</b> marca <b>${String(v).replace('.',',')} ºC</b>.<br>Debe estar ${esc(rangoEquipoTexto(e))}.</div>
       <div style="font-size:24px;font-weight:700;margin:12px 0;">Avisa al encargado.</div>
       <button style="${OB_NO}" onclick="obModal('');viewObrador();">Vale</button>`);
     return;
