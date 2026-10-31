@@ -302,7 +302,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-30-d';
+const APP_VERSION = '2026-10-31-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1577,10 +1577,14 @@ function cargarFotoDeCola(){
   }
   if(albaranQueueIndex>=albaranQueue.length) albaranQueueIndex = albaranQueue.length-1;
   recepcionFotoDataUrl = albaranQueue[albaranQueueIndex];
-  const miniaturas = albaranQueue.map((d,i)=>`<img src="${d}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:2px solid ${i===albaranQueueIndex?'var(--wheat)':'var(--line)'};cursor:pointer;" onclick="albaranQueueIndex=${i};cargarFotoDeCola();">`).join('');
+  // Los PDF (albaranes que llegan por correo) no se ven como imagen: van con su etiqueta
+  const caja = (d, estilo, extra) => esDataPdf(d)
+    ? `<div ${extra||''} style="${estilo}display:flex;align-items:center;justify-content:center;background:#f4ede2;font-weight:700;color:#8a5a00;">PDF</div>`
+    : `<img src="${d}" ${extra||''} style="${estilo}">`;
+  const miniaturas = albaranQueue.map((d,i)=>caja(d, `width:52px;height:52px;object-fit:cover;border-radius:6px;border:2px solid ${i===albaranQueueIndex?'var(--wheat)':'var(--line)'};cursor:pointer;`, `onclick="albaranQueueIndex=${i};cargarFotoDeCola();"`)).join('');
   preview.innerHTML = `
     ${albaranQueue.length>1 ? `<div class="hint" style="margin-bottom:6px;">Albarán ${albaranQueueIndex+1} de ${albaranQueue.length} — pulsa una miniatura para cambiar de foto</div><div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">${miniaturas}</div>` : ''}
-    <img src="${recepcionFotoDataUrl}" style="max-width:220px;border-radius:8px;border:1px solid var(--line);">
+    ${caja(recepcionFotoDataUrl, 'max-width:220px;min-height:80px;border-radius:8px;border:1px solid var(--line);')}
   `;
   if(btn) btn.disabled = false;
   recepcionExtraidas = [];
@@ -1593,6 +1597,19 @@ function cargarFotoDeCola(){
     ? `Foto ${albaranQueueIndex+1} de ${albaranQueue.length} lista. Pulsa "Extraer datos con IA", o léelas todas de golpe.`
     : 'Foto lista. Pulsa "Extraer datos con IA".';
   pintarBotonLote();
+}
+function esDataPdf(d){ return /^data:application\/pdf/i.test(String(d||'').slice(0,40)); }
+function mimeDeData(d){ const m = /^data:([^;,]+)/.exec(String(d||'').slice(0,60)); return m ? m[1] : 'image/jpeg'; }
+/** Un PDF se guarda tal cual (la IA lo lee directamente); una foto se reduce. */
+function prepararArchivoAlbaran(file){
+  const pdf = /pdf/i.test(file.type||'') || /\.pdf$/i.test(file.name||'');
+  if(!pdf) return compressImage(file, 1100, 0.72);
+  return new Promise((resolve,reject)=>{
+    const fr = new FileReader();
+    fr.onload = ()=>resolve(String(fr.result).replace(/^data:[^;,]*/, 'data:application/pdf'));
+    fr.onerror = ()=>reject(fr.error);
+    fr.readAsDataURL(file);
+  });
 }
 function compressImage(file, maxWidth, quality){
   return new Promise((resolve,reject)=>{
@@ -1817,7 +1834,7 @@ async function releerFechasPendientes(){
     try{ dataUrl = await Store.get('foto:'+fid); }catch(e){}
     if(!dataUrl){ sinFoto++; continue; }
     try{
-      const texto = await reintentarSiSatura(()=>lectorAlbaran(dataUrl.split(',')[1], null), null);
+      const texto = await reintentarSiSatura(()=>lectorAlbaran(dataUrl.split(',')[1], null, mimeDeData(dataUrl)), null);
       let limpio = String(texto||'').replace(/```json|```/g,'').trim();
       const a = limpio.indexOf('{'), b = limpio.lastIndexOf('}');
       if(a>=0 && b>a) limpio = limpio.slice(a, b+1);
@@ -2039,7 +2056,7 @@ async function procesarLoteAlbaranes(){
     let parsed = null, fallo = null;
     try{
       const base64 = dataUrl.split(',')[1];
-      const texto = await reintentarSiSatura(()=>lectorAlbaran(base64, null), null);
+      const texto = await reintentarSiSatura(()=>lectorAlbaran(base64, null, mimeDeData(dataUrl)), null);
       let limpio = String(texto||'').replace(/```json|```/g,'').trim();
       const a = limpio.indexOf('{'), b = limpio.lastIndexOf('}');
       if(a>=0 && b>a) limpio = limpio.slice(a, b+1);
@@ -2110,7 +2127,7 @@ function viewRecepcion(){
       <h2>${icon('truck')} Escanear albarán</h2>
       <p class="hint">Haz una foto del albarán al recepcionar la mercancía. La IA leerá proveedor, productos, lotes y caducidades, y podrás revisarlos antes de guardar.</p>
       <div class="filters">
-        <label class="field"><span>Subir fotos (puedes marcarlas todas de golpe)</span><input type="file" id="albaranFile" accept="image/*" multiple></label>
+        <label class="field"><span>Subir fotos (puedes marcarlas todas de golpe)</span><input type="file" id="albaranFile" accept="image/*,application/pdf" multiple></label>
         <button class="btn secondary" id="albaranCamBtn" type="button">📷 Abrir cámara</button>
         <button class="btn secondary" id="albaranExtraerBtn" disabled>Extraer datos con IA</button>
       </div>
@@ -2207,7 +2224,7 @@ function viewRecepcion(){
         if(files.length>3) estado.textContent = `Preparando foto ${i+1} de ${files.length}…`;
         let dataUrl = null;
         try{
-          dataUrl = await compressImage(file, 1100, 0.72);
+          dataUrl = await prepararArchivoAlbaran(file);
         }catch(errFoto){
           console.error(errFoto);
           ilegibles.push(file.name || ('foto '+(i+1)));
@@ -2410,22 +2427,22 @@ async function geminiConRelevo(partes, apiKey, estado){
   throw ultimo;
 }
 
-async function llamarGemini(base64, apiKey, estado){
+async function llamarGemini(base64, apiKey, estado, mime){
   return await geminiConRelevo([
-    {inline_data:{mime_type:'image/jpeg', data:base64}},
+    {inline_data:{mime_type:mime||'image/jpeg', data:base64}},
     {text:PROMPT_ALBARAN}
   ], apiKey, estado);
 }
 
 /* Un único sitio que decide con qué IA se lee un albarán. Lo usan la lectura de
    una foto suelta y la carga masiva, para que las dos se porten igual. */
-async function lectorAlbaran(base64, estado){
+async function lectorAlbaran(base64, estado, mime){
   if(HAS_CLAUDE_STORAGE) return await llamarClaudeSinClave(base64);
   const provider = getAIProvider();
   if(provider==='gemini'){
     const key = getGeminiKey();
     if(!key) throw new Error(mensajeSinClaveIA());
-    return await llamarGemini(base64, key, estado);
+    return await llamarGemini(base64, key, estado, mime);
   }
   const key = getApiKey();
   if(!key) throw new Error('Falta configurar la clave de API de Anthropic en Ajustes → Configuración de IA');
@@ -2441,7 +2458,7 @@ async function extraerAlbaran(){
   let textoRespuesta = '';
   try{
     const base64 = recepcionFotoDataUrl.split(',')[1];
-    textoRespuesta = await reintentarSiSatura(()=>lectorAlbaran(base64, estado), estado);
+    textoRespuesta = await reintentarSiSatura(()=>lectorAlbaran(base64, estado, mimeDeData(recepcionFotoDataUrl)), estado);
     textoRespuesta = textoRespuesta.trim();
     let clean = textoRespuesta.replace(/```json|```/g,'').trim();
     const first = clean.indexOf('{');
