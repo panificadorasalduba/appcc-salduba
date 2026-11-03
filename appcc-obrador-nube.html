@@ -367,7 +367,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-03-a';
+const APP_VERSION = '2026-11-03-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3757,23 +3757,6 @@ function viewMateriasPrimas(){
 
     <div class="wheat-divider">${icon('box')}<span>Referencia</span></div>
     <div class="panel">
-      <h2>${icon('box')} Proveedores y materias primas</h2>
-      <p class="hint">Qué se le compra a cada proveedor (${TARIFARIO_DATA.length} artículos). Elige primero el proveedor y luego el producto.</p>
-      <div class="filters">
-        <label class="field"><span>Proveedor</span><select id="tarifProveedorSel"><option value="" disabled selected>Selecciona un proveedor…</option>${[...new Set(TARIFARIO_DATA.map(t=>t.proveedor))].filter(Boolean).sort().map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select></label>
-        <label class="field"><span>Producto</span><select id="tarifProductoSel" disabled><option value="">Elige primero un proveedor…</option></select></label>
-      </div>
-      <div id="tarifario-acciones"></div>
-    </div>
-    <div class="panel">
-      <h2>${icon('box')} Comparador de precios entre proveedores</h2>
-      <p class="hint">Busca un producto y compara lo que cuesta en cada proveedor, para elegir siempre la opción más barata en el pedido de los martes. El más económico de cada búsqueda se marca en verde.</p>
-      <div class="filters">
-        <label class="field"><span>Buscar producto</span><input type="text" id="comparadorSearch" placeholder="Ej: azúcar, harina, aceite girasol..."></label>
-      </div>
-      <div id="comparador-table"></div>
-    </div>
-    <div class="panel">
       <h2>${icon('box')} Inventario</h2>
       <p class="hint">Un "sobre" por cada materia prima — pulsa encima para desplegarlo y ver sus entradas ordenadas por fecha, cada una con su lote. Solo consulta — para editar cantidades ve al catálogo de abajo.</p>
       <div style="margin:0 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -3872,49 +3855,6 @@ function viewMateriasPrimas(){
     if(!nombre){ alert('Escribe el nombre del producto.'); return; }
     await abrirLoteMP(nombre, f.get('lote'), f.get('fechaApertura'), f.get('semana'));
   });
-  document.getElementById('tarifProveedorSel').addEventListener('change', ()=>{
-    const prov = document.getElementById('tarifProveedorSel').value;
-    const productoSel = document.getElementById('tarifProductoSel');
-    document.getElementById('tarifario-acciones').innerHTML = '';
-    if(!prov){ productoSel.innerHTML = '<option value="">Elige primero un proveedor…</option>'; productoSel.disabled = true; return; }
-    const productos = TARIFARIO_DATA.filter(t=>t.proveedor===prov).sort((a,b)=>a.descripcion.localeCompare(b.descripcion));
-    productoSel.disabled = false;
-    productoSel.innerHTML = '<option value="" disabled selected>Selecciona un producto…</option>' + productos.map(t=>`<option value="${esc(t.descripcion)}">${esc(t.descripcion)}</option>`).join('');
-  });
-  document.getElementById('tarifProductoSel').addEventListener('change', ()=>{
-    const prov = document.getElementById('tarifProveedorSel').value;
-    const prod = document.getElementById('tarifProductoSel').value;
-    const acciones = document.getElementById('tarifario-acciones');
-    if(!prod){ acciones.innerHTML = ''; return; }
-    acciones.innerHTML = `<div class="card" style="margin-top:4px;">
-      <div class="card-top"><h3>${esc(prod)}</h3></div>
-      <div class="sub" style="margin-bottom:10px;">Proveedor: ${esc(prov)}</div>
-      <button class="btn secondary small" onclick="agregarAlCatalogo('${esc(prod).replace(/'/g,"\\'")}','${esc(prov).replace(/'/g,"\\'")}')">+ Añadir al catálogo</button>
-      <button class="btn secondary small" onclick="compararProducto('${esc(prod).replace(/'/g,"\\'")}')">Comparar precio</button>
-    </div>`;
-  });
-  const runComparador = ()=>{
-    const q = document.getElementById('comparadorSearch').value.trim().toLowerCase();
-    const cont = document.getElementById('comparador-table');
-    if(!q || q.length<2){ cont.innerHTML = '<p class="hint">Escribe al menos 2 letras para buscar y comparar.</p>'; return; }
-    const filtered = TARIFARIO_DATA.filter(t=>t.descripcion.toLowerCase().includes(q)).slice(0,150);
-    if(filtered.length===0){ cont.innerHTML = '<p class="hint">Ningún producto de ningún proveedor coincide con esa búsqueda.</p>'; return; }
-    const conPrecio = filtered.filter(t=>t.precio!==null).sort((a,b)=>a.precio-b.precio);
-    const sinPrecio = filtered.filter(t=>t.precio===null);
-    const precioMin = conPrecio.length ? conPrecio[0].precio : null;
-    const ordenados = [...conPrecio, ...sinPrecio];
-    const rows = ordenados.map(t=>{
-      const esMasBarato = precioMin!==null && t.precio===precioMin;
-      return `<tr${esMasBarato?' style="background:var(--ok-tint);"':''}>
-        <td>${esc(t.proveedor)}${esMasBarato?' <span class="badge ok">Más barato</span>':''}</td>
-        <td>${esc(t.descripcion)}</td><td>${esc(t.formato)||'—'}</td>
-        <td class="mono">${t.precio!==null?t.precio.toFixed(2)+' €':'—'}</td>
-      </tr>`;
-    });
-    cont.innerHTML = table(['Proveedor','Producto','Formato','Precio ud.'], rows);
-  };
-  document.getElementById('comparadorSearch').addEventListener('input', runComparador);
-  runComparador();
   const runFichas = ()=>{
     const q = document.getElementById('mpFichaSearch').value.trim().toLowerCase();
     const filtered = FICHAS_MP_DATA.filter(f=> !q || f.producto.toLowerCase().includes(q) || f.proveedor.toLowerCase().includes(q) ||
@@ -3928,18 +3868,6 @@ function viewMateriasPrimas(){
   };
   document.getElementById('mpFichaSearch').addEventListener('input', runFichas);
   runFichas();
-}
-async function agregarAlCatalogo(nombre, proveedor){
-  const existe = CONFIG.materiasPrimas.find(m=>m.nombre.trim().toLowerCase()===nombre.trim().toLowerCase());
-  if(existe){
-    existe.proveedor = proveedor;
-    alert(`"${nombre}" ya estaba en el catálogo. Proveedor actualizado a ${proveedor}.`);
-  } else {
-    CONFIG.materiasPrimas.push({nombre, categoria:'', proveedor, telefono:'', unidad:'unidades', stockMinimo:1, stockActual:0});
-    alert(`"${nombre}" añadido al catálogo con proveedor ${proveedor}. Ajusta stock mínimo/actual y teléfono cuando puedas.`);
-  }
-  await saveConfig();
-  renderCatalogoMP();
 }
 async function recalcularProveedoresDesdeRecepciones(){
   let n = 0;
@@ -4276,8 +4204,8 @@ function renderPedidosPendientes(){
     return `<div class="card" style="margin-bottom:10px;">
       <div class="card-top"><h3>${esc(proveedor)}</h3><span class="badge danger">${total} producto${total>1?'s':''}</span></div>
       <ul style="margin:6px 0 12px;padding-left:18px;font-size:13px;">
-        ${g.auto.map(m=>`<li>${esc(m.nombre)} — actual: ${m.stockActual} ${esc(m.unidad)} (mínimo ${m.stockMinimo}) <button class="btn secondary small" style="margin-left:6px;" onclick="compararProducto('${esc(m.nombre).replace(/'/g,"\\'")}')">Comparar precio</button></li>`).join('')}
-        ${g.manual.map(p=>`<li>${esc(p.producto)} <span class="badge ok">añadido</span> <button class="btn secondary small" style="margin-left:6px;" onclick="compararProducto('${esc(p.producto).replace(/'/g,"\\'")}')">Comparar precio</button> <button class="btn danger small" style="margin-left:4px;" onclick="quitarDePedidoManual('${p.id}')">Quitar</button></li>`).join('')}
+        ${g.auto.map(m=>`<li>${esc(m.nombre)} — actual: ${m.stockActual} ${esc(m.unidad)} (mínimo ${m.stockMinimo})</li>`).join('')}
+        ${g.manual.map(p=>`<li>${esc(p.producto)} <span class="badge ok">añadido</span> <button class="btn danger small" style="margin-left:4px;" onclick="quitarDePedidoManual('${p.id}')">Quitar</button></li>`).join('')}
       </ul>
       <button class="btn small" onclick="enviarPedidoWhatsApp('${esc(proveedor).replace(/'/g,"\\'")}')">Pedir por WhatsApp</button>
     </div>`;
@@ -4321,18 +4249,6 @@ function montarAltaPedido(){
     await agregarAlPedido(selProd.value, selP.value);
     selProd.value = ''; btn.disabled = true;
   });
-}
-function compararProducto(nombre){
-  showView('materiasprimas');
-  setTimeout(()=>{
-    const input = document.getElementById('comparadorSearch');
-    if(!input) return;
-    // usa la primera palabra significativa del nombre para encontrar coincidencias en otros proveedores
-    const primeraPalabra = nombre.trim().split(/\s+/)[0];
-    input.value = primeraPalabra.length>=3 ? primeraPalabra : nombre.trim();
-    input.dispatchEvent(new Event('input'));
-    input.scrollIntoView({behavior:'smooth', block:'center'});
-  }, 60);
 }
 async function agregarAlPedido(nombre, proveedor){
   const key = proveedor && proveedor.trim() ? proveedor.trim() : 'Sin proveedor asignado';
