@@ -160,6 +160,48 @@
   .card .metric{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;margin:2px 0 4px;}
   .card .sub{font-size:11.5px;color:var(--ink-soft);}
 
+  /* ---- PANEL GENERAL: lo que falta hoy, en grande ---- */
+  .hoy-titulo{display:flex;align-items:baseline;gap:10px;margin:4px 0 14px;}
+  .hoy-titulo h3{font-size:19px;margin:0;}
+  .hoy-titulo .cuenta{font-size:13px;color:var(--ink-soft);}
+  .tareas{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px;margin-bottom:26px;}
+  .tarea{display:flex;align-items:center;gap:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:6px solid var(--aviso,#B4841A);border-radius:14px;padding:18px 20px;cursor:pointer;
+    transition:transform .08s ease, box-shadow .12s ease;}
+  .tarea:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(42,36,29,.10);}
+  .tarea .redondel{width:56px;height:56px;flex:none;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;background:var(--tinte,#F6EBCF);}
+  .tarea .redondel svg{width:28px;height:28px;color:var(--aviso,#B4841A);stroke-width:1.9;}
+  .tarea .txt{flex:1;min-width:0;}
+  .tarea .txt b{display:block;font-size:19px;font-family:'Bitter',serif;line-height:1.25;}
+  .tarea .txt span{display:block;font-size:14px;color:var(--ink-soft);margin-top:3px;line-height:1.4;}
+  .tarea .flecha{font-size:26px;color:var(--aviso,#B4841A);flex:none;}
+  .todo-ok{display:flex;align-items:center;gap:18px;background:var(--ok-tint);border:1px solid #C9DCC2;
+    border-radius:16px;padding:24px 26px;margin-bottom:26px;}
+  .todo-ok svg{width:46px;height:46px;color:var(--ok);flex:none;stroke-width:2;}
+  .todo-ok b{display:block;font-family:'Bitter',serif;font-size:22px;color:#33562F;}
+  .todo-ok span{display:block;font-size:14.5px;color:#4C7A4A;margin-top:4px;}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:26px;}
+  .chip{display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);
+    border-radius:30px;padding:9px 16px 9px 11px;cursor:pointer;font-size:14px;}
+  .chip:hover{border-color:var(--wheat);}
+  .chip svg{width:19px;height:19px;color:var(--ok);flex:none;}
+  .chip b{font-weight:600;}
+  .chip i{font-style:normal;color:var(--ink-soft);font-size:13px;}
+  .atajos{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:10px;}
+  .atajo{display:flex;flex-direction:column;align-items:center;gap:10px;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;padding:22px 14px;cursor:pointer;text-align:center;}
+  .atajo:hover{border-color:var(--wheat);background:var(--wheat-tint);}
+  .atajo .redondel{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    background:var(--tinte,#FCE3D6);}
+  .atajo .redondel svg{width:27px;height:27px;color:var(--aviso,#F25012);stroke-width:1.9;}
+  .atajo b{font-size:15px;font-weight:600;line-height:1.3;}
+  .navgrupo{font-size:10.5px;letter-spacing:1.3px;text-transform:uppercase;color:#8D7C66;
+    padding:16px 18px 6px;font-weight:700;}
+  @media(max-width:700px){
+    .tareas{grid-template-columns:1fr;}
+    .tarea .txt b{font-size:17px;}
+  }
   .wheat-divider{display:flex;align-items:center;gap:8px;margin:26px 0 14px;color:var(--wheat);}
   .wheat-divider svg{width:16px;height:16px;}
   .wheat-divider span{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--ink-soft);font-weight:600;}
@@ -302,7 +344,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-10-31-a';
+const APP_VERSION = '2026-11-03-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -996,6 +1038,7 @@ function motivoFechaSospechosa(f){
 
 /* ---------- ICONS ---------- */
 const ICONS = {
+  check:'<path d="M20 6 9 17l-5-5"/>',
   dashboard:'<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
   temp:'<path d="M12 3a2 2 0 0 0-2 2v9.3a4 4 0 1 0 4 0V5a2 2 0 0 0-2-2Z"/><circle cx="12" cy="17" r="1.6"/>',
   clean:'<path d="M9 3l2 2-6 6-2-2Z"/><path d="M5 11l8 8"/><path d="M13 19c2 1 6 1 7-2-3 1-4-1-4-3"/>',
@@ -1036,9 +1079,33 @@ const VIEWS = [
   {id:'ajustes', label:'Ajustes', icon:'gear'},
 ];
 
+/* El menú tenía 17 apartados seguidos y costaba encontrar nada. Ahora van por
+   grupos, con lo del día a día arriba del todo. */
+const GRUPOS_MENU = [
+  {titulo:'', ids:['dashboard','obrador','recepcion','materiasprimas','revision']},
+  {titulo:'Registros del día', ids:['temperaturas','limpieza','agua','alergenos','aceite','produccion']},
+  {titulo:'Trazabilidad y reparto', ids:['trazabilidad','transporte']},
+  {titulo:'Control sanitario', ids:['mantenimiento','plagas','noconformidades','listeria']},
+  {titulo:'Informes y ajustes', ids:['informes','ajustes']},
+];
 function renderNav(){
   const nav = document.getElementById('navlist');
-  nav.innerHTML = VIEWS.map(v=>`<div class="navitem" data-view="${v.id}">${icon(v.icon)}<span>${v.label}</span></div>`).join('');
+  const puesto = new Set();
+  let html = '';
+  GRUPOS_MENU.forEach(g=>{
+    const items = g.ids.map(id=>VIEWS.find(v=>v.id===id)).filter(Boolean);
+    if(!items.length) return;
+    if(g.titulo) html += `<div class="navgrupo">${g.titulo}</div>`;
+    items.forEach(v=>{ puesto.add(v.id);
+      html += `<div class="navitem" data-view="${v.id}">${icon(v.icon)}<span>${v.label}</span></div>`; });
+  });
+  // por si algún día se añade un apartado y se olvida meterlo en un grupo
+  const sueltos = VIEWS.filter(v=>!puesto.has(v.id));
+  if(sueltos.length){
+    html += '<div class="navgrupo">Otros</div>';
+    sueltos.forEach(v=>{ html += `<div class="navitem" data-view="${v.id}">${icon(v.icon)}<span>${v.label}</span></div>`; });
+  }
+  nav.innerHTML = html;
   nav.querySelectorAll('.navitem').forEach(el=>{
     el.addEventListener('click',()=>showView(el.dataset.view));
   });
@@ -6114,6 +6181,19 @@ function renderAlergenosCfg(){
 }
 
 /* ================= DASHBOARD ================= */
+/* Un color por apartado, para que el icono se reconozca de lejos. */
+const COLOR_MODULO = {
+  temperaturas:['#2563EB','#DCE7FD'], limpieza:['#0891B2','#D4F0F6'], agua:['#0E7490','#D2EDF3'],
+  recepcion:['#C2410C','#FCE3D6'],    alergenos:['#B4841A','#F6EBCF'], aceite:['#A16207','#F6EDD2'],
+  trazabilidad:['#7C3AED','#EBE1FD'], transporte:['#7C3AED','#EBE1FD'], materiasprimas:['#15803D','#DFF0E2'],
+  mantenimiento:['#52525B','#E8E8EB'],plagas:['#9D174D','#FBDDE9'],     noconformidades:['#B0402E','#F5E1DC'],
+  produccion:['#15803D','#DFF0E2'],   obrador:['#C2410C','#FCE3D6'],    revision:['#C2410C','#FCE3D6'],
+  listeria:['#52525B','#E8E8EB'],     informes:['#52525B','#E8E8EB'],   ajustes:['#52525B','#E8E8EB'],
+};
+/* «1 partes pendientes» quedaba fatal. */
+function plural(n, singular, plural_){ return n + ' ' + (n===1 ? singular : (plural_ || singular+'s')); }
+function colorDe(id){ return COLOR_MODULO[id] || ['#F25012','#FCE3D6']; }
+
 function renderDashboard(){
   const el = document.getElementById('view-dashboard');
   if(!el) return;
@@ -6121,8 +6201,6 @@ function renderDashboard(){
   const tempAlertas = temperaturasAlertasHoy();
   const tempRegistradas = temperaturasRegistradasHoy();
   const limpiezaHoy = DATA.limpieza.filter(r=>r.fecha===today);
-  const totalElementos = CONFIG.zonasLimpieza.reduce((sum,z)=>sum+z.elementos.length,0);
-  const elementosCompletados = new Set(limpiezaHoy.filter(r=>r.realizado).map(r=>r.area+'|'+r.elemento)).size;
   const aguaHoy = DATA.agua.filter(r=>r.fecha===today);
   const aguaRevisar = aguaHoy.filter(r=>aguaEstado(r)!=='OK').length;
   const recepHoy = DATA.recepcion.filter(r=>r.fecha===today);
@@ -6133,99 +6211,110 @@ function renderDashboard(){
   const mantPendientes = DATA.mantenimiento.filter(r=>!r.resuelto).length;
   const plagasAviso = resumenPlagasDashboard();
   const ncAbiertas = DATA.noconformidades.filter(r=>r.estado==='Abierta').length;
-  const pedidosPendientes = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo).length;
+  const bajoMinimo = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo);
 
-  const critico = tempAlertas>0 || recepRechazadas>0 || ncAbiertas>0 || aguaRevisar>0 || aceiteCambiar>0;
-
-  /* Lo que falta por apuntar hoy. Sin esto el inicio ponía «OK» aunque no se
-     hubiera registrado nada. El domingo el obrador no limpia (en el cuaderno va «-»).
-     El agua es semanal: basta un control entre el lunes y hoy. */
   const esDomingo = new Date(today+'T12:00:00').getDay() === 0;
   const faltanEquipos = CONFIG.equipos.length - tempRegistradas;
   const limpiezaFalta = !esDomingo && !limpiezaHoy.some(r=>r.realizado);
   const lunes = (()=>{ const d = new Date(today+'T12:00:00'); d.setDate(d.getDate() - ((d.getDay()+6)%7)); return d.toISOString().slice(0,10); })();
   const aguaSemana = DATA.agua.filter(r=>r.fecha>=lunes && r.fecha<=today).length;
-  const pendiente = faltanEquipos>0 || limpiezaFalta || aguaSemana===0;
-  const tempBadge = tempAlertas>0 ? ['danger','Alerta'] : tempRegistradas===0 ? ['warn','Falta'] : faltanEquipos>0 ? ['warn','Faltan '+faltanEquipos] : ['ok','OK'];
-  const tempSub = tempRegistradas===0 ? 'Falta el registro de hoy' : tempAlertas+' equipos fuera de rango hoy'+(faltanEquipos>0 ? ' · faltan '+faltanEquipos+' equipos' : '');
+
+  /* Cada apartado dice en qué estado está. 'alerta' es algo que va mal,
+     'falta' es algo sin apuntar, 'ok' es que está hecho. */
+  const M = [
+    {id:'temperaturas', icono:'temp', titulo:'Temperaturas',
+     estado: tempAlertas>0 ? 'alerta' : faltanEquipos>0 ? 'falta' : 'ok',
+     accion: tempAlertas>0 ? plural(tempAlertas,'equipo')+' fuera de rango' : (faltanEquipos===1?'Falta 1 equipo de ':'Faltan '+faltanEquipos+' equipos de ')+CONFIG.equipos.length,
+     ok: tempRegistradas+'/'+CONFIG.equipos.length+' apuntados'},
+    {id:'limpieza', icono:'clean', titulo:'Limpieza',
+     estado: limpiezaFalta ? 'falta' : 'ok',
+     accion:'No se ha apuntado la limpieza de hoy',
+     ok: esDomingo && !limpiezaHoy.length ? 'Domingo, no toca' : plural(limpiezaHoy.length,'tarea')+' hoy'},
+    {id:'agua', icono:'water', titulo:'Control de agua',
+     estado: aguaRevisar>0 ? 'alerta' : aguaSemana===0 ? 'falta' : 'ok',
+     accion: aguaRevisar>0 ? 'El cloro o el sabor no cuadran' : 'Falta el control de esta semana',
+     ok: plural(aguaSemana,'control')+' esta semana'},
+    {id:'recepcion', icono:'truck', titulo:'Recepciones',
+     estado: recepRechazadas>0 ? 'alerta' : 'ok',
+     accion: plural(recepRechazadas,'mercancía','mercancías')+' rechazada'+(recepRechazadas===1?'':'s')+' hoy',
+     ok: plural(recepHoy.length,'albarán','albaranes')+' hoy'},
+    {id:'materiasprimas', icono:'box', titulo:'Materias primas',
+     estado: bajoMinimo.length>0 ? 'falta' : 'ok',
+     accion: plural(bajoMinimo.length,'producto')+' bajo mínimo — hay que pedir',
+     ok:'Todo por encima del mínimo'},
+    {id:'aceite', icono:'oil', titulo:'Aceite de fritura',
+     estado: aceiteCambiar>0 ? 'alerta' : 'ok',
+     accion: plural(aceiteCambiar,'freidora')+' con polares altos: cambiar aceite',
+     ok:'Sin avisos'},
+    {id:'noconformidades', icono:'alert', titulo:'Incidencias',
+     estado: ncAbiertas>0 ? 'alerta' : 'ok',
+     accion: plural(ncAbiertas,'incidencia')+' abierta'+(ncAbiertas===1?'':'s')+' sin cerrar',
+     ok:'Ninguna abierta'},
+    {id:'mantenimiento', icono:'wrench', titulo:'Mantenimiento',
+     estado: mantPendientes>0 ? 'falta' : 'ok',
+     accion: plural(mantPendientes,'parte')+' pendiente'+(mantPendientes===1?'':'s'),
+     ok:'Nada pendiente'},
+    {id:'plagas', icono:'wrench', titulo:'Control de plagas',
+     estado: plagasAviso.badge==='danger' ? 'alerta' : plagasAviso.badge==='warn' ? 'falta' : 'ok',
+     accion: plagasAviso.sub,
+     ok: plagasAviso.sub},
+    {id:'alergenos', icono:'wheat', titulo:'Alérgenos',
+     estado:'ok', accion:'', ok: plural(alergHoy,'registro')+' hoy'},
+    {id:'trazabilidad', icono:'route', titulo:'Trazabilidad',
+     estado:'ok', accion:'', ok: plural(trazaHoy.length,'lote')+' hoy'},
+  ];
+
+  const pendientes = M.filter(m=>m.estado!=='ok')
+    .sort((a,b)=> (a.estado==='alerta'?0:1) - (b.estado==='alerta'?0:1));
+  const alDia = M.filter(m=>m.estado==='ok');
+  const hayAlerta = pendientes.some(m=>m.estado==='alerta');
+
+  const tarjeta = m=>{
+    const [col,tin] = colorDe(m.id);
+    const c = m.estado==='alerta' ? '#B0402E' : col;
+    const t = m.estado==='alerta' ? '#F5E1DC' : tin;
+    return `<div class="tarea" style="--aviso:${c};--tinte:${t};" onclick="showView('${m.id}')">
+        <div class="redondel">${icon(m.icono)}</div>
+        <div class="txt"><b>${esc(m.titulo)}</b><span>${esc(m.accion)}</span></div>
+        <div class="flecha">›</div>
+      </div>`;
+  };
+  const chip = m=>`<div class="chip" onclick="showView('${m.id}')">
+      ${icon('check')}<b>${esc(m.titulo)}</b><i>${esc(m.ok)}</i></div>`;
+
+  const ATAJOS = ['obrador','recepcion','temperaturas','limpieza','materiasprimas','informes'];
+  const atajos = ATAJOS.map(id=>VIEWS.find(v=>v.id===id)).filter(Boolean).map(v=>{
+    const [col,tin] = colorDe(v.id);
+    return `<div class="atajo" style="--aviso:${col};--tinte:${tin};" onclick="showView('${v.id}')">
+      <div class="redondel">${icon(v.icon)}</div><b>${esc(v.label)}</b></div>`;
+  }).join('');
 
   el.innerHTML = `
     <div class="dash-hero">
       <div>
         <h2>${esc(CONFIG.empresa.nombre)}</h2>
-        <p>Resumen de autocontrol APPCC de hoy, ${fmtDate(today)}. ${esc(CONFIG.empresa.obrador)} · Reg. sanitario ${esc(CONFIG.empresa.registroSanitario)}. Reparto a ${CONFIG.tiendas.length} tiendas.</p>
+        <p>${fmtDate(today)} · ${esc(CONFIG.empresa.obrador)} · Reg. sanitario ${esc(CONFIG.empresa.registroSanitario)}</p>
       </div>
-      <div class="stamp ${critico?'danger':pendiente?'warn':'ok'}">${critico?'Revisar':pendiente?'Falta registrar':'Controlado'}</div>
+      <div class="stamp ${hayAlerta?'danger':pendientes.length?'warn':'ok'}">${hayAlerta?'Revisar':pendientes.length?'Falta registrar':'Controlado'}</div>
     </div>
 
-    <div class="grid-cards">
-      <div class="card">
-        <div class="card-top">${icon('temp')}<span class="badge ${tempBadge[0]}">${tempBadge[1]}</span></div>
-        <h3>Temperaturas</h3><div class="metric mono">${tempRegistradas}/${CONFIG.equipos.length}</div>
-        <div class="sub">${tempSub}</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('clean')}<span class="badge ${limpiezaFalta?'warn':elementosCompletados>=totalElementos?'ok':'warn'}">${limpiezaFalta?'Falta':elementosCompletados+'/'+totalElementos}</span></div>
-        <h3>Limpieza</h3><div class="metric mono">${limpiezaHoy.length}</div>
-        <div class="sub">${limpiezaFalta ? 'Falta el registro de hoy' : esDomingo && !limpiezaHoy.length ? 'Domingo: sin limpieza' : 'Elementos con tarea registrada hoy'}</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('water')}<span class="badge ${aguaRevisar>0?'danger':aguaSemana===0?'warn':'ok'}">${aguaRevisar>0?'Revisar':aguaSemana===0?'Falta':'OK'}</span></div>
-        <h3>Control de agua</h3><div class="metric mono">${aguaSemana}</div>
-        <div class="sub">${aguaSemana===0 ? 'Falta el control de esta semana' : 'Controles esta semana (es semanal)'}</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('truck')}<span class="badge ${recepRechazadas>0?'danger':'ok'}">${recepRechazadas>0?'Rechazos':'OK'}</span></div>
-        <h3>Recepciones</h3><div class="metric mono">${recepHoy.length}</div>
-        <div class="sub">${recepRechazadas} rechazadas hoy</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('wheat')}<span class="badge ok">OK</span></div>
-        <h3>Alérgenos</h3><div class="metric mono">${alergHoy}</div>
-        <div class="sub">Registros de hoy (lote + tienda)</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('oil')}<span class="badge ${aceiteCambiar>0?'danger':'ok'}">${aceiteCambiar>0?'Cambiar':'OK'}</span></div>
-        <h3>Aceite de fritura</h3><div class="metric mono">${DATA.aceite.filter(r=>r.fecha===today).length}</div>
-        <div class="sub">${aceiteCambiar} con compuestos polares altos</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('route')}<span class="badge ok">OK</span></div>
-        <h3>Trazabilidad</h3><div class="metric mono">${trazaHoy.length}</div>
-        <div class="sub">Lotes producidos hoy</div>
-      </div>
-      <div class="card" style="cursor:pointer" onclick="showView('materiasprimas')">
-        <div class="card-top">${icon('box')}<span class="badge ${pedidosPendientes>0?'danger':'ok'}">${pedidosPendientes>0?'Pedir':'OK'}</span></div>
-        <h3>Materias primas</h3><div class="metric mono">${pedidosPendientes}</div>
-        <div class="sub">Productos por debajo de stock mínimo</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('wrench')}<span class="badge ${mantPendientes>0?'warn':'ok'}">${mantPendientes>0?'Pendiente':'OK'}</span></div>
-        <h3>Mantenimiento</h3><div class="metric mono">${mantPendientes}</div>
-        <div class="sub">Partes pendientes de resolver</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('wrench')}<span class="badge ${plagasAviso.badge}">${plagasAviso.etiqueta}</span></div>
-        <h3>Control de plagas</h3><div class="metric mono">${plagasAviso.metrica}</div>
-        <div class="sub">${plagasAviso.sub}</div>
-      </div>
-      <div class="card">
-        <div class="card-top">${icon('alert')}<span class="badge ${ncAbiertas>0?'danger':'ok'}">${ncAbiertas>0?'Abiertas':'OK'}</span></div>
-        <h3>Incidencias</h3><div class="metric mono">${ncAbiertas}</div>
-        <div class="sub">Incidencias abiertas en total</div>
-      </div>
-    </div>
+    ${pendientes.length ? `
+      <div class="hoy-titulo"><h3>Hoy te falta esto</h3><span class="cuenta">${pendientes.length} cosa${pendientes.length>1?'s':''}</span></div>
+      <div class="tareas">${pendientes.map(tarjeta).join('')}</div>
+    ` : `
+      <div class="todo-ok">${icon('check')}
+        <div><b>Todo al día</b><span>No queda nada por apuntar hoy. Si viene el inspector, estás cubierta.</span></div>
+      </div>`}
 
-    <div class="wheat-divider">${icon('wheat')}<span>Acceso rápido</span></div>
-    <div class="grid-cards">
-      ${VIEWS.filter(v=>!['dashboard','informes','ajustes'].includes(v.id)).map(v=>`
-        <div class="card" style="cursor:pointer" onclick="showView('${v.id}')">
-          <div class="card-top">${icon(v.icon)}</div>
-          <h3>${v.label}</h3><div class="sub">Añadir o consultar registros</div>
-        </div>`).join('')}
-    </div>
+    ${alDia.length ? `
+      <div class="wheat-divider">${icon('wheat')}<span>Sin avisos</span></div>
+      <div class="chips">${alDia.map(chip).join('')}</div>` : ''}
+
+    <div class="wheat-divider">${icon('wheat')}<span>Ir a…</span></div>
+    <div class="atajos">${atajos}</div>
   `;
 }
+
 function updateSidebarFoot(){
   const foot = document.getElementById('sidebarFoot');
   if(foot) foot.innerHTML = `${esc(CONFIG.empresa.nombre)}<br>${esc(CONFIG.empresa.obrador)}<br>Reg. San. ${esc(CONFIG.empresa.registroSanitario)}`
