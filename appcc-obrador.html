@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-f';
+const APP_VERSION = '2026-11-04-g';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3641,7 +3641,8 @@ function textoPedido(clave){
   l.push('Pedido ' + (CONFIG.empresa.nombre||'Panificadora Salduba'));
   l.push(fmtDate(todayStr()) + ' · ' + (CONFIG.empresa.obrador||''));
   l.push('');
-  lineas.forEach(([prod,cant])=> l.push('- ' + prod + ' ....... ' + cant));
+  // La cantidad delante: así el comercial la ve de un vistazo (lo pidió Berta el 04/11).
+  lineas.forEach(([prod,cant])=> l.push('- ' + cant + ' ' + prod));
   l.push('');
   l.push('Gracias.');
   return l.join('\n');
