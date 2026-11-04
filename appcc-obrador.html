@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-j';
+const APP_VERSION = '2026-11-04-k';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3549,17 +3549,33 @@ function ultimosAlbaranesDe(clave, n){
   return Object.values(alb).sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0, n||PED_ULTIMOS_ALBARANES);
 }
 function pedProductosDeProveedor(clave){
+  /* El mismo producto viene escrito de varias formas en los albaranes («MERMELCREM
+     FRESA , Cu-6.5 kg.» y variantes), así que el desplegable salía con un tercio de
+     líneas repetidas. Se agrupa por el nombre bueno del catálogo y de cada grupo se
+     deja UNA entrada: la descripción del albarán MÁS RECIENTE, que es la que el
+     comercial reconoce en su pedido. */
   const ult = ultimosAlbaranesDe(clave);
-  const cuenta = {};
-  ult.forEach(a=>a.productos.forEach(p=>{ cuenta[p] = (cuenta[p]||0)+1; }));
-  const todos = Object.entries(cuenta).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'es'));
+  const grupos = {};          // canónico -> {etiqueta, veces}
+  ult.forEach(a=>{
+    const vistosAqui = new Set();
+    a.productos.forEach(prod=>{
+      let canon = prod;
+      try{ canon = (typeof resolverNombreProducto==='function' && resolverNombreProducto(prod)) || prod; }catch(e){}
+      if(!grupos[canon]) grupos[canon] = {etiqueta: prod, veces: 0};   // el primero es el más reciente
+      if(!vistosAqui.has(canon)){ grupos[canon].veces++; vistosAqui.add(canon); }
+    });
+  });
+  const todos = Object.values(grupos)
+    .sort((a,b)=> b.veces-a.veces || a.etiqueta.localeCompare(b.etiqueta,'es'))
+    .map(g=>({producto:g.etiqueta, veces:g.veces}));
   return {
-    habituales: todos.filter(x=>x[1]>=2).map(x=>({producto:x[0], veces:x[1]})),
-    otros:      todos.filter(x=>x[1]<2).map(x=>({producto:x[0], veces:x[1]})),
+    habituales: todos.filter(x=>x.veces>=2),
+    otros:      todos.filter(x=>x.veces<2),
     albaranes:  ult.length,
     ultimaFecha: ult.length ? ult[0].fecha : '',
   };
 }
+
 function pedidoDe(clave){
   CONFIG.pedidoSemanal = CONFIG.pedidoSemanal || {};
   if(!CONFIG.pedidoSemanal[clave]) CONFIG.pedidoSemanal[clave] = {fecha:todayStr(), lineas:{}};
