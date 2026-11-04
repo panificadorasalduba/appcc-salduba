@@ -70,7 +70,8 @@
   }
   .topbar h1{font-size:21px;margin:0;font-weight:600;}
   .topbar .date{font-size:12.5px;color:var(--ink-soft);}
-  .content{padding:26px 30px 60px;max-width:1180px;}
+  /* Sin tope de ancho: en pantalla grande se aprovecha toda. */
+  .content{padding:26px 34px 60px;max-width:none;width:100%;}
   .view{display:none;}
   .view.active{display:block;}
 
@@ -344,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-b';
+const APP_VERSION = '2026-11-04-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
