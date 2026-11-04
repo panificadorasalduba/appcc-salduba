@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-p';
+const APP_VERSION = '2026-11-04-q';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8236,7 +8236,14 @@ let OB_PROD_REG = '';        // cuaderno de producción elegido
 let OB_PROD_AYER = false;    // el turno de noche pasa de las 12: apuntar en el día anterior
 const OB_VOLVER = '<button style="min-height:56px;padding:0 22px;border:0;border-radius:12px;background:#ece6dc;color:#3b2f24;font-size:20px;font-weight:700;cursor:pointer;margin-bottom:8px;" onclick="obIr(\'inicio\')">← Inicio</button>';
 
-function obIr(p){ OB_PANT = p; obModal(''); viewObrador(); window.scrollTo(0,0); }
+function obIr(p){
+  OB_PANT = p;
+  if(p === 'prod') OB_PROD_REG = '';     // entrar en Producción siempre enseña los cuadernos
+  obModal(''); viewObrador(); window.scrollTo(0,0);
+}
+/* Dentro de un cuaderno la lista es larga: los botones de volver se quedan siempre
+   a la vista, también al bajar por los productos. */
+function obProdVolver(){ OB_PROD_REG = ''; viewObrador(); window.scrollTo(0,0); }
 /* Fecha local (no UTC): el turno de noche empieza a las 22 h y no puede caer en otro día. */
 function obFechaLocal(d){ d = d || new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function obAyer(){ const d = new Date(); d.setDate(d.getDate()-1); return obFechaLocal(d); }
@@ -8521,7 +8528,7 @@ function obProduccion(host){
       <div class="panel" style="font-size:18px;">
         ${OB_VOLVER}
         <h2 style="font-size:28px;margin:10px 0;">🥐 Producción · ¿qué cuaderno?</h2>
-        ${Object.keys(cuadernos).map(k=>`<button style="${OB_SI}min-height:90px;font-size:28px;" onclick="OB_PROD_REG='${k}';viewObrador();">${esc(cuadernos[k].titulo)}</button>`).join('')}
+        ${Object.keys(cuadernos).map(k=>`<button style="${OB_SI}min-height:90px;font-size:28px;" onclick="OB_PROD_REG='${k}';viewObrador();window.scrollTo(0,0);">${esc(cuadernos[k].titulo)}</button>`).join('')}
       </div>`;
     return;
   }
@@ -8538,14 +8545,16 @@ function obProduccion(host){
         <span style="font-size:28px;font-weight:800;white-space:nowrap;">${v ? esc(v) : '—'}</span></button>`;
     }).join('')}`).join('');
   host.innerHTML = `
+    <div style="position:sticky;top:66px;z-index:4;display:flex;gap:10px;padding:8px 0;background:var(--bg,#f6efe4);">
+      <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#6b3410;color:#fff;font-size:22px;font-weight:700;cursor:pointer;" onclick="obProdVolver()">← Volver a cuadernos</button>
+      <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#ece6dc;color:#3b2f24;font-size:22px;font-weight:700;cursor:pointer;" onclick="obIr('inicio')">← Inicio</button>
+    </div>
     <div class="panel" style="font-size:18px;">
-      ${OB_VOLVER}
       <h2 style="font-size:28px;margin:10px 0 0;">🥐 ${esc(def.titulo)}</h2>
       <p style="font-size:20px;margin:6px 0;">Apuntando en: <b>${etiquetaDia}</b></p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button style="flex:1;min-height:56px;border:2px solid ${OB_PROD_AYER?'#d6c8b4':'#c2410c'};border-radius:12px;background:${OB_PROD_AYER?'#fff':'#fdebdc'};font-size:20px;font-weight:700;cursor:pointer;" onclick="OB_PROD_AYER=false;viewObrador();">Hoy</button>
         <button style="flex:1;min-height:56px;border:2px solid ${OB_PROD_AYER?'#c2410c':'#d6c8b4'};border-radius:12px;background:${OB_PROD_AYER?'#fdebdc':'#fff'};font-size:20px;font-weight:700;cursor:pointer;" onclick="OB_PROD_AYER=true;viewObrador();">Ayer</button>
-        <button style="flex:1;min-height:56px;border:0;border-radius:12px;background:#ece6dc;font-size:20px;font-weight:700;cursor:pointer;" onclick="OB_PROD_REG='';viewObrador();">Otro cuaderno</button>
       </div>
       ${obLineaNombre()}
       <p style="font-size:17px;color:#6b5a48;">Toca cada producto y escribe las unidades. Si te equivocas, tócalo otra vez. Para borrarlo, pon <b>0</b>.</p>
