@@ -344,7 +344,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-a';
+const APP_VERSION = '2026-11-04-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3434,10 +3434,15 @@ function diasEntre(a,b){
 }
 function previsionPedidos(){
   const hoy = todayStr();
+  /* Se agrupa por el nombre bueno del catálogo, no por como lo escriba el
+     proveedor: si no, «QUESO CREMA NATURAL 26%» y su variante nueva cuentan
+     como dos artículos y el viejo sale eternamente «atrasado». */
   const porArticulo = {};
   (DATA.recepcion||[]).forEach(r=>{
-    const k = (r.producto||'').trim();
-    if(!k || !r.fecha) return;
+    const bruto = (r.producto||'').trim();
+    if(!bruto || !r.fecha) return;
+    let k = bruto;
+    try{ k = (typeof resolverNombreProducto==='function' && resolverNombreProducto(bruto)) || bruto; }catch(e){}
     (porArticulo[k] = porArticulo[k] || new Set()).add(r.fecha);
   });
   const out = [];
@@ -3451,13 +3456,18 @@ function previsionPedidos(){
     if(!cada || cada > PED_MAX_DIAS) return;
     const ultimo = fechas[fechas.length-1];
     const hace = diasEntre(ultimo, hoy);
+    /* Si lleva muchísimo más de su ritmo, no es que se haya olvidado el pedido:
+       es que ese artículo ya no se compra (cambió de nombre, de proveedor, o se
+       dejó de usar). Esos van aparte, para no llenar la lista de rojo. */
+    const abandonado = hace > Math.max(60, cada*3);
     let estado = 'bien';
-    if(hace >= cada + Math.max(2, Math.round(cada*0.4))) estado = 'tarde';
+    if(abandonado) estado = 'parado';
+    else if(hace >= cada + Math.max(2, Math.round(cada*0.4))) estado = 'tarde';
     else if(hace >= cada) estado = 'toca';
     else if(hace >= cada - 2) estado = 'pronto';
     out.push({articulo:k, cada, ultimo, hace, estado, veces:fechas.length});
   });
-  const orden = {tarde:0, toca:1, pronto:2, bien:3};
+  const orden = {tarde:0, toca:1, pronto:2, bien:3, parado:4};
   out.sort((a,b)=> orden[a.estado]-orden[b.estado] || (b.hace-b.cada)-(a.hace-a.cada));
   return out;
 }
@@ -3497,7 +3507,9 @@ function panelQuePedir(){
       ${cuerpo
         ? `<div class="table-wrap"><table><thead><tr><th>Artículo</th><th>Entra</th><th>Último</th><th>Días</th><th></th></tr></thead><tbody>${cuerpo}</tbody></table></div>`
         : '<p style="font-size:15px;">Nada pendiente de pedir ahora mismo.</p>'}
-      <p class="hint" style="margin-top:12px;">De ${lista.length} artículos con historial suficiente. Los que se piden de uvas a peras no salen aquí: no tienen un ritmo del que fiarse.</p>
+      <p class="hint" style="margin-top:12px;">De ${lista.length} artículos con historial suficiente.
+        ${lista.filter(x=>x.estado==='parado').length} llevan tanto sin aparecer que se dan por <b>dejados de comprar</b> y no salen en la lista.
+        Los que se piden de uvas a peras tampoco: no tienen un ritmo del que fiarse.</p>
     </div>`;
 }
 
