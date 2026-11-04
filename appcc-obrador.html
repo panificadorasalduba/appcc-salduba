@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-d';
+const APP_VERSION = '2026-11-04-e';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -6549,6 +6549,13 @@ function renderDashboard(){
   const ncAbiertas = DATA.noconformidades.filter(r=>r.estado==='Abierta').length;
   const bajoMinimo = CONFIG.materiasPrimas.filter(m=>m.stockActual<=m.stockMinimo);
   const tocaPedir = previsionPedidos().filter(x=>x.estado==='tarde'||x.estado==='toca');
+  /* El pedido de la semana que haya empezado, para enseñarlo en el panel. */
+  const pedSemana = (typeof PROVEEDORES_PEDIDO!=='undefined' ? PROVEEDORES_PEDIDO : []).map(pr=>{
+    const ped = pedidoDe(pr.clave);
+    const lineas = Object.entries(ped.lineas||{});
+    return {clave:pr.clave, nombre:pr.nombre, lineas};
+  }).filter(x=>x.lineas.length);
+  const pedTotal = pedSemana.reduce((n,x)=>n+x.lineas.length, 0);
 
   const esDomingo = new Date(today+'T12:00:00').getDay() === 0;
   const faltanEquipos = CONFIG.equipos.length - tempRegistradas;
@@ -6575,9 +6582,11 @@ function renderDashboard(){
      estado: recepRechazadas>0 ? 'alerta' : 'ok',
      accion: plural(recepRechazadas,'mercancía','mercancías')+' rechazada'+(recepRechazadas===1?'':'s')+' hoy',
      ok: plural(recepHoy.length,'albarán','albaranes')+' hoy'},
-    {id:'materiasprimas', icono:'box', titulo:'Qué pedir',
-     estado: tocaPedir.length>0 ? 'falta' : 'ok',
-     accion: plural(tocaPedir.length,'artículo')+' que ya tocaba pedir',
+    {id:'pedidos', icono:'truck', titulo:'Pedido de la semana',
+     estado: (pedTotal>0 || tocaPedir.length>0) ? 'falta' : 'ok',
+     accion: pedTotal>0
+       ? plural(pedTotal,'artículo')+' puestos, sin enviar todavía'
+       : plural(tocaPedir.length,'artículo')+' que ya tocaba pedir',
      ok:'Nada pendiente de pedir'},
     {id:'aceite', icono:'oil', titulo:'Aceite de fritura',
      estado: aceiteCambiar>0 ? 'alerta' : 'ok',
@@ -6644,6 +6653,18 @@ function renderDashboard(){
       </div>`}
 
     ${alDia.length ? `
+      ${pedSemana.length ? `
+      <div class="wheat-divider">${icon('wheat')}<span>Pedido de la semana</span></div>
+      <div class="tareas" style="margin-bottom:10px;">
+        ${pedSemana.map(x=>`
+          <div class="tarea" style="--aviso:#C2410C;--tinte:#FCE3D6;" onclick="showView('pedidos')">
+            <div class="redondel">${icon('truck')}</div>
+            <div class="txt"><b>${esc(x.nombre)}</b><span>${esc(x.lineas.map(l=>l[1]+' '+l[0]).join(' · ').slice(0,90))}${x.lineas.map(l=>l[0]).join(' ').length>90?'…':''}</span></div>
+            <div class="flecha">›</div>
+          </div>`).join('')}
+      </div>
+      <p class="hint" style="margin:-14px 0 24px;">Pulsa cualquiera para repasarlo y mandárselo al comercial.</p>` : ''}
+
       <div class="wheat-divider">${icon('wheat')}<span>Sin avisos</span></div>
       <div class="chips">${alDia.map(chip).join('')}</div>` : ''}
 
