@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-c';
+const APP_VERSION = '2026-11-04-d';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1071,6 +1071,7 @@ const VIEWS = [
   {id:'transporte', label:'Transporte y reparto', icon:'route'},
   {id:'obrador', label:'Obrador · abrir y cerrar lotes', icon:'box'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
+  {id:'pedidos', label:'Pedido de la semana', icon:'truck'},
   {id:'revision', label:'Repaso del obrador', icon:'box'},
   {id:'mantenimiento', label:'Mantenimiento', icon:'wrench'},
   {id:'plagas', label:'Control de plagas (DDD)', icon:'wrench'},
@@ -1083,7 +1084,7 @@ const VIEWS = [
 /* El menú tenía 17 apartados seguidos y costaba encontrar nada. Ahora van por
    grupos, con lo del día a día arriba del todo. */
 const GRUPOS_MENU = [
-  {titulo:'', ids:['dashboard','obrador','recepcion','materiasprimas','revision']},
+  {titulo:'', ids:['dashboard','obrador','recepcion','pedidos','materiasprimas','revision']},
   {titulo:'Registros del día', ids:['temperaturas','limpieza','agua','alergenos','aceite','produccion']},
   {titulo:'Trazabilidad y reparto', ids:['trazabilidad','transporte']},
   {titulo:'Control sanitario', ids:['mantenimiento','plagas','noconformidades','listeria']},
@@ -3512,6 +3513,243 @@ function panelQuePedir(){
         ${lista.filter(x=>x.estado==='parado').length} llevan tanto sin aparecer que se dan por <b>dejados de comprar</b> y no salen en la lista.
         Los que se piden de uvas a peras tampoco: no tienen un ritmo del que fiarse.</p>
     </div>`;
+}
+
+/* =================== PEDIDO DE LA SEMANA ===================
+   Los nombres de proveedor vienen de los albaranes y no están unificados
+   («PURATOS», «Puratos», «puratos»; «MALCOPAN S.L.», «Malcopan, S.L.»,
+   «MalcoPan»), así que se agrupan por una palabra clave.
+   Los productos salen de los ÚLTIMOS 10 ALBARANES de cada proveedor: lo que
+   aparece en 2 o más es «habitual» y sale arriba; el resto, en «otros». */
+const PROVEEDORES_PEDIDO = [
+  {clave:'PARIENTE',    nombre:'Materias Primas Pariente', re:/pariente/},
+  {clave:'NOVASERVICE', nombre:'Novaservice Málaga',       re:/novaservice/},
+  {clave:'MALCOPAN',    nombre:'Malcopan',                 re:/malcopan/},
+  {clave:'PURATOS',     nombre:'Puratos',                  re:/puratos/},
+];
+const PED_ULTIMOS_ALBARANES = 10;
+
+function pedClaveProveedor(nombre){
+  const t = normTxt(nombre||'');
+  const p = PROVEEDORES_PEDIDO.find(x=>x.re.test(t));
+  return p ? p.clave : null;
+}
+/* Agrupa las líneas de recepción en albaranes y devuelve los N últimos. */
+function ultimosAlbaranesDe(clave, n){
+  const alb = {};
+  (DATA.recepcion||[]).forEach(r=>{
+    if(pedClaveProveedor(r.proveedor)!==clave || !r.fecha) return;
+    const id = (r.numAlbaran||'').trim() || ('f:'+r.fecha);
+    if(!alb[id]) alb[id] = {fecha:r.fecha, productos:new Set()};
+    if(r.fecha > alb[id].fecha) alb[id].fecha = r.fecha;
+    const prod = (r.producto||'').trim();
+    if(prod) alb[id].productos.add(prod);
+  });
+  return Object.values(alb).sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0, n||PED_ULTIMOS_ALBARANES);
+}
+function pedProductosDeProveedor(clave){
+  const ult = ultimosAlbaranesDe(clave);
+  const cuenta = {};
+  ult.forEach(a=>a.productos.forEach(p=>{ cuenta[p] = (cuenta[p]||0)+1; }));
+  const todos = Object.entries(cuenta).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'es'));
+  return {
+    habituales: todos.filter(x=>x[1]>=2).map(x=>({producto:x[0], veces:x[1]})),
+    otros:      todos.filter(x=>x[1]<2).map(x=>({producto:x[0], veces:x[1]})),
+    albaranes:  ult.length,
+    ultimaFecha: ult.length ? ult[0].fecha : '',
+  };
+}
+function pedidoDe(clave){
+  CONFIG.pedidoSemanal = CONFIG.pedidoSemanal || {};
+  if(!CONFIG.pedidoSemanal[clave]) CONFIG.pedidoSemanal[clave] = {fecha:todayStr(), lineas:{}};
+  return CONFIG.pedidoSemanal[clave];
+}
+/* La vuelta a cero. Por fecha no valía: si el pedido se hace y la mercancía
+   llega el mismo día, las fechas son iguales y no se enteraba. Se mira si ha
+   entrado un ALBARÁN NUEVO de ese proveedor desde que se puso el pedido. */
+function ultimaEntregaDe(clave){
+  let ref = '', fecha = '';
+  (DATA.recepcion||[]).forEach(r=>{
+    if(pedClaveProveedor(r.proveedor)!==clave || !r.fecha) return;
+    const f = r.fecha, id = (r.numAlbaran||'').trim() || f;
+    if(f > fecha || (f === fecha && id > ref)){ fecha = f; ref = id; }
+  });
+  return fecha ? {ref: fecha+'|'+ref, fecha} : null;
+}
+function resetSiYaLlego(clave){
+  const ped = pedidoDe(clave);
+  if(!Object.keys(ped.lineas||{}).length) return null;
+  const ent = ultimaEntregaDe(clave);
+  if(!ent) return null;
+  if(ped.refEntrega === undefined){ ped.refEntrega = ent.ref; return null; }
+  if(ent.ref !== ped.refEntrega){
+    ped.lineas = {};
+    ped.fecha = todayStr();
+    ped.refEntrega = ent.ref;
+    ped.servidoEl = ent.fecha;
+    try{ saveConfig(); }catch(e){}
+    return ent.fecha;
+  }
+  return null;
+}
+function contactoDe(clave){
+  CONFIG.comerciales = CONFIG.comerciales || {};
+  return CONFIG.comerciales[clave] || {nombre:'', movil:'', email:''};
+}
+async function guardarContacto(clave, campo, valor){
+  CONFIG.comerciales = CONFIG.comerciales || {};
+  CONFIG.comerciales[clave] = Object.assign({nombre:'',movil:'',email:''}, CONFIG.comerciales[clave]);
+  CONFIG.comerciales[clave][campo] = valor;
+  try{ await saveConfig(); }catch(e){ console.error(e); }
+}
+async function setCantidadPedido(clave, producto, valor){
+  const ped = pedidoDe(clave);
+  const n = parseFloat(String(valor).replace(',','.'));
+  if(!valor || !isFinite(n) || n<=0) delete ped.lineas[producto];
+  else ped.lineas[producto] = n;
+  ped.fecha = todayStr();
+  const ent = ultimaEntregaDe(clave);
+  ped.refEntrega = ent ? ent.ref : '';
+  try{ await saveConfig(); }catch(e){ console.error(e); }
+  pintarResumenPedido();
+}
+async function anadirAlPedido(clave){
+  const sel = document.getElementById('pedSel'+clave);
+  if(!sel || !sel.value) return;
+  const prod = sel.value;
+  const ped = pedidoDe(clave);
+  if(!ped.lineas[prod]) ped.lineas[prod] = 1;
+  const ent = ultimaEntregaDe(clave);
+  ped.refEntrega = ent ? ent.ref : '';
+  sel.value = '';
+  try{ await saveConfig(); }catch(e){}
+  viewPedidos();
+}
+async function vaciarPedido(clave){
+  if(!confirm('¿Vaciar el pedido de este proveedor?')) return;
+  const ped = pedidoDe(clave);
+  ped.lineas = {}; ped.fecha = todayStr();
+  try{ await saveConfig(); }catch(e){}
+  viewPedidos();
+}
+function textoPedido(clave){
+  const prov = PROVEEDORES_PEDIDO.find(p=>p.clave===clave);
+  const ped = pedidoDe(clave);
+  const lineas = Object.entries(ped.lineas||{});
+  if(!lineas.length) return '';
+  const l = [];
+  l.push('Pedido ' + (CONFIG.empresa.nombre||'Panificadora Salduba'));
+  l.push(fmtDate(todayStr()) + ' · ' + (CONFIG.empresa.obrador||''));
+  l.push('');
+  lineas.forEach(([prod,cant])=> l.push('- ' + prod + ' ....... ' + cant));
+  l.push('');
+  l.push('Gracias.');
+  return l.join('\n');
+}
+function enlacesPedido(clave){
+  const c = contactoDe(clave);
+  const prov = PROVEEDORES_PEDIDO.find(p=>p.clave===clave);
+  const texto = textoPedido(clave);
+  const asunto = 'Pedido ' + (CONFIG.empresa.nombre||'Salduba') + ' - ' + fmtDate(todayStr());
+  const tel = typeof normalizarTelefono==='function' ? normalizarTelefono(c.movil) : String(c.movil||'').replace(/\D/g,'');
+  return {
+    wa: 'https://wa.me/' + tel + '?text=' + encodeURIComponent(texto),
+    mail: 'mailto:' + encodeURIComponent(c.email||'') + '?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(texto),
+    texto, tieneMovil: !!tel, tieneEmail: !!(c.email||'').trim()
+  };
+}
+function copiarPedido(clave){
+  const t = textoPedido(clave);
+  if(!t) return;
+  navigator.clipboard.writeText(t).then(()=>alert('Pedido copiado. Ya lo puedes pegar donde quieras.'),
+                                        ()=>alert('No se ha podido copiar en este navegador.'));
+}
+function pintarResumenPedido(){
+  const host = document.getElementById('pedResumen');
+  if(!host) return;
+  const bloques = PROVEEDORES_PEDIDO.map(prov=>{
+    const ped = pedidoDe(prov.clave);
+    const lineas = Object.entries(ped.lineas||{});
+    if(!lineas.length) return '';
+    const e = enlacesPedido(prov.clave);
+    const c = contactoDe(prov.clave);
+    const falta = (!e.tieneMovil && !e.tieneEmail)
+      ? '<p class="hint" style="color:#B0402E;">Falta el móvil y el correo del comercial: rellénalos arriba y aparecerán los botones de enviar.</p>' : '';
+    return `<div class="panel" style="margin-bottom:16px;">
+      <h2>${icon('truck')} ${esc(prov.nombre)}${c.nombre?(' · '+esc(c.nombre)):''}</h2>
+      <div class="table-wrap"><table><thead><tr><th>Producto</th><th style="width:110px;">Cantidad</th></tr></thead><tbody>
+        ${lineas.map(([pr,ca])=>`<tr><td>${esc(pr)}</td><td class="mono"><b>${esc(String(ca))}</b></td></tr>`).join('')}
+      </tbody></table></div>
+      ${falta}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+        ${e.tieneMovil ? `<a class="btn small" style="background:#25D366;color:#fff;text-decoration:none;" target="_blank" rel="noopener" href="${esc(e.wa)}">Enviar por WhatsApp</a>` : ''}
+        ${e.tieneEmail ? `<a class="btn small" style="text-decoration:none;" href="${esc(e.mail)}">Enviar por correo</a>` : ''}
+        <button class="btn secondary small" type="button" onclick="copiarPedido('${prov.clave}')">Copiar el texto</button>
+      </div>
+    </div>`;
+  }).filter(Boolean);
+  host.innerHTML = bloques.length
+    ? ('<div class="wheat-divider">'+icon('wheat')+'<span>El pedido que vas a enviar</span></div>' + bloques.join(''))
+    : '';
+}
+
+function viewPedidos(){
+  const host = document.getElementById('view-pedidos');
+  if(!host) return;
+  const avisos = [];
+  PROVEEDORES_PEDIDO.forEach(p=>{ const f = resetSiYaLlego(p.clave); if(f) avisos.push(p.nombre+' (entrega del '+fmtDate(f)+')'); });
+
+  const bloques = PROVEEDORES_PEDIDO.map(prov=>{
+    const info = pedProductosDeProveedor(prov.clave);
+    const ped = pedidoDe(prov.clave);
+    const lineas = Object.entries(ped.lineas||{});
+    const c = contactoDe(prov.clave);
+    const opt = x=>`<option value="${esc(x.producto)}">${esc(x.producto)}</option>`;
+    const filas = lineas.map(([pr,ca])=>`
+      <tr>
+        <td>${esc(pr)}</td>
+        <td><input type="number" min="0" step="0.5" value="${esc(String(ca))}" style="width:90px;font-size:17px;"
+             onchange="setCantidadPedido('${prov.clave}', this.dataset.p, this.value)" data-p="${esc(pr)}"></td>
+        <td><button class="btn secondary small" type="button" onclick="setCantidadPedido('${prov.clave}','${esc(pr).replace(/'/g,"\\'")}','')">Quitar</button></td>
+      </tr>`).join('');
+    return `
+    <div class="panel">
+      <h2>${icon('truck')} ${esc(prov.nombre)}</h2>
+      <p class="hint">Productos sacados de sus <b>${info.albaranes} últimos albaranes</b>${info.ultimaFecha?(' (el último, del '+fmtDate(info.ultimaFecha)+')'):''}.
+        Arriba los que pides casi siempre; debajo, el resto.</p>
+      <div class="filters">
+        <label class="field wide"><span>Añadir producto al pedido</span>
+          <select id="pedSel${prov.clave}" onchange="anadirAlPedido('${prov.clave}')">
+            <option value="">Elige un producto…</option>
+            ${info.habituales.length?`<optgroup label="Los que pides casi siempre">${info.habituales.map(opt).join('')}</optgroup>`:''}
+            ${info.otros.length?`<optgroup label="Otros de los últimos albaranes">${info.otros.map(opt).join('')}</optgroup>`:''}
+          </select></label>
+      </div>
+      ${filas
+        ? `<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>
+           <div style="margin-top:10px;"><button class="btn secondary small" type="button" onclick="vaciarPedido('${prov.clave}')">Vaciar este pedido</button></div>`
+        : '<p class="hint">Todavía no has puesto nada para este proveedor.</p>'}
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;font-size:14px;color:var(--ink-soft);">Datos del comercial</summary>
+        <div class="record-form" style="margin-top:10px;">
+          <label class="field"><span>Nombre</span><input type="text" value="${esc(c.nombre)}" onchange="guardarContacto('${prov.clave}','nombre',this.value)"></label>
+          <label class="field"><span>Móvil (WhatsApp)</span><input type="tel" value="${esc(c.movil)}" placeholder="6XX XXX XXX" onchange="guardarContacto('${prov.clave}','movil',this.value)"></label>
+          <label class="field"><span>Correo</span><input type="email" value="${esc(c.email)}" onchange="guardarContacto('${prov.clave}','email',this.value)"></label>
+        </div>
+      </details>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `
+    ${avisos.length ? `<div style="background:var(--ok-tint);border:1px solid #C9DCC2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:15px;line-height:1.5;">
+       <b>Pedido servido, cantidades a cero.</b> Ha entrado mercancía de ${esc(avisos.join(' y '))}, así que su pedido se ha vaciado para la semana que viene.</div>` : ''}
+    <div class="panel" style="margin-bottom:16px;">
+      <h2>${icon('truck')} Pedido de la semana</h2>
+      <p class="hint">Pon las cantidades que hacen falta esta semana. <b>Cuando llegue la mercancía al obrador y se registre el albarán, ese pedido se pone a cero solo</b> y empiezas de nuevo. Abajo del todo tienes el pedido listo para mandárselo a cada comercial.</p>
+    </div>
+    ${bloques}
+    <div id="pedResumen"></div>`;
+  pintarResumenPedido();
 }
 
 function viewMateriasPrimas(){
@@ -7875,7 +8113,7 @@ const RENDERERS = {
   dashboard:renderDashboard, temperaturas:viewTemperaturas, limpieza:viewLimpieza, agua:viewAgua,
   recepcion:viewRecepcion, alergenos:viewAlergenos, aceite:viewAceite, produccion:viewProduccion, trazabilidad:viewTrazabilidad,
   transporte:viewTransporte,
-  obrador:viewObrador, materiasprimas:viewMateriasPrimas, revision:viewRevision,
+  obrador:viewObrador, materiasprimas:viewMateriasPrimas, pedidos:viewPedidos, revision:viewRevision,
   mantenimiento:viewMantenimiento, plagas:viewPlagas, noconformidades:viewNoConformidades, listeria:viewListeria,
   informes:viewInformes, ajustes:viewAjustes
 };
