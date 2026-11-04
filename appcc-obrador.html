@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-n';
+const APP_VERSION = '2026-11-04-o';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -653,6 +653,7 @@ async function loadAll(){
     const c = await Store.get(STORE_KEYS.config);
     CONFIG = c ? JSON.parse(c) : defaultConfig();
   }catch(e){ CONFIG = defaultConfig(); }
+  CONFIG_BASE = instantaneaConfig(CONFIG);   // punto de partida para saber qué apartado cambia
   /* Ajustes guardados antes de que existieran estos cuadernos: se les añaden
      los catálogos sin tocar nada de lo que ya tuviera configurado. */
   /* PRODUCCION_VER sube cada vez que se corrige la lista de productos para que
@@ -707,7 +708,69 @@ async function saveModuleLocal(mod){
   try{ await Store.set(STORE_KEYS[mod], JSON.stringify(DATA[mod])); }catch(e){ console.error(e); }
 }
 /* Todo lo que se guarda aquí se guarda además en Drive, solo, unos segundos después. */
+/* ---- SELLOS POR APARTADO DE LA CONFIGURACIÓN ----
+   Antes la configuración entera se sustituía por la del aparato que hubiera
+   guardado más tarde. Cuando ahí solo había equipos y zonas daba igual, pero
+   ahora dentro viven el stock, el catálogo, los alias, el recuento y el pedido
+   de la semana: bastaba con que la tablet guardara cualquier cosa con una copia
+   vieja para borrar lo que se acababa de hacer en el ordenador.
+   Ahora cada apartado lleva su propia fecha y se mezclan uno a uno: gana el más
+   reciente DE CADA APARTADO, no el del aparato. */
+let CONFIG_BASE = null;        // copia de cómo estaba la configuración la última vez que se sincronizó
+
+function instantaneaConfig(cfg){
+  const o = {};
+  Object.keys(cfg||{}).forEach(k=>{
+    if(k === '_ts' || k === '_tsSec') return;
+    try{ o[k] = JSON.stringify(cfg[k]); }catch(e){ o[k] = ''; }
+  });
+  return o;
+}
+/* Marca con la hora de ahora los apartados que hayan cambiado desde la última vez. */
+function sellarConfig(){
+  if(!CONFIG) return;
+  CONFIG._tsSec = CONFIG._tsSec || {};
+  const ahora = Date.now();
+  const actual = instantaneaConfig(CONFIG);
+  const base = CONFIG_BASE || {};
+  Object.keys(actual).forEach(k=>{
+    if(base[k] !== actual[k]) CONFIG._tsSec[k] = ahora;
+  });
+  Object.keys(base).forEach(k=>{            // un apartado borrado también es un cambio
+    if(!(k in actual)) CONFIG._tsSec[k] = ahora;
+  });
+  CONFIG_BASE = actual;
+}
+function selloDe(cfg, k){
+  const sec = (cfg && cfg._tsSec) || {};
+  return sec[k] || (cfg && cfg._ts) || 0;    // sin sello, vale la fecha general (copias antiguas)
+}
+/* Mezcla apartado por apartado. Nunca borra un apartado que solo exista en un lado. */
+function mezclarConfig(local, remoto){
+  if(!remoto) return {cfg: local, cambios: false};
+  if(!local) return {cfg: remoto, cambios: true};
+  const claves = new Set(Object.keys(local).concat(Object.keys(remoto)).filter(k=>k!=='_ts' && k!=='_tsSec'));
+  const salida = {};
+  const sellos = {};
+  let cambios = false;
+  claves.forEach(k=>{
+    const enLocal = k in local, enRemoto = k in remoto;
+    const tL = selloDe(local, k), tR = selloDe(remoto, k);
+    let elegido, sello;
+    if(enLocal && enRemoto){ const usarRemoto = tR > tL; elegido = usarRemoto ? remoto[k] : local[k]; sello = Math.max(tL, tR); }
+    else if(enRemoto){ elegido = remoto[k]; sello = tR; }
+    else { elegido = local[k]; sello = tL; }
+    salida[k] = elegido;
+    sellos[k] = sello;
+    try{ if(JSON.stringify(elegido) !== JSON.stringify(local[k])) cambios = true; }catch(e){}
+  });
+  salida._tsSec = sellos;
+  salida._ts = Math.max(local._ts||0, remoto._ts||0);
+  return {cfg: salida, cambios};
+}
+
 async function saveConfig(){
+  sellarConfig();
   CONFIG._ts = Date.now();
   await saveConfigLocal();
   pedirSync();
@@ -734,6 +797,9 @@ function importarBackupFile(file){
       if(!backup.config || !backup.data) throw new Error('formato no reconocido');
       if(!confirm('Esto reemplazará TODOS los datos actuales de la app por los del archivo de respaldo. ¿Continuar?')) return;
       CONFIG = backup.config;
+      CONFIG._tsSec = {};                    // todo viene del backup: se sella como nuevo
+      Object.keys(CONFIG).forEach(k=>{ if(k!=='_ts' && k!=='_tsSec') CONFIG._tsSec[k] = Date.now(); });
+      CONFIG_BASE = instantaneaConfig(CONFIG);
       DATA = backup.data;
       await saveConfig();
       for(const mod of Object.keys(DATA)) await saveModule(mod);
@@ -869,9 +935,14 @@ function mezclarTodo(remoto){
   if(normalizarLotes() > 0) cambios = true;
   if(normalizarNombresLotes().tocados > 0) cambios = true;
   if(migrarPlagasDeMantenimiento() > 0) cambios = true;
-  // Los ajustes (equipos, zonas, tiendas…) los cambia una sola persona: manda el más reciente.
-  const tsRemoto = remoto.configTs || 0, tsLocal = CONFIG._ts || 0;
-  if(remoto.config && tsRemoto > tsLocal){ CONFIG = remoto.config; cambios = true; }
+  /* Los ajustes se mezclan apartado por apartado: el stock, el catálogo, el
+     pedido de la semana y el recuento ya no se pisan entre aparatos. */
+  if(remoto.config){
+    const r = mezclarConfig(CONFIG, remoto.config);
+    CONFIG = r.cfg;
+    CONFIG_BASE = instantaneaConfig(CONFIG);
+    if(r.cambios) cambios = true;
+  }
   return cambios;
 }
 
@@ -5556,7 +5627,8 @@ function envasesDeLinea(producto, cantidadStr){
   const conUnidad = /[a-z]/.test(s.replace(/[\d.,\s]/g,''));
   if(!conUnidad && tam >= 5 && n >= tam && Math.abs(n/tam - Math.round(n/tam)) < 0.01
      && cantidadEnKilos(producto, tam)) return Math.round(n/tam);
-  return n;
+  // Nunca menos de un envase: no se recibe «0,025 cubos». Salía un caso así.
+  return n < 1 ? 1 : n;
 }
 /* ¿Este proveedor pone la cantidad en kilos? Solo si todas sus cantidades sin
    unidad son justo el peso del saco o un múltiplo («25», «25,00»). La harina
