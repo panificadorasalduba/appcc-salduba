@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-l';
+const APP_VERSION = '2026-11-04-m';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3549,30 +3549,48 @@ function ultimosAlbaranesDe(clave, n){
   return Object.values(alb).sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0, n||PED_ULTIMOS_ALBARANES);
 }
 function pedProductosDeProveedor(clave){
-  /* El mismo producto viene escrito de varias formas en los albaranes («MERMELCREM
-     FRESA , Cu-6.5 kg.» y variantes), así que el desplegable salía con un tercio de
-     líneas repetidas. Se agrupa por el nombre bueno del catálogo y de cada grupo se
-     deja UNA entrada: la descripción del albarán MÁS RECIENTE, que es la que el
-     comercial reconoce en su pedido. */
+  /* En el desplegable sale TODO lo que se le ha comprado a ese proveedor desde
+     primeros de año, sin repetir (Berta, 04/11). Antes solo salía lo de los 10
+     últimos albaranes y faltaban cosas que se piden de tarde en tarde.
+     - Se agrupa por el nombre bueno del catálogo, porque el mismo producto viene
+       escrito de varias formas; de cada grupo se deja la descripción del albarán
+       MÁS RECIENTE, que es la que el comercial reconoce.
+     - «Los que pides casi siempre» siguen siendo los que aparecen 2 veces o más
+       en los 10 últimos albaranes: así lo del día a día queda arriba y el resto,
+       ordenado por nombre, debajo. */
+  const canonDe = prod=>{
+    try{ return (typeof resolverNombreProducto==='function' && resolverNombreProducto(prod)) || prod; }
+    catch(e){ return prod; }
+  };
+  // 1) cuáles son habituales, mirando los 10 últimos albaranes
   const ult = ultimosAlbaranesDe(clave);
-  const grupos = {};          // canónico -> {etiqueta, veces}
+  const veces = {};
   ult.forEach(a=>{
-    const vistosAqui = new Set();
+    const vistos = new Set();
     a.productos.forEach(prod=>{
-      let canon = prod;
-      try{ canon = (typeof resolverNombreProducto==='function' && resolverNombreProducto(prod)) || prod; }catch(e){}
-      if(!grupos[canon]) grupos[canon] = {etiqueta: prod, veces: 0};   // el primero es el más reciente
-      if(!vistosAqui.has(canon)){ grupos[canon].veces++; vistosAqui.add(canon); }
+      const c = canonDe(prod);
+      if(!vistos.has(c)){ veces[c] = (veces[c]||0)+1; vistos.add(c); }
     });
   });
-  const todos = Object.values(grupos)
-    .sort((a,b)=> b.veces-a.veces || a.etiqueta.localeCompare(b.etiqueta,'es'))
-    .map(g=>({producto:g.etiqueta, veces:g.veces}));
+  // 2) todo lo comprado desde el 1 de enero de este año
+  const desde = new Date().getFullYear() + '-01-01';
+  const grupos = {};            // canónico -> {etiqueta, fecha}
+  (DATA.recepcion||[]).forEach(r=>{
+    if(pedClaveProveedor(r.proveedor) !== clave) return;
+    const f = r.fecha || '';
+    if(!f || f < desde) return;
+    const prod = (r.producto||'').trim();
+    if(!prod) return;
+    const c = canonDe(prod);
+    if(!grupos[c] || f > grupos[c].fecha) grupos[c] = {etiqueta: prod, fecha: f};
+  });
+  const todos = Object.keys(grupos).map(c=>({producto: grupos[c].etiqueta, veces: veces[c]||0}));
   return {
-    habituales: todos.filter(x=>x.veces>=2),
-    otros:      todos.filter(x=>x.veces<2),
+    habituales: todos.filter(x=>x.veces>=2).sort((a,b)=> b.veces-a.veces || a.producto.localeCompare(b.producto,'es')),
+    otros:      todos.filter(x=>x.veces<2).sort((a,b)=> a.producto.localeCompare(b.producto,'es')),
     albaranes:  ult.length,
     ultimaFecha: ult.length ? ult[0].fecha : '',
+    desde,
   };
 }
 
@@ -3780,8 +3798,9 @@ function viewPedidos(){
     return `
     <div class="panel">
       <h2>${icon('truck')} ${esc(prov.nombre)}</h2>
-      <p class="hint">Productos sacados de sus <b>${info.albaranes} últimos albaranes</b>${info.ultimaFecha?(' (el último, del '+fmtDate(info.ultimaFecha)+')'):''}.
-        Arriba los que pides casi siempre; debajo, el resto.</p>
+      <p class="hint">Todo lo que le has comprado desde el <b>${fmtDate(info.desde)}</b>, sin repetir${info.ultimaFecha?(' · último albarán, el '+fmtDate(info.ultimaFecha)):''}.
+        Arriba los que pides casi siempre; debajo, el resto por orden alfabético.
+        Si falta algo, escríbelo a mano.</p>
       <div class="filters">
         <label class="field wide"><span>Añadir producto al pedido</span>
           <select id="pedSel${prov.clave}" onchange="anadirAlPedido('${prov.clave}')">
