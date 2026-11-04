@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-k';
+const APP_VERSION = '2026-11-04-l';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3630,6 +3630,21 @@ async function setCantidadPedido(clave, producto, valor){
   try{ await saveConfig(); }catch(e){ console.error(e); }
   pintarResumenPedido();
 }
+/* Lo que no esté en los últimos albaranes (un producto nuevo, algo que se pide de
+   uvas a peras) se escribe a mano aquí. */
+async function anadirManualAlPedido(clave, idCampo, volver){
+  const campo = document.getElementById(idCampo);
+  if(!campo) return;
+  const prod = (campo.value||'').trim();
+  if(!prod){ campo.focus(); return; }
+  const ped = pedidoDe(clave);
+  if(!ped.lineas[prod]) ped.lineas[prod] = 1;
+  const ent = ultimaEntregaDe(clave);
+  ped.refEntrega = ent ? ent.ref : '';
+  campo.value = '';
+  try{ await saveConfig(); }catch(e){}
+  if(volver === 'obrador') obIr('pedido'); else viewPedidos();
+}
 async function anadirAlPedido(clave){
   const sel = document.getElementById('pedSel'+clave);
   if(!sel || !sel.value) return;
@@ -3774,6 +3789,12 @@ function viewPedidos(){
             ${info.habituales.length?`<optgroup label="Los que pides casi siempre">${info.habituales.map(opt).join('')}</optgroup>`:''}
             ${info.otros.length?`<optgroup label="Otros de los últimos albaranes">${info.otros.map(opt).join('')}</optgroup>`:''}
           </select></label>
+        <label class="field wide"><span>¿No está en la lista? Escríbelo</span>
+          <span class="cierre-linea">
+            <input type="text" id="pedManual${prov.clave}" placeholder="Nombre del producto…"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();anadirManualAlPedido('${prov.clave}','pedManual${prov.clave}');}">
+            <button class="btn small" type="button" onclick="anadirManualAlPedido('${prov.clave}','pedManual${prov.clave}')">Añadir</button>
+          </span></label>
       </div>
       ${filas
         ? `<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>
@@ -7947,6 +7968,13 @@ function obPedido(host){
           ${info.habituales.length?`<optgroup label="Los de siempre">${info.habituales.map(opt).join('')}</optgroup>`:''}
           ${info.otros.length?`<optgroup label="Otros">${info.otros.map(opt).join('')}</optgroup>`:''}
         </select>
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+          <input type="text" id="obPedMan${prov.clave}" placeholder="¿No está? Escríbelo aquí…"
+                 style="flex:1;min-width:200px;font-size:20px;padding:14px;border:1px solid #d6c8b4;border-radius:12px;"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();anadirManualAlPedido('${prov.clave}','obPedMan${prov.clave}','obrador');}">
+          <button type="button" onclick="anadirManualAlPedido('${prov.clave}','obPedMan${prov.clave}','obrador')"
+                  style="min-height:62px;min-width:120px;border:0;border-radius:14px;background:#c2410c;color:#fff;font-size:20px;font-weight:700;cursor:pointer;">Añadir</button>
+        </div>
         ${filas || '<p style="font-size:19px;color:#6b5a48;margin:4px 0 0;">Nada apuntado para este proveedor.</p>'}
       </div>`;
   }).join('');
