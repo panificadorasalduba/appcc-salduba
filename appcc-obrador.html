@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-e';
+const APP_VERSION = '2026-11-04-f';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -7580,10 +7580,10 @@ function viewObrador(){
   const enTablet = document.body.classList.contains('modo-obrador');
   if(enTablet){
     const t = document.getElementById('viewTitle');
-    if(t) t.textContent = {inicio:'Obrador', lotes:'Obrador · lotes', temp:'Obrador · temperaturas', prod:'Obrador · producción', agua:'Obrador · agua', recuento:'Obrador · recuento'}[OB_PANT] || 'Obrador';
+    if(t) t.textContent = {inicio:'Obrador', lotes:'Obrador · lotes', temp:'Obrador · temperaturas', prod:'Obrador · producción', agua:'Obrador · agua', recuento:'Obrador · recuento', pedido:'Obrador · pedido'}[OB_PANT] || 'Obrador';
   }
   if(enTablet && OB_PANT !== 'lotes'){
-    const pinta = {inicio:obInicio, temp:obTemperaturas, prod:obProduccion, agua:obAgua, recuento:obRecuento}[OB_PANT] || obInicio;
+    const pinta = {inicio:obInicio, temp:obTemperaturas, prod:obProduccion, agua:obAgua, recuento:obRecuento, pedido:obPedido}[OB_PANT] || obInicio;
     pinta(host);
     return;
   }
@@ -7844,6 +7844,73 @@ function obTeclaOk(){
 }
 
 /* ---------- Pantalla de inicio ---------- */
+/* ---- PEDIDO EN LA TABLET DEL OBRADOR ----
+   Lo mismo que en el panel de Berta pero con letra y botones grandes: aquí
+   quien ve que se está acabando algo es el panadero, y tiene que poder
+   apuntarlo sin salir de su pantalla. Enviar el pedido al comercial se queda
+   en la pantalla de administradora. */
+function obPedidoTotal(){
+  if(typeof PROVEEDORES_PEDIDO === 'undefined') return 0;
+  return PROVEEDORES_PEDIDO.reduce((n,p)=>n + Object.keys(pedidoDe(p.clave).lineas||{}).length, 0);
+}
+async function obPedidoCantidad(clave, producto, delta){
+  const ped = pedidoDe(clave);
+  const actual = Number(ped.lineas[producto]||0);
+  const nuevo = Math.max(0, actual + delta);
+  await setCantidadPedido(clave, producto, nuevo>0 ? String(nuevo) : '');
+  obIr('pedido');
+}
+async function obPedidoAnadir(clave){
+  const sel = document.getElementById('obPedSel'+clave);
+  if(!sel || !sel.value) return;
+  const ped = pedidoDe(clave);
+  if(!ped.lineas[sel.value]) ped.lineas[sel.value] = 1;
+  const ent = ultimaEntregaDe(clave);
+  ped.refEntrega = ent ? ent.ref : '';
+  sel.value = '';
+  try{ await saveConfig(); }catch(e){}
+  obIr('pedido');
+}
+function obPedido(host){
+  const avisos = [];
+  PROVEEDORES_PEDIDO.forEach(p=>{ const f = resetSiYaLlego(p.clave); if(f) avisos.push(p.nombre); });
+  const bloques = PROVEEDORES_PEDIDO.map(prov=>{
+    const info = pedProductosDeProveedor(prov.clave);
+    const ped = pedidoDe(prov.clave);
+    const lineas = Object.entries(ped.lineas||{});
+    const opt = x=>`<option value="${esc(x.producto)}">${esc(x.producto)}</option>`;
+    const filas = lineas.map(([pr,ca])=>`
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid #eadfce;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;font-size:21px;font-weight:600;">${esc(pr)}</div>
+        <button style="min-width:62px;min-height:62px;border:0;border-radius:14px;background:#ece6dc;color:#3b2f24;font-size:30px;font-weight:800;cursor:pointer;"
+          onclick="obPedidoCantidad('${prov.clave}', this.dataset.p, -1)" data-p="${esc(pr)}">−</button>
+        <div style="min-width:56px;text-align:center;font-size:30px;font-weight:800;">${esc(String(ca))}</div>
+        <button style="min-width:62px;min-height:62px;border:0;border-radius:14px;background:#c2410c;color:#fff;font-size:30px;font-weight:800;cursor:pointer;"
+          onclick="obPedidoCantidad('${prov.clave}', this.dataset.p, 1)" data-p="${esc(pr)}">+</button>
+      </div>`).join('');
+    return `
+      <div style="margin-bottom:26px;">
+        <h3 style="font-size:25px;margin:0 0 4px;">${esc(prov.nombre)}</h3>
+        <select id="obPedSel${prov.clave}" onchange="obPedidoAnadir('${prov.clave}')"
+          style="width:100%;font-size:20px;padding:14px;border:1px solid #d6c8b4;border-radius:12px;margin-bottom:10px;">
+          <option value="">➕ Añadir un producto…</option>
+          ${info.habituales.length?`<optgroup label="Los de siempre">${info.habituales.map(opt).join('')}</optgroup>`:''}
+          ${info.otros.length?`<optgroup label="Otros">${info.otros.map(opt).join('')}</optgroup>`:''}
+        </select>
+        ${filas || '<p style="font-size:19px;color:#6b5a48;margin:4px 0 0;">Nada apuntado para este proveedor.</p>'}
+      </div>`;
+  }).join('');
+  host.innerHTML = `
+    <div class="panel" style="font-size:18px;">
+      ${OB_VOLVER}
+      ${avisos.length ? `<div style="background:#e4eede;border:1px solid #c9dcc2;border-radius:14px;padding:16px 18px;margin:10px 0 18px;font-size:20px;line-height:1.45;">
+         <b>Ya llegó el pedido de ${esc(avisos.join(' y '))}.</b> Se ha puesto a cero para la semana que viene.</div>` : ''}
+      <p style="font-size:20px;color:#6b5a48;margin:6px 0 18px;line-height:1.45;">
+        Apunta lo que haga falta pedir esta semana. <b>Cuando llegue la mercancía y se registre el albarán, se pone a cero solo.</b></p>
+      ${bloques}
+    </div>`;
+}
+
 function obInicio(host){
   const hoy = new Date();
   const total = (CONFIG.equipos||[]).length;
@@ -7867,6 +7934,8 @@ function obInicio(host){
         <span style="${titulo}">🥐 PRODUCCIÓN</span><span style="${sub}">Hoy: ${nProd} ${nProd===1?'producto apuntado':'productos apuntados'}</span></button>
       <button style="${B(aguaSemana ? '#1e7b46' : '#1f5f8b')}" onclick="obIr('agua')">
         <span style="${titulo}">💧 AGUA</span><span style="${sub}">${aguaSemana ? 'Hecha esta semana ✔' : 'Falta esta semana'}</span></button>
+      <button style="${B(obPedidoTotal() ? '#8a5a00' : '#1f5f8b')}" onclick="obIr('pedido')">
+        <span style="${titulo}">🛒 PEDIDO</span><span style="${sub}">${obPedidoTotal() ? plural(obPedidoTotal(),'producto')+' apuntado'+(obPedidoTotal()===1?'':'s')+' para esta semana' : 'Apuntar lo que hace falta pedir'}</span></button>
       <button style="${B(obRecuentoEnCurso() ? '#8a5a00' : '#5b4636')}" onclick="obIr('recuento')">
         <span style="${titulo}">📋 RECUENTO</span><span style="${sub}">${obRecuentoEnCurso() ? 'A medias: ' + Object.keys(obRecuentoEnCurso().contados).length + ' productos contados hoy' : 'Contar el stock real de materias primas'}${CONFIG.ultimoRecuento ? ' · último: ' + fmtDate(CONFIG.ultimoRecuento.fecha) : ''}</span></button>
       <p style="text-align:center;margin-top:28px;"><a href="#" style="font-size:13px;color:#9a8a78;" onclick="if(confirm('¿Salir de la pantalla del obrador y ver toda la app?')){try{localStorage.setItem('appcc_modo_obrador','0')}catch(e){};location.reload();}return false;">Salir de la pantalla del obrador</a></p>
