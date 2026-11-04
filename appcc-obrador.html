@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-m';
+const APP_VERSION = '2026-11-04-n';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3618,6 +3618,8 @@ function resetSiYaLlego(clave){
   if(!ent) return null;
   if(ped.refEntrega === undefined){ ped.refEntrega = ent.ref; return null; }
   if(ent.ref !== ped.refEntrega){
+    // antes de borrarlo, queda guardado en el historial
+    try{ archivarPedido(clave, {servidoEl: ent.fecha}); }catch(e){ console.error(e); }
     ped.lineas = {};
     ped.fecha = todayStr();
     ped.refEntrega = ent.ref;
@@ -3712,6 +3714,7 @@ function enlacesPedido(clave){
 function copiarPedido(clave){
   const t = textoPedido(clave);
   if(!t) return;
+  marcarPedidoEnviado(clave, 'copiado');
   navigator.clipboard.writeText(t).then(()=>alert('Pedido copiado. Ya lo puedes pegar donde quieras.'),
                                         ()=>alert('No se ha podido copiar en este navegador.'));
 }
@@ -3719,6 +3722,90 @@ function copiarPedido(clave){
    arriba se edita, aquí se manda. Por eso va sobre fondo oscuro, con el nombre
    del proveedor en grande, las cantidades en círculos y los botones de enviar
    bien visibles. */
+/* ============ HISTORIAL DE PEDIDOS ============
+   Todo pedido que se manda o que se da por servido se guarda aquí, para poder
+   mirar meses después qué se pidió y cuándo. Vive en CONFIG, o sea que viaja
+   por Drive y se ve igual en la tablet, el móvil y el ordenador. */
+const PED_HIST_MAX = 400;     // de sobra para varios años; evita que CONFIG engorde sin fin
+
+function historialPedidos(){
+  if(!Array.isArray(CONFIG.pedidosHistorial)) CONFIG.pedidosHistorial = [];
+  return CONFIG.pedidosHistorial;
+}
+/* Lunes de la semana de una fecha, para agrupar por semanas. */
+function lunesDe(fecha){
+  const d = new Date(String(fecha)+'T12:00:00');
+  d.setDate(d.getDate() - ((d.getDay()+6)%7));
+  return d.toISOString().slice(0,10);
+}
+/* Guarda (o actualiza) el pedido de un proveedor en el historial.
+   Si ya hay una entrada de esta misma semana sin servir, se actualiza esa en
+   vez de crear otra: así mandar el pedido dos veces no lo duplica. */
+async function archivarPedido(clave, datos){
+  const ped = pedidoDe(clave);
+  const lineas = Object.entries(ped.lineas||{});
+  if(!lineas.length) return null;
+  const prov = PROVEEDORES_PEDIDO.find(p=>p.clave===clave);
+  const hist = historialPedidos();
+  const semana = lunesDe(todayStr());
+  let ent = hist.find(x=>x.clave===clave && x.semana===semana && !x.servidoEl);
+  if(!ent){
+    ent = {id:uid(), clave, proveedor: prov?prov.nombre:clave, semana, fecha: todayStr(), lineas:{}};
+    hist.unshift(ent);
+  }
+  ent.lineas = Object.fromEntries(lineas);
+  ent.fecha = todayStr();
+  if(datos && datos.enviadoPor){ ent.enviadoPor = datos.enviadoPor; ent.enviadoEl = todayStr(); }
+  if(datos && datos.servidoEl) ent.servidoEl = datos.servidoEl;
+  if(hist.length > PED_HIST_MAX) hist.length = PED_HIST_MAX;
+  try{ await saveConfig(); }catch(e){ console.error(e); }
+  return ent;
+}
+async function marcarPedidoEnviado(clave, via){
+  await archivarPedido(clave, {enviadoPor: via});
+  if(document.getElementById('pedHistorial')) pintarHistorialPedidos();
+}
+function pintarHistorialPedidos(){
+  const host = document.getElementById('pedHistorial');
+  if(!host) return;
+  const hist = historialPedidos();
+  if(!hist.length){
+    host.innerHTML = '<div class="panel"><h2>'+icon('report')+' Pedidos ya hechos</h2>'
+      + '<p class="hint">Todavía no hay ninguno guardado. En cuanto mandes un pedido o llegue la mercancía, se queda aquí.</p></div>';
+    return;
+  }
+  const porSemana = {};
+  hist.forEach(e=>{ (porSemana[e.semana] = porSemana[e.semana] || []).push(e); });
+  const semanas = Object.keys(porSemana).sort().reverse();
+  const comoSeMando = e=> e.enviadoPor==='whatsapp' ? 'WhatsApp'
+                        : e.enviadoPor==='correo'   ? 'Correo'
+                        : e.enviadoPor==='copiado'  ? 'Copiado'
+                        : '—';
+  host.innerHTML = `
+    <div class="panel">
+      <h2>${icon('report')} Pedidos ya hechos</h2>
+      <p class="hint">Todos los pedidos mandados, por semanas, del más reciente al más antiguo. Se guardan solos.</p>
+      ${semanas.map(sem=>`
+        <details ${sem===semanas[0]?'open':''} style="margin-bottom:10px;">
+          <summary style="cursor:pointer;font-size:16px;font-weight:600;padding:8px 0;">
+            Semana del ${fmtDate(sem)} <span style="font-weight:400;color:var(--ink-soft);font-size:14px;">· ${porSemana[sem].length} ${porSemana[sem].length===1?'pedido':'pedidos'}</span>
+          </summary>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Proveedor</th><th>Productos</th><th>Mandado</th><th>Cómo</th><th>Servido</th></tr></thead>
+            <tbody>
+              ${porSemana[sem].map(e=>`<tr>
+                <td><b>${esc(e.proveedor)}</b></td>
+                <td>${Object.entries(e.lineas||{}).map(([pr,ca])=>esc(ca+' '+pr)).join('<br>')}</td>
+                <td class="mono">${e.enviadoEl?fmtDate(e.enviadoEl):'—'}</td>
+                <td>${comoSeMando(e)}</td>
+                <td class="mono">${e.servidoEl?fmtDate(e.servidoEl):'<span style="color:var(--warn);">pendiente</span>'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table></div>
+        </details>`).join('')}
+    </div>`;
+}
+
 function pintarResumenPedido(){
   const host = document.getElementById('pedResumen');
   if(!host) return;
@@ -3749,10 +3836,10 @@ function pintarResumenPedido(){
       ${sinContacto
         ? `<p style="margin:14px 0 0;font-size:14px;color:#B0402E;line-height:1.45;">Falta el móvil o el correo del comercial. Ponlo arriba, en «Datos del comercial», y aparecerán los botones de enviar.</p>`
         : `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
-             ${e.tieneMovil ? `<a target="_blank" rel="noopener" href="${esc(e.wa)}"
+             ${e.tieneMovil ? `<a target="_blank" rel="noopener" href="${esc(e.wa)}" onclick="marcarPedidoEnviado('${prov.clave}','whatsapp')"
                 style="flex:1;min-width:150px;text-align:center;text-decoration:none;background:#25D366;color:#fff;
                        border-radius:12px;padding:14px 18px;font-size:16px;font-weight:700;">WhatsApp</a>` : ''}
-             ${e.tieneEmail ? `<a href="${esc(e.mail)}"
+             ${e.tieneEmail ? `<a href="${esc(e.mail)}" onclick="marcarPedidoEnviado('${prov.clave}','correo')"
                 style="flex:1;min-width:150px;text-align:center;text-decoration:none;background:var(--wheat);color:#fff;
                        border-radius:12px;padding:14px 18px;font-size:16px;font-weight:700;">Correo</a>` : ''}
              <button type="button" onclick="copiarPedido('${prov.clave}')"
@@ -3838,8 +3925,10 @@ function viewPedidos(){
       <p class="hint">Pon las cantidades que hacen falta esta semana. <b>Cuando llegue la mercancía al obrador y se registre el albarán, ese pedido se pone a cero solo</b> y empiezas de nuevo. Abajo del todo tienes el pedido listo para mandárselo a cada comercial.</p>
     </div>
     ${bloques}
-    <div id="pedResumen"></div>`;
+    <div id="pedResumen"></div>
+    <div id="pedHistorial" style="margin-top:26px;"></div>`;
   pintarResumenPedido();
+  pintarHistorialPedidos();
 }
 
 function viewMateriasPrimas(){
@@ -8033,11 +8122,11 @@ function obResumenPedido(){
         </div>`).join('')}
       ${(e.tieneMovil || e.tieneEmail) ? `
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:18px;">
-          ${e.tieneMovil ? `<a target="_blank" rel="noopener" href="${esc(e.wa)}"
+          ${e.tieneMovil ? `<a target="_blank" rel="noopener" href="${esc(e.wa)}" onclick="marcarPedidoEnviado('${prov.clave}','whatsapp')"
              style="flex:1;min-width:180px;min-height:74px;display:flex;align-items:center;justify-content:center;
                     text-decoration:none;background:#25D366;color:#fff;border-radius:16px;font-size:22px;font-weight:800;">
              Enviar por WhatsApp</a>` : ''}
-          ${e.tieneEmail ? `<a href="${esc(e.mail)}"
+          ${e.tieneEmail ? `<a href="${esc(e.mail)}" onclick="marcarPedidoEnviado('${prov.clave}','correo')"
              style="flex:1;min-width:180px;min-height:74px;display:flex;align-items:center;justify-content:center;
                     text-decoration:none;background:#c2410c;color:#fff;border-radius:16px;font-size:22px;font-weight:800;">
              Enviar por correo</a>` : ''}
