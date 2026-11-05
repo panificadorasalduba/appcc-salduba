@@ -345,7 +345,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-04-q';
+const APP_VERSION = '2026-11-05-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -537,12 +537,13 @@ function lineaEstado(ok, titulo, detalle){
        + (detalle ? `<br><span class="hint" style="color:var(--muted);">${detalle}</span>` : '') + '</p>';
 }
 function pintarEstadoDispositivo(extra){
-  const host = document.getElementById('estadoDispositivo');
-  if(!host) return;
+  /* Sale en Ajustes y, en la tablet, abajo del todo de la pantalla de inicio. */
+  const hosts = ['estadoDispositivo','estadoDispositivoOb'].map(id=>document.getElementById(id)).filter(Boolean);
+  if(!hosts.length) return;
   const drive = !!getAppsScriptUrl();
   const clave = !!getGeminiKey();
   const registros = Object.keys(DATA).reduce((n,k)=>n + (Array.isArray(DATA[k]) ? DATA[k].length : Object.keys(DATA[k]||{}).length), 0);
-  host.innerHTML =
+  const html =
     lineaEstado(drive, drive ? 'Guarda en tu Google Drive' : 'NO guarda en Drive',
       drive ? esc(SYNC.estado) : 'Los registros se quedan solo en este aparato y no los ves desde los demás. Escanea el código de configuración desde el ordenador.')
     + lineaEstado(clave, clave ? 'Puede leer albaranes con la IA' : 'NO puede leer albaranes',
@@ -566,6 +567,7 @@ function pintarEstadoDispositivo(extra){
           esc(fmtDate(String(u.cuando).slice(0,10))) + ' ' + esc(String(u.cuando).slice(11,16)) + ' — ' + esc(u.mensaje));
       })()
     + (extra || '');
+  hosts.forEach(h=>{ h.innerHTML = html; });
 }
 async function comprobarDispositivo(){
   let extra = '';
@@ -1018,6 +1020,7 @@ function pintarEstadoSync(){
   if(el) el.textContent = SYNC.estado;
   const aj = document.getElementById('driveSyncEstado');
   if(aj) aj.textContent = SYNC.estado;
+  if(document.getElementById('estadoDispositivoOb')) pintarEstadoDispositivo();
 }
 function marcarSync(txt){ SYNC.estado = txt; pintarEstadoSync(); }
 
@@ -8459,7 +8462,9 @@ function obInicio(host){
       <button style="${B(obRecuentoEnCurso() ? '#8a5a00' : '#5b4636')}" onclick="obIr('recuento')">
         <span style="${titulo}">📋 RECUENTO</span><span style="${sub}">${obRecuentoEnCurso() ? 'A medias: ' + Object.keys(obRecuentoEnCurso().contados).length + ' productos contados hoy' : 'Contar el stock real de materias primas'}${CONFIG.ultimoRecuento ? ' · último: ' + fmtDate(CONFIG.ultimoRecuento.fecha) : ''}</span></button>
       <p style="text-align:center;margin-top:28px;"><a href="#" style="font-size:13px;color:#9a8a78;" onclick="if(confirm('¿Salir de la pantalla del obrador y ver toda la app?')){try{localStorage.setItem('appcc_modo_obrador','0')}catch(e){};location.reload();}return false;">Salir de la pantalla del obrador</a></p>
+      <div id="estadoDispositivoOb" style="margin-top:18px;padding-top:12px;border-top:1px solid #eadfce;"></div>
     </div>`;
+  pintarEstadoDispositivo();
 }
 
 /* ---------- TEMPERATURAS: un botón por cámara ---------- */
