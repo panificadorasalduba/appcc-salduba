@@ -40,6 +40,8 @@
 
   /* SIDEBAR */
   body.modo-obrador .sidebar{display:none !important;}
+  #obTopVolver{display:none;min-height:48px;padding:0 20px;border:0;border-radius:10px;background:#6b3410;color:#fff;font-size:18px;font-weight:700;cursor:pointer;}
+  body.modo-obrador.ob-fuera #obTopVolver{display:inline-block;}
   .sidebar{
     width:236px;flex:none;background:var(--sidebar);color:#EFE7D8;
     display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
@@ -337,6 +339,7 @@
   <main class="main">
     <div class="topbar">
       <h1 id="viewTitle">Panel general</h1>
+      <button id="obTopVolver" onclick="obVolverInicio()">← Inicio</button>
       <div class="date mono" id="topDate"></div>
     </div>
     <div class="content" id="content"></div>
@@ -345,7 +348,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-05-b';
+const APP_VERSION = '2026-11-05-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1097,7 +1100,8 @@ function refrescarPantalla(){
     updateSidebarFoot();
     const activa = document.querySelector('.view.active');
     const id = activa ? activa.id.replace('view-','') : 'dashboard';
-    if(RENDERERS[id]) RENDERERS[id]();
+    /* En Recepción puede haber un albarán a medio revisar: repintar lo borraría. */
+    if(RENDERERS[id] && id !== 'recepcion') RENDERERS[id]();
     renderDashboard();
   }catch(e){ console.error('repintado', e); }
 }
@@ -1249,6 +1253,7 @@ function showView(id){
   document.querySelectorAll('.navitem').forEach(el=>el.classList.toggle('active', el.dataset.view===id));
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active', el.id==='view-'+id));
   document.getElementById('viewTitle').textContent = VIEWS.find(v=>v.id===id).label;
+  document.body.classList.toggle('ob-fuera', id !== 'obrador');
   RENDERERS[id]();
 }
 
@@ -8040,10 +8045,10 @@ function viewObrador(){
   const enTablet = document.body.classList.contains('modo-obrador');
   if(enTablet){
     const t = document.getElementById('viewTitle');
-    if(t) t.textContent = {inicio:'Obrador', lotes:'Obrador · lotes', temp:'Obrador · temperaturas', prod:'Obrador · producción', agua:'Obrador · agua', recuento:'Obrador · recuento', pedido:'Obrador · pedido'}[OB_PANT] || 'Obrador';
+    if(t) t.textContent = {inicio:'Obrador', lotes:'Obrador · lotes', temp:'Obrador · temperaturas', prod:'Obrador · producción', agua:'Obrador · agua', limpieza:'Obrador · limpieza', recuento:'Obrador · recuento', pedido:'Obrador · pedido'}[OB_PANT] || 'Obrador';
   }
   if(enTablet && OB_PANT !== 'lotes'){
-    const pinta = {inicio:obInicio, temp:obTemperaturas, prod:obProduccion, agua:obAgua, recuento:obRecuento, pedido:obPedido}[OB_PANT] || obInicio;
+    const pinta = {inicio:obInicio, temp:obTemperaturas, prod:obProduccion, agua:obAgua, limpieza:obLimpieza, recuento:obRecuento, pedido:obPedido}[OB_PANT] || obInicio;
     pinta(host);
     return;
   }
@@ -8242,11 +8247,16 @@ const OB_VOLVER = '<button style="min-height:56px;padding:0 22px;border:0;border
 function obIr(p){
   OB_PANT = p;
   if(p === 'prod') OB_PROD_REG = '';     // entrar en Producción siempre enseña los cuadernos
+  if(p === 'limpieza') OB_LIMP_ZONA = ''; // y en Limpieza, las salas
   obModal(''); viewObrador(); window.scrollTo(0,0);
 }
 /* Dentro de un cuaderno la lista es larga: los botones de volver se quedan siempre
    a la vista, también al bajar por los productos. */
 function obProdVolver(){ OB_PROD_REG = ''; viewObrador(); window.scrollTo(0,0); }
+/* Recepción es la pantalla completa de siempre, con la lectura de albaranes y la
+   revisión; desde ella se vuelve con el botón «← Inicio» de arriba. */
+function obIrPantalla(id){ obModal(''); showView(id); window.scrollTo(0,0); }
+function obVolverInicio(){ OB_PANT = 'inicio'; showView('obrador'); window.scrollTo(0,0); }
 /* Fecha local (no UTC): el turno de noche empieza a las 22 h y no puede caer en otro día. */
 function obFechaLocal(d){ d = d || new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function obAyer(){ const d = new Date(); d.setDate(d.getDate()-1); return obFechaLocal(d); }
@@ -8443,6 +8453,7 @@ function obInicio(host){
   const abiertos = (DATA.lotesMP||[]).filter(r=>!r.fechaCierre).length;
   const nProd = (DATA.produccion||[]).filter(r=>r.fecha===obFechaLocal()).length;
   const aguaSemana = (DATA.agua||[]).some(r=>String(r.fecha||'') >= obLunes());
+  const limp = obLimpiezaResumen();
   const B = (color)=>`display:block;width:100%;min-height:100px;margin:0;border:0;border-radius:14px;cursor:pointer;text-align:left;padding:12px 16px;color:#fff;background:${color};`;
   const titulo = 'font-size:25px;font-weight:800;letter-spacing:.02em;display:block;';
   const sub = 'font-size:16px;font-weight:500;opacity:.95;display:block;margin-top:3px;';
@@ -8454,10 +8465,14 @@ function obInicio(host){
         <span style="${titulo}">📦 LOTES</span><span style="${sub}">${abiertos} abiertos · abrir y cerrar sacos, cubos y cajas</span></button>
       <button style="${B(alertas ? '#b42318' : tempOk ? '#1e7b46' : '#8a5a00')}" onclick="obIr('temp')">
         <span style="${titulo}">🌡️ TEMPERATURAS</span><span style="${sub}">${alertas ? '⚠ '+alertas+' fuera de rango · ' : ''}Hoy: ${nTemp} de ${total} apuntadas</span></button>
+      <button style="${B(limp.total && limp.hechas >= limp.total ? '#1e7b46' : '#0f766e')}" onclick="obIr('limpieza')">
+        <span style="${titulo}">🧹 LIMPIEZA</span><span style="${sub}">Hoy: ${limp.hechas} de ${limp.total} tareas diarias</span></button>
       <button style="${B('#6b3410')}" onclick="obIr('prod')">
         <span style="${titulo}">🥐 PRODUCCIÓN</span><span style="${sub}">Hoy: ${nProd} ${nProd===1?'producto apuntado':'productos apuntados'}</span></button>
       <button style="${B(aguaSemana ? '#1e7b46' : '#1f5f8b')}" onclick="obIr('agua')">
         <span style="${titulo}">💧 AGUA</span><span style="${sub}">${aguaSemana ? 'Hecha esta semana ✔' : 'Falta esta semana'}</span></button>
+      <button style="${B('#4b5563')}" onclick="obIrPantalla('recepcion')">
+        <span style="${titulo}">🚚 RECEPCIÓN</span><span style="${sub}">Hacer la foto al albarán de la mercancía</span></button>
       <button style="${B(obPedidoTotal() ? '#8a5a00' : '#1f5f8b')}" onclick="obIr('pedido')">
         <span style="${titulo}">🛒 PEDIDO</span><span style="${sub}">${obPedidoTotal() ? plural(obPedidoTotal(),'producto')+' apuntado'+(obPedidoTotal()===1?'':'s')+' para esta semana' : 'Apuntar lo que hace falta pedir'}</span></button>
       <button style="${B(obRecuentoEnCurso() ? '#8a5a00' : '#5b4636')}" onclick="obIr('recuento')">
@@ -8637,6 +8652,146 @@ async function obGuardarAgua(normal){
     return;
   }
   obAviso('Guardado ✔<br><span style="font-weight:400;">Cloro ' + String(cloro).replace('.',',') + ' mg/l · todo normal</span>');
+}
+
+/* ---------- LIMPIEZA: lo que se apuntaba en el cuaderno, tarea a tarea ----------
+   Las salas, tareas y frecuencias salen de lo ya registrado en el cuaderno; las
+   salas del plan que aún no tienen registros salen con sus elementos, sin
+   frecuencia. Cada pulsación se guarda sola, como una línea del cuaderno. */
+let OB_LIMP_ZONA = '';
+let OB_LIMP_LISTA = [];
+function obLimpiezaDiaria(f){ return !f || /diari/i.test(f); }
+function obLimpiezaPlan(){
+  const zonas = {};
+  porFechaDesc(DATA.limpieza||[]).forEach(r=>{
+    if(!r.area || !r.elemento) return;
+    const z = zonas[r.area] || (zonas[r.area] = {});
+    if(!(r.elemento in z)) z[r.elemento] = r.frecuencia || '';   // manda la última frecuencia apuntada
+  });
+  (CONFIG.zonasLimpieza||[]).forEach(z=>{
+    if(zonas[z.area]) return;
+    zonas[z.area] = {};
+    (z.elementos||[]).forEach(e=>{ zonas[z.area][e] = ''; });
+  });
+  const orden = f => obLimpiezaDiaria(f) ? 0 : 1;
+  return Object.keys(zonas).sort((a,b)=>a.localeCompare(b,'es')).map(area=>({
+    area,
+    tareas: Object.keys(zonas[area])
+      .map(elemento=>({area, elemento, frecuencia:zonas[area][elemento]}))
+      .sort((a,b)=>orden(a.frecuencia)-orden(b.frecuencia) || a.elemento.localeCompare(b.elemento,'es'))
+  }));
+}
+function obLimpiezaDeHoy(t){
+  const hoy = obFechaLocal();
+  return (DATA.limpieza||[]).filter(r=>r.fecha===hoy && r.area===t.area && r.elemento===t.elemento);
+}
+function obLimpiezaResumen(zona){
+  let total = 0, hechas = 0;
+  obLimpiezaPlan().filter(z=>!zona || z.area===zona).forEach(z=>z.tareas.forEach(t=>{
+    if(!obLimpiezaDiaria(t.frecuencia)) return;
+    total++;
+    if(obLimpiezaDeHoy(t).length) hechas++;
+  }));
+  return {total, hechas};
+}
+function obLimpiezaUltima(t){
+  const hechas = (DATA.limpieza||[]).filter(r=>r.realizado && r.area===t.area && r.elemento===t.elemento)
+    .map(r=>String(r.fecha||'')).sort();
+  return hechas.length ? hechas[hechas.length-1] : '';
+}
+function obLimpieza(host){
+  const plan = obLimpiezaPlan();
+  if(!OB_LIMP_ZONA || !plan.some(z=>z.area===OB_LIMP_ZONA)){
+    OB_LIMP_ZONA = '';
+    host.innerHTML = `
+      <div class="panel" style="font-size:18px;">
+        ${OB_VOLVER}
+        <h2 style="font-size:28px;margin:10px 0 0;">🧹 Limpieza de hoy</h2>
+        ${obLineaNombre()}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+          ${plan.map((z,i)=>{
+            const r = obLimpiezaResumen(z.area);
+            const lista = r.total && r.hechas >= r.total;
+            return `<button style="min-height:92px;border:0;border-radius:14px;cursor:pointer;text-align:left;padding:12px 16px;color:#fff;background:${lista?'#1e7b46':'#0f766e'};" onclick="obLimpiezaZona(${i})">
+              <span style="display:block;font-size:24px;font-weight:800;">${esc(z.area)}</span>
+              <span style="display:block;font-size:16px;margin-top:3px;">${lista?'✔ ':''}${r.hechas} de ${r.total} diarias</span></button>`;
+          }).join('')}
+        </div>
+      </div>`;
+    return;
+  }
+  const zona = plan.find(z=>z.area===OB_LIMP_ZONA);
+  OB_LIMP_LISTA = zona.tareas;
+  const pendientes = zona.tareas.filter(t=>obLimpiezaDiaria(t.frecuencia) && !obLimpiezaDeHoy(t).length).length;
+  const filas = zona.tareas.map((t,i)=>{
+    const deHoy = obLimpiezaDeHoy(t);
+    const ultima = obLimpiezaUltima(t);
+    const dato = esc(t.frecuencia || 'Sin frecuencia en el plan') + (ultima ? ' · última: ' + fmtDate(ultima) : '');
+    const estado = deHoy.length
+      ? `<span style="font-size:19px;font-weight:700;color:${deHoy[0].realizado?'#1e7b46':'#b42318'};">${deHoy[0].realizado?'✔ Hecha':'✖ No hecha'}</span>
+         <button style="min-height:52px;padding:0 16px;border:0;border-radius:10px;background:#ece6dc;color:#3b2f24;font-size:17px;font-weight:700;cursor:pointer;" onclick="obLimpiezaDeshacer(${i})">Deshacer</button>`
+      : `<button style="min-height:60px;padding:0 22px;border:0;border-radius:12px;background:#1e7b46;color:#fff;font-size:20px;font-weight:700;cursor:pointer;" onclick="obLimpiezaMarcar(${i},true)">Hecha</button>
+         <button style="min-height:60px;padding:0 16px;border:0;border-radius:12px;background:#ece6dc;color:#b42318;font-size:18px;font-weight:700;cursor:pointer;" onclick="obLimpiezaMarcar(${i},false)">No hecha</button>`;
+    return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #eadfce;">
+      <div style="flex:1;min-width:200px;"><div style="font-size:21px;font-weight:700;">${esc(t.elemento)}</div>
+      <div style="font-size:15px;color:#6b5a48;">${dato}</div></div>${estado}</div>`;
+  }).join('');
+  host.innerHTML = `
+    <div style="position:sticky;top:66px;z-index:4;display:flex;gap:10px;padding:8px 0;background:var(--bg,#f6efe4);">
+      <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#6b3410;color:#fff;font-size:22px;font-weight:700;cursor:pointer;" onclick="obIr('limpieza')">← Volver a salas</button>
+      <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#ece6dc;color:#3b2f24;font-size:22px;font-weight:700;cursor:pointer;" onclick="obIr('inicio')">← Inicio</button>
+    </div>
+    <div class="panel" style="font-size:18px;">
+      <h2 style="font-size:28px;margin:10px 0 0;">🧹 ${esc(zona.area)}</h2>
+      ${obLineaNombre()}
+      ${pendientes ? `<button style="${OB_SI}background:#1e7b46;" onclick="obLimpiezaTodo()">✔ Marcar todo lo diario como hecho (${pendientes})</button>` : ''}
+      ${filas}
+    </div>`;
+}
+function obLimpiezaZona(i){
+  OB_LIMP_ZONA = obLimpiezaPlan()[i].area;
+  viewObrador(); window.scrollTo(0,0);
+}
+function obLimpiezaRegistro(t, realizado){
+  return {id:uid(), fecha:obFechaLocal(), area:t.area, elemento:t.elemento, frecuencia:t.frecuencia,
+    realizado, responsable:obNombre(), supervisor:'', incidenciaNum:'', observaciones:'Apuntado en la tablet del obrador'};
+}
+function obLimpiezaMarcar(i, realizado){
+  obConNombre(async ()=>{
+    const t = OB_LIMP_LISTA[i];
+    if(!t || obLimpiezaDeHoy(t).length) return;
+    DATA.limpieza.unshift(obLimpiezaRegistro(t, realizado));
+    viewObrador();
+    await saveModule('limpieza');
+    renderDashboard();
+  });
+}
+function obLimpiezaTodo(){
+  obConNombre(()=>{
+    const faltan = OB_LIMP_LISTA.filter(t=>obLimpiezaDiaria(t.frecuencia) && !obLimpiezaDeHoy(t).length);
+    obModal(`<div style="font-size:24px;font-weight:700;">¿Están hechas estas ${faltan.length} tareas?</div>
+      <div style="margin:10px 0;font-size:19px;color:#6b5a48;">${faltan.map(t=>esc(t.elemento)).join(', ')}</div>
+      <button style="${OB_SI}background:#1e7b46;" onclick="obLimpiezaTodoOk()">Sí, están hechas</button>
+      <button style="${OB_NO}" onclick="obModal('')">Cancelar</button>`);
+  });
+}
+async function obLimpiezaTodoOk(){
+  const faltan = OB_LIMP_LISTA.filter(t=>obLimpiezaDiaria(t.frecuencia) && !obLimpiezaDeHoy(t).length);
+  faltan.forEach(t=>DATA.limpieza.unshift(obLimpiezaRegistro(t, true)));
+  obModal(''); viewObrador();
+  await saveModule('limpieza');
+  renderDashboard();
+}
+async function obLimpiezaDeshacer(i){
+  const t = OB_LIMP_LISTA[i];
+  if(!t) return;
+  const ids = obLimpiezaDeHoy(t).map(r=>r.id);
+  DATA.limpieza = DATA.limpieza.filter(r=>ids.indexOf(r.id) < 0);
+  ids.forEach(id=>{ BAJAS[id] = Date.now(); });   // que no vuelva al mezclar con Drive
+  viewObrador();
+  await guardarBajas();
+  await saveModule('limpieza');
+  renderDashboard();
 }
 
 /* ---------- RECUENTO: contar el stock real producto a producto ----------
