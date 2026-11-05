@@ -348,7 +348,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-05-c';
+const APP_VERSION = '2026-11-05-d';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8656,8 +8656,8 @@ async function obGuardarAgua(normal){
 
 /* ---------- LIMPIEZA: lo que se apuntaba en el cuaderno, tarea a tarea ----------
    Las salas, tareas y frecuencias salen de lo ya registrado en el cuaderno; las
-   salas del plan que aún no tienen registros salen con sus elementos, sin
-   frecuencia. Cada pulsación se guarda sola, como una línea del cuaderno. */
+   salas del plan que aún no tienen registros salen con sus elementos como
+   diarios (Berta lo confirmó el 05/11 para Sala Pastelería). Cada pulsación se guarda sola, como una línea del cuaderno. */
 let OB_LIMP_ZONA = '';
 let OB_LIMP_LISTA = [];
 function obLimpiezaDiaria(f){ return !f || /diari/i.test(f); }
@@ -8671,7 +8671,7 @@ function obLimpiezaPlan(){
   (CONFIG.zonasLimpieza||[]).forEach(z=>{
     if(zonas[z.area]) return;
     zonas[z.area] = {};
-    (z.elementos||[]).forEach(e=>{ zonas[z.area][e] = ''; });
+    (z.elementos||[]).forEach(e=>{ zonas[z.area][e] = 'Diario'; });
   });
   const orden = f => obLimpiezaDiaria(f) ? 0 : 1;
   return Object.keys(zonas).sort((a,b)=>a.localeCompare(b,'es')).map(area=>({
