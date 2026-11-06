@@ -348,7 +348,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-05-d';
+const APP_VERSION = '2026-11-06-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8247,7 +8247,7 @@ const OB_VOLVER = '<button style="min-height:56px;padding:0 22px;border:0;border
 function obIr(p){
   OB_PANT = p;
   if(p === 'prod') OB_PROD_REG = '';     // entrar en Producción siempre enseña los cuadernos
-  if(p === 'limpieza') OB_LIMP_ZONA = ''; // y en Limpieza, las salas
+  if(p === 'limpieza') OB_LIMP_GRUPO = ''; // y en Limpieza, las frecuencias
   obModal(''); viewObrador(); window.scrollTo(0,0);
 }
 /* Dentro de un cuaderno la lista es larga: los botones de volver se quedan siempre
@@ -8658,8 +8658,34 @@ async function obGuardarAgua(normal){
    Las salas, tareas y frecuencias salen de lo ya registrado en el cuaderno; las
    salas del plan que aún no tienen registros salen con sus elementos como
    diarios (Berta lo confirmó el 05/11 para Sala Pastelería). Cada pulsación se guarda sola, como una línea del cuaderno. */
-let OB_LIMP_ZONA = '';
+let OB_LIMP_GRUPO = '';
 let OB_LIMP_LISTA = [];
+const OB_LIMP_GRUPOS = [
+  {id:'diaria', titulo:'A diario', periodo:'hoy'},
+  {id:'semanal', titulo:'Semanal', periodo:'esta semana'},
+  {id:'quincenal', titulo:'Quincenal', periodo:'en 15 días'},
+  {id:'mensual', titulo:'Mensual', periodo:'este mes'},
+  {id:'otras', titulo:'Otras', periodo:'este año'}
+];
+function obLimpiezaGrupo(f){
+  if(obLimpiezaDiaria(f)) return 'diaria';
+  if(/quinc/i.test(f)) return 'quincenal';
+  if(/mens/i.test(f)) return 'mensual';
+  if(/seman/i.test(f)) return 'semanal';
+  return 'otras';
+}
+function obDiasAtras(n){ const d = new Date(); d.setDate(d.getDate()-n); return obFechaLocal(d); }
+/* ¿Ya está cumplida en su periodo? Lo diario, si se ha apuntado hoy (hecha o no
+   hecha); lo demás, si se hizo dentro de su semana, quincena, mes o año. */
+function obLimpiezaAlDia(t){
+  const g = obLimpiezaGrupo(t.frecuencia);
+  if(g === 'diaria') return obLimpiezaDeHoy(t).length > 0;
+  const desde = g === 'semanal' ? obLunes() : g === 'quincenal' ? obDiasAtras(14)
+    : g === 'mensual' ? obFechaLocal().slice(0,8) + '01' : obDiasAtras(364);
+  const hechas = (DATA.limpieza||[]).filter(r=>r.realizado && r.area===t.area && r.elemento===t.elemento
+    && String(r.fecha||'') >= desde).length;
+  return hechas >= (/^\s*2\b/.test(t.frecuencia) ? 2 : 1);
+}
 function obLimpiezaDiaria(f){ return !f || /diari/i.test(f); }
 function obLimpiezaPlan(){
   const zonas = {};
@@ -8685,12 +8711,13 @@ function obLimpiezaDeHoy(t){
   const hoy = obFechaLocal();
   return (DATA.limpieza||[]).filter(r=>r.fecha===hoy && r.area===t.area && r.elemento===t.elemento);
 }
-function obLimpiezaResumen(zona){
+function obLimpiezaResumen(grupo){
+  grupo = grupo || 'diaria';
   let total = 0, hechas = 0;
-  obLimpiezaPlan().filter(z=>!zona || z.area===zona).forEach(z=>z.tareas.forEach(t=>{
-    if(!obLimpiezaDiaria(t.frecuencia)) return;
+  obLimpiezaPlan().forEach(z=>z.tareas.forEach(t=>{
+    if(obLimpiezaGrupo(t.frecuencia) !== grupo) return;
     total++;
-    if(obLimpiezaDeHoy(t).length) hechas++;
+    if(obLimpiezaAlDia(t)) hechas++;
   }));
   return {total, hechas};
 }
@@ -8700,56 +8727,63 @@ function obLimpiezaUltima(t){
   return hechas.length ? hechas[hechas.length-1] : '';
 }
 function obLimpieza(host){
-  const plan = obLimpiezaPlan();
-  if(!OB_LIMP_ZONA || !plan.some(z=>z.area===OB_LIMP_ZONA)){
-    OB_LIMP_ZONA = '';
+  const grupo = OB_LIMP_GRUPOS.find(g=>g.id===OB_LIMP_GRUPO);
+  if(!grupo){
+    const botones = OB_LIMP_GRUPOS.map(g=>{
+      const r = obLimpiezaResumen(g.id);
+      if(g.id === 'otras' && !r.total) return '';
+      const lista = r.total && r.hechas >= r.total;
+      const color = !r.total ? '#9a8a78' : lista ? '#1e7b46' : '#0f766e';
+      return `<button style="min-height:104px;border:0;border-radius:14px;cursor:${r.total?'pointer':'default'};text-align:left;padding:12px 16px;color:#fff;background:${color};" ${r.total ? `onclick="obLimpiezaAbrir('${g.id}')"` : 'disabled'}>
+        <span style="display:block;font-size:26px;font-weight:800;">${g.titulo}</span>
+        <span style="display:block;font-size:17px;margin-top:3px;">${r.total ? (lista?'✔ ':'') + r.hechas + ' de ' + r.total + ' ' + g.periodo : 'Sin tareas en el cuaderno'}</span></button>`;
+    }).join('');
     host.innerHTML = `
       <div class="panel" style="font-size:18px;">
         ${OB_VOLVER}
-        <h2 style="font-size:28px;margin:10px 0 0;">🧹 Limpieza de hoy</h2>
+        <h2 style="font-size:28px;margin:10px 0 0;">🧹 Limpieza</h2>
         ${obLineaNombre()}
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
-          ${plan.map((z,i)=>{
-            const r = obLimpiezaResumen(z.area);
-            const lista = r.total && r.hechas >= r.total;
-            return `<button style="min-height:92px;border:0;border-radius:14px;cursor:pointer;text-align:left;padding:12px 16px;color:#fff;background:${lista?'#1e7b46':'#0f766e'};" onclick="obLimpiezaZona(${i})">
-              <span style="display:block;font-size:24px;font-weight:800;">${esc(z.area)}</span>
-              <span style="display:block;font-size:16px;margin-top:3px;">${lista?'✔ ':''}${r.hechas} de ${r.total} diarias</span></button>`;
-          }).join('')}
-        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">${botones}</div>
       </div>`;
     return;
   }
-  const zona = plan.find(z=>z.area===OB_LIMP_ZONA);
-  OB_LIMP_LISTA = zona.tareas;
-  const pendientes = zona.tareas.filter(t=>obLimpiezaDiaria(t.frecuencia) && !obLimpiezaDeHoy(t).length).length;
-  const filas = zona.tareas.map((t,i)=>{
-    const deHoy = obLimpiezaDeHoy(t);
-    const ultima = obLimpiezaUltima(t);
-    const dato = esc(t.frecuencia || 'Sin frecuencia en el plan') + (ultima ? ' · última: ' + fmtDate(ultima) : '');
-    const estado = deHoy.length
-      ? `<span style="font-size:19px;font-weight:700;color:${deHoy[0].realizado?'#1e7b46':'#b42318'};">${deHoy[0].realizado?'✔ Hecha':'✖ No hecha'}</span>
-         <button style="min-height:52px;padding:0 16px;border:0;border-radius:10px;background:#ece6dc;color:#3b2f24;font-size:17px;font-weight:700;cursor:pointer;" onclick="obLimpiezaDeshacer(${i})">Deshacer</button>`
-      : `<button style="min-height:60px;padding:0 22px;border:0;border-radius:12px;background:#1e7b46;color:#fff;font-size:20px;font-weight:700;cursor:pointer;" onclick="obLimpiezaMarcar(${i},true)">Hecha</button>
-         <button style="min-height:60px;padding:0 16px;border:0;border-radius:12px;background:#ece6dc;color:#b42318;font-size:18px;font-weight:700;cursor:pointer;" onclick="obLimpiezaMarcar(${i},false)">No hecha</button>`;
-    return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #eadfce;">
-      <div style="flex:1;min-width:200px;"><div style="font-size:21px;font-weight:700;">${esc(t.elemento)}</div>
-      <div style="font-size:15px;color:#6b5a48;">${dato}</div></div>${estado}</div>`;
+  const salas = obLimpiezaPlan().map(z=>({area:z.area, tareas:z.tareas.filter(t=>obLimpiezaGrupo(t.frecuencia)===grupo.id)}))
+    .filter(z=>z.tareas.length);
+  OB_LIMP_LISTA = [];
+  const bloques = salas.map(z=>{
+    const faltan = z.tareas.filter(t=>!obLimpiezaAlDia(t)).length;
+    const filas = z.tareas.map(t=>{
+      const i = OB_LIMP_LISTA.push(t) - 1;
+      const deHoy = obLimpiezaDeHoy(t);
+      const ultima = obLimpiezaUltima(t);
+      const aldia = !deHoy.length && obLimpiezaAlDia(t);
+      const dato = esc(t.frecuencia || 'Sin frecuencia') + (ultima ? ' · última: ' + fmtDate(ultima) : '') + (aldia ? ' · <b style="color:#1e7b46;">✔ al día</b>' : '');
+      const estado = deHoy.length
+        ? `<span style="font-size:19px;font-weight:700;color:${deHoy[0].realizado?'#1e7b46':'#b42318'};">${deHoy[0].realizado?'✔ Hecha':'✖ No hecha'}</span>
+           <button style="min-height:52px;padding:0 16px;border:0;border-radius:10px;background:#ece6dc;color:#3b2f24;font-size:17px;font-weight:700;cursor:pointer;" onclick="obLimpiezaDeshacer(${i})">Deshacer</button>`
+        : `<button style="min-height:60px;padding:0 22px;border:0;border-radius:12px;background:#1e7b46;color:#fff;font-size:20px;font-weight:700;cursor:pointer;" onclick="obLimpiezaMarcar(${i},true)">Hecha</button>
+           <button style="min-height:60px;padding:0 16px;border:0;border-radius:12px;background:#ece6dc;color:#b42318;font-size:18px;font-weight:700;cursor:pointer;" onclick="obLimpiezaMarcar(${i},false)">No hecha</button>`;
+      return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #eadfce;">
+        <div style="flex:1;min-width:200px;"><div style="font-size:21px;font-weight:700;">${esc(t.elemento)}</div>
+        <div style="font-size:15px;color:#6b5a48;">${dato}</div></div>${estado}</div>`;
+    }).join('');
+    return `<h3 style="font-size:23px;margin:22px 0 4px;">${esc(z.area)}</h3>
+      ${faltan > 1 ? `<button style="${OB_SI}background:#1e7b46;min-height:56px;font-size:19px;" onclick="obLimpiezaTodo(${JSON.stringify(z.area).replace(/"/g,'&quot;')})">✔ Marcar todo ${esc(z.area)} como hecho (${faltan})</button>` : ''}
+      ${filas}`;
   }).join('');
   host.innerHTML = `
     <div style="position:sticky;top:66px;z-index:4;display:flex;gap:10px;padding:8px 0;background:var(--bg,#f6efe4);">
-      <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#6b3410;color:#fff;font-size:22px;font-weight:700;cursor:pointer;" onclick="obIr('limpieza')">← Volver a salas</button>
+      <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#6b3410;color:#fff;font-size:22px;font-weight:700;cursor:pointer;" onclick="obIr('limpieza')">← Volver</button>
       <button style="flex:1;min-height:64px;border:0;border-radius:12px;background:#ece6dc;color:#3b2f24;font-size:22px;font-weight:700;cursor:pointer;" onclick="obIr('inicio')">← Inicio</button>
     </div>
     <div class="panel" style="font-size:18px;">
-      <h2 style="font-size:28px;margin:10px 0 0;">🧹 ${esc(zona.area)}</h2>
+      <h2 style="font-size:28px;margin:10px 0 0;">🧹 Limpieza · ${grupo.titulo}</h2>
       ${obLineaNombre()}
-      ${pendientes ? `<button style="${OB_SI}background:#1e7b46;" onclick="obLimpiezaTodo()">✔ Marcar todo lo diario como hecho (${pendientes})</button>` : ''}
-      ${filas}
+      ${bloques}
     </div>`;
 }
-function obLimpiezaZona(i){
-  OB_LIMP_ZONA = obLimpiezaPlan()[i].area;
+function obLimpiezaAbrir(id){
+  OB_LIMP_GRUPO = id;
   viewObrador(); window.scrollTo(0,0);
 }
 function obLimpiezaRegistro(t, realizado){
@@ -8766,9 +8800,10 @@ function obLimpiezaMarcar(i, realizado){
     renderDashboard();
   });
 }
-function obLimpiezaTodo(){
+function obLimpiezaTodo(area){
+  window.__obLimpArea = area;
   obConNombre(()=>{
-    const faltan = OB_LIMP_LISTA.filter(t=>obLimpiezaDiaria(t.frecuencia) && !obLimpiezaDeHoy(t).length);
+    const faltan = OB_LIMP_LISTA.filter(t=>t.area===area && !obLimpiezaAlDia(t));
     obModal(`<div style="font-size:24px;font-weight:700;">¿Están hechas estas ${faltan.length} tareas?</div>
       <div style="margin:10px 0;font-size:19px;color:#6b5a48;">${faltan.map(t=>esc(t.elemento)).join(', ')}</div>
       <button style="${OB_SI}background:#1e7b46;" onclick="obLimpiezaTodoOk()">Sí, están hechas</button>
@@ -8776,7 +8811,8 @@ function obLimpiezaTodo(){
   });
 }
 async function obLimpiezaTodoOk(){
-  const faltan = OB_LIMP_LISTA.filter(t=>obLimpiezaDiaria(t.frecuencia) && !obLimpiezaDeHoy(t).length);
+  const area = window.__obLimpArea;
+  const faltan = OB_LIMP_LISTA.filter(t=>t.area===area && !obLimpiezaAlDia(t));
   faltan.forEach(t=>DATA.limpieza.unshift(obLimpiezaRegistro(t, true)));
   obModal(''); viewObrador();
   await saveModule('limpieza');
