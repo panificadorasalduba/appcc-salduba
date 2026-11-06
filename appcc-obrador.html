@@ -348,7 +348,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-06-a';
+const APP_VERSION = '2026-11-06-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8655,9 +8655,23 @@ async function obGuardarAgua(normal){
 }
 
 /* ---------- LIMPIEZA: lo que se apuntaba en el cuaderno, tarea a tarea ----------
-   Las salas, tareas y frecuencias salen de lo ya registrado en el cuaderno; las
-   salas del plan que aún no tienen registros salen con sus elementos como
-   diarios (Berta lo confirmó el 05/11 para Sala Pastelería). Cada pulsación se guarda sola, como una línea del cuaderno. */
+   Las salas, tareas y frecuencias son las de las hojas en papel del obrador
+   (R22.10.2020). Berta lo pidió así el 06/11. Escudilladora y Freidora nueva no
+   están porque la hoja dice «ver registro producción». Cada pulsación se guarda
+   sola, como una línea del cuaderno. */
+const OB_LIMPIEZA_CUADERNO = [
+  {area:'Sala Blanca', tareas:[['Mesas de trabajo','Diario'],['Amasadora pequeña','Diario'],['Amasadora grande','Diario'],['Suelo','Diario'],['Microondas','Diario'],
+    ['Paredes bajas','2 veces/semana'],['Estantes seco inf','Semanal'],['Mueble verde','Semanal'],['Estantes seco super','Quincenal'],
+    ['Chocolatera','Al vaciarla'],['Aparato AA','Trimestral'],['Techo','Anual']]},
+  {area:'Zona Almacenaje', tareas:[['Suelo','Diario'],['Estantes seco','Mensual'],['Congelador tartas','Cada 2 meses']]},
+  {area:'Zona Office', tareas:[['Suelo','Diario'],['Lavautillaje','Diario'],['Estanterias','Semanal']]},
+  {area:'Carga / Descarga', tareas:[['Suelo','Diario'],['Paredes bajas','Quincenal'],['Cámara de pasteles','Cada 2 meses'],['Cámara de Luis','Cada 2 meses']]},
+  {area:'Pasillo', tareas:[['Suelo','Diario'],['Suelos cámaras','Diario'],['Cámara refrig ext','Semanal'],['Cámara refrig int','Quincenal'],['Paredes bajas','Quincenal'],
+    ['Arcón 1','Cada 2 meses'],['Arcón 2','Cada 2 meses'],['Arcón 3','Cada 2 meses'],['Arcón 4','Cada 2 meses'],['Arcón 5','Cada 2 meses'],['Arcón 6','Cada 2 meses']]},
+  {area:'Sala Pan', tareas:[['Mesa de trabajo','Diario'],['Suelo','Diario'],['Refinadora-cajon','Diario'],['Amasadoras','Diario'],['Tolva fraccionadora','Diario'],
+    ['Fermentadora','Semanal'],['Estanteria baja mesa','Semanal']]},
+  {area:'Sala Hornos', tareas:[['Mesa de trabajo','Diario'],['Suelo','Diario'],['Puertas hornos','Diario']]}
+];
 let OB_LIMP_GRUPO = '';
 let OB_LIMP_LISTA = [];
 const OB_LIMP_GRUPOS = [
@@ -8665,7 +8679,7 @@ const OB_LIMP_GRUPOS = [
   {id:'semanal', titulo:'Semanal', periodo:'esta semana'},
   {id:'quincenal', titulo:'Quincenal', periodo:'en 15 días'},
   {id:'mensual', titulo:'Mensual', periodo:'este mes'},
-  {id:'otras', titulo:'Otras', periodo:'este año'}
+  {id:'otras', titulo:'Cada 2 meses o más', periodo:'al día'}
 ];
 function obLimpiezaGrupo(f){
   if(obLimpiezaDiaria(f)) return 'diaria';
@@ -8680,32 +8694,18 @@ function obDiasAtras(n){ const d = new Date(); d.setDate(d.getDate()-n); return 
 function obLimpiezaAlDia(t){
   const g = obLimpiezaGrupo(t.frecuencia);
   if(g === 'diaria') return obLimpiezaDeHoy(t).length > 0;
+  if(/vaciar/i.test(t.frecuencia)) return true;      // solo se apunta cuando toca
   const desde = g === 'semanal' ? obLunes() : g === 'quincenal' ? obDiasAtras(14)
-    : g === 'mensual' ? obFechaLocal().slice(0,8) + '01' : obDiasAtras(364);
+    : g === 'mensual' ? obFechaLocal().slice(0,8) + '01'
+    : obDiasAtras(/2 meses/i.test(t.frecuencia) ? 61 : /trimest/i.test(t.frecuencia) ? 91 : 364);
   const hechas = (DATA.limpieza||[]).filter(r=>r.realizado && r.area===t.area && r.elemento===t.elemento
     && String(r.fecha||'') >= desde).length;
   return hechas >= (/^\s*2\b/.test(t.frecuencia) ? 2 : 1);
 }
 function obLimpiezaDiaria(f){ return !f || /diari/i.test(f); }
 function obLimpiezaPlan(){
-  const zonas = {};
-  porFechaDesc(DATA.limpieza||[]).forEach(r=>{
-    if(!r.area || !r.elemento) return;
-    const z = zonas[r.area] || (zonas[r.area] = {});
-    if(!(r.elemento in z)) z[r.elemento] = r.frecuencia || '';   // manda la última frecuencia apuntada
-  });
-  (CONFIG.zonasLimpieza||[]).forEach(z=>{
-    if(zonas[z.area]) return;
-    zonas[z.area] = {};
-    (z.elementos||[]).forEach(e=>{ zonas[z.area][e] = 'Diario'; });
-  });
-  const orden = f => obLimpiezaDiaria(f) ? 0 : 1;
-  return Object.keys(zonas).sort((a,b)=>a.localeCompare(b,'es')).map(area=>({
-    area,
-    tareas: Object.keys(zonas[area])
-      .map(elemento=>({area, elemento, frecuencia:zonas[area][elemento]}))
-      .sort((a,b)=>orden(a.frecuencia)-orden(b.frecuencia) || a.elemento.localeCompare(b.elemento,'es'))
-  }));
+  return OB_LIMPIEZA_CUADERNO.map(z=>({area:z.area,
+    tareas:z.tareas.map(([elemento, frecuencia])=>({area:z.area, elemento, frecuencia}))}));
 }
 function obLimpiezaDeHoy(t){
   const hoy = obFechaLocal();
