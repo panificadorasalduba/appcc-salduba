@@ -351,7 +351,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-09-a';
+const APP_VERSION = '2026-11-09-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8180,8 +8180,20 @@ function obLotesEnStock(producto, loteCerrado){
     .map(x=>({...x, quedan: x.cantidadRecibida - x.abiertos, caducado: !!x.caducidad && String(x.caducidad) < todayStr()}))
     .filter(x=>x.quedan > 0)
     .sort((a,b)=>Number(a.caducado) - Number(b.caducado));   // lo caducado nunca sale el primero
-  const i = loteCerrado ? disp.findIndex(x=>mismoLote(x.lote, loteCerrado)) : -1;
+  /* El mismo lote que se acaba de cerrar (o, desde «Abrir un producto», el que se
+     cerró hoy o ayer) sale siempre el primero, aunque no conste en ningún albarán:
+     a veces llega un envase del mismo lote sin albarán o con el lote mal leído. */
+  if(!loteCerrado){
+    const ultimo = (DATA.lotesMP||[]).filter(r=>r.lote && r.fechaCierre && String(r.fechaCierre) >= obDiasAtras(1) && mismoProducto(r.producto, producto))
+      .sort((a,b)=>String(b.fechaCierre||'').localeCompare(String(a.fechaCierre||'')))[0];
+    if(ultimo) loteCerrado = ultimo.lote;
+  }
+  let i = loteCerrado ? disp.findIndex(x=>mismoLote(x.lote, loteCerrado)) : -1;
   if(i > 0) disp.unshift(disp.splice(i,1)[0]);
+  if(loteCerrado && i < 0){
+    disp.unshift({lote:String(loteCerrado).trim(), quedan:2, cantidadRecibida:0, abiertos:0, fecha:'', caducidad:'', sinAlbaran:true});
+    i = 0;
+  }
   return disp.map((x,k)=>({...x, mismo: k===0 && i>=0}));
 }
 function obProponer(producto, loteCerrado, titulo){
@@ -8196,7 +8208,7 @@ function obProponer(producto, loteCerrado, titulo){
       <button style="${OB_NO}" onclick="obModal('');viewObrador();">No, ahora no</button>`);
     return;
   }
-  const opciones = disp.map((x,k)=>`<option value="${k}">${x.caducado ? '⚠ CADUCADO · ' : x.mismo ? 'MISMO LOTE · ' : k===0 ? '★ ' : ''}${esc(x.lote)} · ${x.fecha ? 'llegó el ' + fmtDate(x.fecha) : 'sin fecha'} · quedan ${x.quedan}</option>`).join('');
+  const opciones = disp.map((x,k)=>`<option value="${k}">${x.caducado ? '⚠ CADUCADO · ' : x.mismo ? 'MISMO LOTE · ' : k===0 ? '★ ' : ''}${esc(x.lote)} · ${x.sinAlbaran ? 'el que se acaba de cerrar (no consta en albaranes)' : (x.fecha ? 'llegó el ' + fmtDate(x.fecha) : 'sin fecha') + ' · quedan ' + x.quedan}</option>`).join('');
   obModal(`${cab ? '<div style="font-size:22px;font-weight:700;">'+cab+'</div>' : ''}
     <div style="font-size:24px;font-weight:700;margin:6px 0;">${esc(producto)}</div>
     <div style="font-size:17px;color:#6b5a48;">¿Qué lote abrís? Viene marcado el que llegó primero.</div>
