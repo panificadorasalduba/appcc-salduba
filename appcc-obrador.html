@@ -42,6 +42,8 @@
   body.modo-obrador .sidebar{display:none !important;}
   #obTopVolver{display:none;min-height:48px;padding:0 20px;border:0;border-radius:10px;background:#6b3410;color:#fff;font-size:18px;font-weight:700;cursor:pointer;}
   body.modo-obrador.ob-fuera #obTopVolver{display:inline-block;}
+  #obTopEntrar{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font-size:14px;font-weight:600;cursor:pointer;}
+  body.modo-obrador #obTopEntrar{display:none;}
   .sidebar{
     width:236px;flex:none;background:var(--sidebar);color:#EFE7D8;
     display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
@@ -340,6 +342,7 @@
     <div class="topbar">
       <h1 id="viewTitle">Panel general</h1>
       <button id="obTopVolver" onclick="obVolverInicio()">← Inicio</button>
+      <button id="obTopEntrar" onclick="obEntrarModo()" title="Poner este aparato con los botones grandes del obrador">📱 Pantalla del obrador</button>
       <div class="date mono" id="topDate"></div>
     </div>
     <div class="content" id="content"></div>
@@ -348,7 +351,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-06-c';
+const APP_VERSION = '2026-11-09-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8326,6 +8329,15 @@ function obProdVolver(){ OB_PROD_REG = ''; viewObrador(); window.scrollTo(0,0); 
    revisión; desde ella se vuelve con el botón «← Inicio» de arriba. */
 function obIrPantalla(id){ obModal(''); showView(id); window.scrollTo(0,0); }
 function obVolverInicio(){ OB_PANT = 'inicio'; showView('obrador'); window.scrollTo(0,0); }
+/* Para devolver la tablet a los botones grandes sin tener que escribir la dirección. */
+function obEntrarModo(){
+  if(!confirm('¿Poner este aparato en la pantalla del obrador, con los botones grandes?\n\nSe quedará así aunque se cierre. Para volver a ver toda la app, abajo del todo está «Salir de la pantalla del obrador».')) return;
+  try{ localStorage.setItem('appcc_modo_obrador','1'); }catch(e){}
+  document.body.classList.add('modo-obrador');
+  OB_PANT = 'inicio';
+  showView('obrador');
+  window.scrollTo(0,0);
+}
 /* Fecha local (no UTC): el turno de noche empieza a las 22 h y no puede caer en otro día. */
 function obFechaLocal(d){ d = d || new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function obAyer(){ const d = new Date(); d.setDate(d.getDate()-1); return obFechaLocal(d); }
