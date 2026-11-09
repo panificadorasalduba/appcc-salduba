@@ -351,7 +351,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-09-b';
+const APP_VERSION = '2026-11-09-c';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -8178,8 +8178,22 @@ async function obConfirmarTerminado(id){
 function obLotesEnStock(producto, loteCerrado){
   const disp = lotesRecibidos(producto)                 // ya viene ordenado por fecha, FIFO
     .map(x=>({...x, quedan: x.cantidadRecibida - x.abiertos, caducado: !!x.caducidad && String(x.caducidad) < todayStr()}))
-    .filter(x=>x.quedan > 0)
-    .sort((a,b)=>Number(a.caducado) - Number(b.caducado));   // lo caducado nunca sale el primero
+    .filter(x=>x.quedan > 0);
+  /* Lo que manda es el stock (el recuento más lo recibido y abierto después). Si los
+     albaranes dicen que quedan más envases de los que hay, es que se gastaron sin
+     apuntarlo: se quitan los más antiguos y se dejan los más recientes. Así no se
+     proponen sacos que ya no existen (p. ej. lotes que el proveedor repite). */
+  const im = materiaDelAlbaran(producto);
+  const stock = im >= 0 ? Number(CONFIG.materiasPrimas[im].stockActual) : NaN;
+  if(isFinite(stock) && disp.length){
+    let sobra = disp.reduce((n,x)=>n + x.quedan, 0) - Math.max(1, stock);
+    for(let k=0; k<disp.length && sobra>0; k++){       // disp va del más antiguo al más nuevo
+      const quita = Math.min(disp[k].quedan, sobra);
+      disp[k].quedan -= quita; sobra -= quita;
+    }
+    for(let k=disp.length-1; k>=0; k--) if(disp[k].quedan <= 0) disp.splice(k,1);
+  }
+  disp.sort((a,b)=>Number(a.caducado) - Number(b.caducado));   // lo caducado nunca sale el primero
   /* El mismo lote que se acaba de cerrar (o, desde «Abrir un producto», el que se
      cerró hoy o ayer) sale siempre el primero, aunque no conste en ningún albarán:
      a veces llega un envase del mismo lote sin albarán o con el lote mal leído. */
