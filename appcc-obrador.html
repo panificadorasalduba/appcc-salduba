@@ -44,6 +44,8 @@
   body.modo-obrador.ob-fuera #obTopVolver{display:inline-block;}
   #obTopEntrar{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font-size:14px;font-weight:600;cursor:pointer;}
   body.modo-obrador #obTopEntrar{display:none;}
+  #topPedidos{min-height:40px;padding:0 16px;border:0;border-radius:10px;background:var(--wheat);color:#fff;font-size:15px;font-weight:700;cursor:pointer;}
+  body.modo-obrador #topPedidos{display:none;}
   .sidebar{
     width:236px;flex:none;background:var(--sidebar);color:#EFE7D8;
     display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
@@ -342,6 +344,7 @@
     <div class="topbar">
       <h1 id="viewTitle">Panel general</h1>
       <button id="obTopVolver" onclick="obVolverInicio()">← Inicio</button>
+      <button id="topPedidos" onclick="showView('pedidos')" title="Hacer los pedidos a los proveedores">🛒 Pedidos</button>
       <button id="obTopEntrar" onclick="obEntrarModo()" title="Poner este aparato con los botones grandes del obrador">📱 Pantalla del obrador</button>
       <div class="date mono" id="topDate"></div>
     </div>
@@ -351,7 +354,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-09-c';
+const APP_VERSION = '2026-11-10-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -1210,7 +1213,7 @@ const VIEWS = [
   {id:'transporte', label:'Transporte y reparto', icon:'route'},
   {id:'obrador', label:'Obrador · abrir y cerrar lotes', icon:'box'},
   {id:'materiasprimas', label:'Materias primas', icon:'box'},
-  {id:'pedidos', label:'Pedido de la semana', icon:'truck'},
+  {id:'pedidos', label:'Pedidos a proveedores', icon:'truck'},
   {id:'revision', label:'Repaso del obrador', icon:'box'},
   {id:'mantenimiento', label:'Mantenimiento', icon:'wrench'},
   {id:'plagas', label:'Control de plagas (DDD)', icon:'wrench'},
@@ -3757,6 +3760,9 @@ const PROVEEDORES_PEDIDO = [
   {clave:'MALCOPAN',    nombre:'Malcopan',                 re:/malcopan/},
   {clave:'PURATOS',     nombre:'Puratos',                  re:/puratos/},
   {clave:'COHEPA',      nombre:'Distribuidora Cohepa',     re:/cohepa/},
+  {clave:'SANLORENZO',  nombre:'Harinera San Lorenzo',     re:/lorenzo/},
+  {clave:'BMENDEZ',     nombre:'Bartolomé Méndez',         re:/mendez/},
+  {clave:'MOLINO',      nombre:'Harinera El Molino',       re:/molino/},
 ];
 const PED_ULTIMOS_ALBARANES = 10;
 
@@ -3778,52 +3784,6 @@ function ultimosAlbaranesDe(clave, n){
   });
   return Object.values(alb).sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0, n||PED_ULTIMOS_ALBARANES);
 }
-function pedProductosDeProveedor(clave){
-  /* En el desplegable sale TODO lo que se le ha comprado a ese proveedor desde
-     primeros de año, sin repetir (Berta, 04/11). Antes solo salía lo de los 10
-     últimos albaranes y faltaban cosas que se piden de tarde en tarde.
-     - Se agrupa por el nombre bueno del catálogo, porque el mismo producto viene
-       escrito de varias formas; de cada grupo se deja la descripción del albarán
-       MÁS RECIENTE, que es la que el comercial reconoce.
-     - «Los que pides casi siempre» siguen siendo los que aparecen 2 veces o más
-       en los 10 últimos albaranes: así lo del día a día queda arriba y el resto,
-       ordenado por nombre, debajo. */
-  const canonDe = prod=>{
-    try{ return (typeof resolverNombreProducto==='function' && resolverNombreProducto(prod)) || prod; }
-    catch(e){ return prod; }
-  };
-  // 1) cuáles son habituales, mirando los 10 últimos albaranes
-  const ult = ultimosAlbaranesDe(clave);
-  const veces = {};
-  ult.forEach(a=>{
-    const vistos = new Set();
-    a.productos.forEach(prod=>{
-      const c = canonDe(prod);
-      if(!vistos.has(c)){ veces[c] = (veces[c]||0)+1; vistos.add(c); }
-    });
-  });
-  // 2) todo lo comprado desde el 1 de enero de este año
-  const desde = new Date().getFullYear() + '-01-01';
-  const grupos = {};            // canónico -> {etiqueta, fecha}
-  (DATA.recepcion||[]).forEach(r=>{
-    if(pedClaveProveedor(r.proveedor) !== clave) return;
-    const f = r.fecha || '';
-    if(!f || f < desde) return;
-    const prod = (r.producto||'').trim();
-    if(!prod) return;
-    const c = canonDe(prod);
-    if(!grupos[c] || f > grupos[c].fecha) grupos[c] = {etiqueta: prod, fecha: f};
-  });
-  const todos = Object.keys(grupos).map(c=>({producto: grupos[c].etiqueta, veces: veces[c]||0}));
-  return {
-    habituales: todos.filter(x=>x.veces>=2).sort((a,b)=> b.veces-a.veces || a.producto.localeCompare(b.producto,'es')),
-    otros:      todos.filter(x=>x.veces<2).sort((a,b)=> a.producto.localeCompare(b.producto,'es')),
-    albaranes:  ult.length,
-    ultimaFecha: ult.length ? ult[0].fecha : '',
-    desde,
-  };
-}
-
 function pedidoDe(clave){
   CONFIG.pedidoSemanal = CONFIG.pedidoSemanal || {};
   if(!CONFIG.pedidoSemanal[clave]) CONFIG.pedidoSemanal[clave] = {fecha:todayStr(), lineas:{}};
@@ -4093,73 +4053,437 @@ function pintarResumenPedido(){
     </div>`;
 }
 
+/* =================== PEDIDOS (10/11) ===================
+   Berta hace los pedidos los martes desde su pantalla. En cada proveedor salen,
+   en un desplegable, SOLO los productos que se le compran de forma habitual:
+   los que han venido en 3 entregas o más en el último año (desde el 1 de enero
+   de 2026). Lo que se ha pedido una o dos veces sueltas no sale; si hace falta,
+   se busca en la tarifa del proveedor o se escribe a mano.
+   Las tarifas se cargan desde los Excel de «LISTADOS DE PRECIOS» y se guardan en
+   la configuración, que va a Drive (no en el archivo de la app, que es público). */
+const PED_MIN_VECES = 3;
+let PED_ABIERTOS = new Set();
+function pedDesde(){
+  const d = new Date(); d.setDate(d.getDate() - 365);
+  const s = d.toISOString().slice(0,10);
+  return s < '2026-01-01' ? '2026-01-01' : s;
+}
+/* Nombre del catálogo, para que «PROKORN 25KG» y «Prokorn saco» cuenten juntos. */
+function pedCanon(prod){
+  try{ const im = materiaDelAlbaran(prod); if(im >= 0) return CONFIG.materiasPrimas[im].nombre; }catch(e){}
+  try{ return resolverNombreProducto(prod) || prod; }catch(e){ return prod; }
+}
+function pedProductosDeProveedor(clave){
+  const desde = pedDesde();
+  const grupos = {}, entregas = new Set();
+  (DATA.recepcion||[]).forEach(r=>{
+    if(pedClaveProveedor(r.proveedor) !== clave) return;
+    const f = r.fecha || '';
+    if(!f || f < desde) return;
+    const prod = (r.producto||'').trim();
+    if(!prod) return;
+    const alb = f + '|' + String(r.numAlbaran||'').trim();
+    entregas.add(alb);
+    const c = pedCanon(prod);
+    const g = grupos[c] = grupos[c] || {canon:c, etiqueta:prod, fecha:f, alb:new Set(), cant:[]};
+    g.alb.add(alb);
+    if(f >= g.fecha){ g.fecha = f; g.etiqueta = prod; }   // la descripción del albarán más reciente, la que conoce el comercial
+    const q = parseFloat(String(r.cantidad||'').replace(',','.'));
+    if(isFinite(q) && q > 0) g.cant.push(q);
+  });
+  const todos = Object.values(grupos).map(g=>{
+    const qs = g.cant.sort((a,b)=>a-b);
+    return {producto:g.etiqueta, canon:g.canon, veces:g.alb.size, ultima:g.fecha, suele: qs.length ? qs[Math.floor(qs.length/2)] : null};
+  });
+  const ult = ultimosAlbaranesDe(clave);
+  return {
+    habituales: todos.filter(x=>x.veces >= PED_MIN_VECES).sort((a,b)=> b.veces-a.veces || a.producto.localeCompare(b.producto,'es')),
+    otros: [],                     // lo ocasional ya no se ofrece (Berta, 10/11)
+    ocasionales: todos.filter(x=>x.veces < PED_MIN_VECES).length,
+    entregas: entregas.size,
+    albaranes: ult.length,
+    ultimaFecha: ult.length ? ult[0].fecha : '',
+    desde,
+  };
+}
+
+/* ---------- TARIFAS ---------- */
+function pedClaveDeTarifa(nombre){
+  return pedClaveProveedor(nombre) || normTxt(nombre||'').toUpperCase() || 'SIN NOMBRE';
+}
+function tarifaDe(clave){
+  const t = (CONFIG.tarifas||{})[clave] || {};
+  if(t.filas && t.filas.length){
+    return {nombre:t.nombre||clave, archivo:t.archivo||'', fecha:t.fecha||'', pdf:t.pdf||null,
+            filas:t.filas.map(f=>({codigo:f.c||'', descripcion:f.d||'', formato:f.f||'', precio:(typeof f.p==='number'?f.p:null)}))};
+  }
+  const viejas = (typeof TARIFARIO_DATA!=='undefined' ? TARIFARIO_DATA : []).filter(x=>pedClaveDeTarifa(x.proveedor)===clave)
+    .map(x=>({codigo:'', descripcion:x.descripcion, formato:x.formato||'', precio:x.precio}));
+  return {nombre:t.nombre||clave, archivo: viejas.length ? 'listado antiguo de la app' : '', fecha:'', pdf:t.pdf||null, filas:viejas};
+}
+/* Todas las tarifas que hay: las cargadas y, de las que no, el listado antiguo. */
+function todasLasTarifas(){
+  const claves = new Set(Object.keys(CONFIG.tarifas||{}));
+  (typeof TARIFARIO_DATA!=='undefined' ? TARIFARIO_DATA : []).forEach(x=>claves.add(pedClaveDeTarifa(x.proveedor)));
+  PROVEEDORES_PEDIDO.forEach(p=>claves.add(p.clave));
+  return [...claves].map(k=>({clave:k, ...tarifaDe(k)})).filter(t=>t.filas.length || t.pdf)
+    .sort((a,b)=>pedNombreProv(a.clave, a.nombre).localeCompare(pedNombreProv(b.clave, b.nombre),'es'));
+}
+function pedNombreProv(clave, porDefecto){
+  const p = PROVEEDORES_PEDIDO.find(x=>x.clave===clave);
+  return p ? p.nombre : (porDefecto || clave);
+}
+const PED_VACIAS = /^(kg|kgs|uds|ud|unid|caja|saco|cubo|bote|bolsa|lata|del|con|para|las|los|una|sin|tipo|extra)$/;
+function pedPalabras(t){
+  return normTxt(t).split(' ').filter(w=>w.length>=3 && !PED_VACIAS.test(w) && !/^\d/.test(w));
+}
+function pedNumero(t){ const m = normTxt(t).match(/\bn\s?(\d+)\b/); return m ? m[1] : null; }
+/* El precio de un producto habitual en la tarifa de su proveedor. Solo se da si
+   casa claramente; se enseña la línea de la tarifa para que se vea de dónde sale. */
+function pedPrecioDe(clave, x){
+  const filas = tarifaDe(clave).filas;
+  if(!filas.length) return null;
+  const texto = x.producto + ' ' + (x.canon||'');
+  const pa = new Set(pedPalabras(texto));
+  const num = pedNumero(x.producto) || pedNumero(x.canon||'');
+  let mejor = null, ms = 0;
+  filas.forEach(f=>{
+    if(f.precio === null) return;
+    const nf = pedNumero(f.descripcion);
+    if(nf && nf !== num) return;                 // bandeja nº 2 no es la nº 4
+    const pf = pedPalabras(f.descripcion);
+    if(!pf.length) return;
+    const comunes = pf.filter(w=>pa.has(w)).length;
+    const s = comunes / pf.length + comunes * 0.01;
+    if(comunes && s > ms){ ms = s; mejor = f; }
+  });
+  return ms >= 0.5 ? mejor : null;
+}
+function pedEuros(n){ return (typeof n==='number' && isFinite(n)) ? n.toLocaleString('es-ES',{minimumFractionDigits:2, maximumFractionDigits:3}) + ' €' : '—'; }
+
+/* --- lectura de un Excel (.xlsx) en el propio navegador, sin librerías --- */
+async function pedLeerXlsx(file){
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  let e = buf.length - 22;
+  while(e > 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if(e <= 0) throw new Error('no es un Excel .xlsx');
+  const n = dv.getUint16(e+10, true);
+  let p = dv.getUint32(e+16, true);
+  const zip = {}, td = new TextDecoder();
+  for(let i=0; i<n; i++){
+    const metodo = dv.getUint16(p+10, true), tam = dv.getUint32(p+20, true);
+    const ln = dv.getUint16(p+28, true), lx = dv.getUint16(p+30, true), lc = dv.getUint16(p+32, true), off = dv.getUint32(p+42, true);
+    const nombre = td.decode(buf.subarray(p+46, p+46+ln));
+    const lln = dv.getUint16(off+26, true), llx = dv.getUint16(off+28, true);
+    zip[nombre] = {metodo, datos: buf.subarray(off+30+lln+llx, off+30+lln+llx+tam)};
+    p += 46 + ln + lx + lc;
+  }
+  const leer = async nombre=>{
+    const f = zip[nombre];
+    if(!f) return '';
+    if(f.metodo === 0) return td.decode(f.datos);
+    const s = new Blob([f.datos]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(s).text();
+  };
+  const dec = s=>String(s).replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+  const ss = [];
+  for(const m of (await leer('xl/sharedStrings.xml')).matchAll(/<si>([\s\S]*?)<\/si>/g))
+    ss.push(dec([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x=>x[1]).join('')));
+  const hojas = Object.keys(zip).filter(k=>/^xl\/worksheets\/sheet\d+\.xml$/.test(k))
+    .sort((a,b)=>parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
+  if(!hojas.length) throw new Error('el Excel no tiene hojas');
+  const x = await leer(hojas[0]);
+  const filas = [];
+  for(const r of x.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)){
+    const fila = [];
+    for(const c of r[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+      const col = c[1].split('').reduce((a,ch)=>a*26 + ch.charCodeAt(0) - 64, 0) - 1;
+      const v = (c[3]||'').match(/<v>([\s\S]*?)<\/v>/), t = (c[3]||'').match(/<t[^>]*>([\s\S]*?)<\/t>/);
+      let val = v ? v[1] : (t ? dec(t[1]) : '');
+      if(/t="s"/.test(c[2])) val = ss[+val];
+      fila[col] = val;
+    }
+    filas.push(fila);
+  }
+  return filas;
+}
+/* Saca proveedor y líneas (código, descripción, formato, precio) de las filas de
+   un Excel de tarifa. Los Excel no son todos iguales: se busca la fila de
+   cabecera y, si no está clara, la columna con más números es el precio. */
+function pedTarifaDeFilas(filas, archivo){
+  const txt = v=>String(v==null?'':v).trim();
+  const num = v=>{ const s = txt(v).replace(/\s*€/,''); if(!s || !/^-?[\d.,]+(e-?\d+)?$/i.test(s)) return null;
+                   const n = parseFloat(/,\d{1,3}$/.test(s) ? s.replace(/\./g,'').replace(',','.') : s); return isFinite(n) ? n : null; };
+  let h = filas.findIndex((f,i)=> i < 15 && (f||[]).some(c=>txt(c).length < 30 && /^(precio|descrip|producto)/i.test(txt(c))));
+  const cab = h >= 0 ? filas[h].map(c=>normTxt(c)) : [];
+  const datos = filas.slice(h + 1);
+  const ancho = Math.max(0, ...filas.map(f=>(f||[]).length));
+  const cuenta = fn=>Array.from({length:ancho}, (_,j)=>datos.filter(f=>f && fn(f[j])).length);
+  const busca = re=>cab.findIndex(c=>re.test(c||''));
+  const numeros = cuenta(v=>num(v)!==null), textos = cuenta(v=>txt(v).length > 6 && num(v)===null);
+  const mayor = (arr, fuera)=>arr.reduce((b,v,j)=> fuera.includes(j) ? b : (b<0 || v > arr[b] ? j : b), -1);
+  const cCod = busca(/^codigo/);
+  const cFor = busca(/^(formato|uds)$/);
+  const cProv = busca(/^proveedor/);
+  let cPre = busca(/^precio (ud|unit)/);
+  if(cPre < 0) cPre = busca(/^precio/);
+  if(cPre < 0 || numeros[cPre] < 2) cPre = mayor(numeros, [cCod, cFor].filter(j=>j>=0));
+  let cDes = busca(/descrip|^producto/);
+  if(cDes < 0 || textos[cDes] < 2) cDes = mayor(textos, [cPre, cCod, cProv].filter(j=>j>=0));
+  let proveedor = '';
+  if(cProv >= 0){ const f = datos.find(f=>f && txt(f[cProv])); if(f) proveedor = txt(f[cProv]); }
+  const delArchivo = txt(String(archivo||'').replace(/\.[a-z]+$/i,'').replace(/^.*?precios?\s*/i,'').replace(/[_-]+/g,' '));
+  if(!proveedor || pedClaveProveedor(delArchivo)) proveedor = delArchivo || proveedor;
+  const lineas = [];
+  datos.forEach(f=>{
+    if(!f) return;
+    const d = txt(f[cDes]), p = num(f[cPre]);
+    if(!d || p === null) return;
+    const l = {d, p};
+    if(cCod >= 0 && txt(f[cCod])) l.c = txt(f[cCod]);
+    if(cFor >= 0 && txt(f[cFor])) l.f = txt(f[cFor]);
+    lineas.push(l);
+  });
+  return {proveedor, filas: lineas};
+}
+function pedLeerComoDataUrl(file){
+  return new Promise((ok, mal)=>{ const r = new FileReader(); r.onload = ()=>ok(r.result); r.onerror = ()=>mal(new Error('no se pudo leer')); r.readAsDataURL(file); });
+}
+async function pedCargarTarifas(input){
+  const archivos = [...(input.files||[])];
+  input.value = '';
+  if(!archivos.length) return;
+  CONFIG.tarifas = CONFIG.tarifas || {};
+  const hechos = [], fallos = [];
+  for(const f of archivos){
+    try{
+      if(/\.pdf$/i.test(f.name)){
+        const supuesto = f.name.replace(/\.pdf$/i,'').replace(/^.*?(precios?|tarifa)( comercial| actualizada)?\s*/i,'').replace(/[_-]+/g,' ').trim();
+        const nombre = prompt('¿De qué proveedor es la tarifa «' + f.name + '»?', supuesto);
+        if(!nombre) continue;
+        const r = await subirFotoADrive(await pedLeerComoDataUrl(f), 'Tarifa ' + f.name, 'application/pdf');
+        const k = pedClaveDeTarifa(nombre);
+        CONFIG.tarifas[k] = Object.assign({nombre}, CONFIG.tarifas[k]||{}, {pdf:{url:r.url, archivo:f.name, fecha:new Date(f.lastModified).toISOString().slice(0,10)}});
+        hechos.push(pedNombreProv(k, nombre) + ': PDF');
+        continue;
+      }
+      const t = pedTarifaDeFilas(await pedLeerXlsx(f), f.name);
+      if(!t.filas.length) throw new Error('no se han encontrado precios');
+      const k = pedClaveDeTarifa(t.proveedor);
+      const antes = CONFIG.tarifas[k] || {};
+      CONFIG.tarifas[k] = {nombre:t.proveedor, archivo:f.name, fecha:new Date(f.lastModified).toISOString().slice(0,10),
+                           cargada:todayStr(), filas:t.filas, pdf:antes.pdf||null};
+      hechos.push(pedNombreProv(k, t.proveedor) + ': ' + t.filas.length + ' productos');
+    }catch(e){ fallos.push(f.name + ': ' + (e.message||e)); }
+  }
+  if(hechos.length) await saveConfig();
+  alert((hechos.length ? 'Tarifas cargadas:\n• ' + hechos.join('\n• ') : 'No se ha cargado ninguna tarifa.')
+        + (fallos.length ? '\n\nNo se han podido leer:\n• ' + fallos.join('\n• ') : ''));
+  viewPedidos();
+}
+async function pedQuitarTarifa(clave){
+  if(!confirm('¿Quitar la tarifa cargada de ' + pedNombreProv(clave, (CONFIG.tarifas[clave]||{}).nombre) + '?')) return;
+  delete CONFIG.tarifas[clave];
+  await saveConfig();
+  viewPedidos();
+}
+/* Una línea de tarifa al pedido. Va con la descripción de la tarifa, que es la
+   que entiende el comercial. */
+async function pedAnadirDeTarifa(clave, i){
+  const f = tarifaDe(clave).filas[i];
+  if(!f || !PROVEEDORES_PEDIDO.some(p=>p.clave===clave)) return;
+  const ped = pedidoDe(clave);
+  const prod = (f.codigo ? f.codigo + ' ' : '') + f.descripcion;
+  if(!ped.lineas[prod]) ped.lineas[prod] = 1;
+  const ent = ultimaEntregaDe(clave);
+  ped.refEntrega = ent ? ent.ref : '';
+  PED_ABIERTOS.add(clave);
+  try{ await saveConfig(); }catch(e){}
+  viewPedidos();
+}
+function pedFilasTarifa(clave, q, conBoton){
+  const t = tarifaDe(clave);
+  const palabras = normTxt(q).split(' ').filter(Boolean);
+  const filas = t.filas.map((f,i)=>({f,i})).filter(({f})=>{
+    const d = normTxt(f.descripcion + ' ' + f.codigo);
+    return palabras.every(w=>d.includes(w));
+  });
+  if(!filas.length) return '<p class="hint">' + (t.filas.length ? 'Nada en la tarifa con esas letras.' : 'No hay tarifa cargada de este proveedor.') + '</p>';
+  return '<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Formato</th><th>Precio</th><th></th></tr></thead><tbody>'
+    + filas.slice(0, 200).map(({f,i})=>`<tr>
+        <td>${f.codigo?'<span class="mono" style="color:var(--ink-soft);">'+esc(f.codigo)+'</span> ':''}${esc(f.descripcion)}</td>
+        <td>${esc(f.formato)||'—'}</td>
+        <td class="mono" style="white-space:nowrap;">${pedEuros(f.precio)}</td>
+        <td>${conBoton?`<button class="btn secondary small" type="button" onclick="pedAnadirDeTarifa('${clave}', ${i})">+ Al pedido</button>`:''}</td>
+      </tr>`).join('') + '</tbody></table></div>'
+    + (filas.length > 200 ? '<p class="hint">Salen los 200 primeros. Escribe algo para afinar.</p>' : '');
+}
+function pedBuscarEnTarifa(clave){
+  const q = (document.getElementById('pedTarQ'+clave)||{}).value || '';
+  const host = document.getElementById('pedTar'+clave);
+  if(host) host.innerHTML = pedFilasTarifa(clave, q, true);
+}
+/* Buscar en TODAS las tarifas a la vez, por si no se sabe quién lo tiene o
+   para ver quién lo da más barato. */
+function pedBuscarTodas(){
+  const q = (document.getElementById('pedTarTodasQ')||{}).value || '';
+  const host = document.getElementById('pedTarTodas');
+  if(!host) return;
+  const palabras = normTxt(q).split(' ').filter(Boolean);
+  if(!palabras.length || q.trim().length < 3){ host.innerHTML = '<p class="hint">Escribe al menos 3 letras.</p>'; return; }
+  const res = [];
+  todasLasTarifas().forEach(t=>t.filas.forEach((f,i)=>{
+    const d = normTxt(f.descripcion + ' ' + f.codigo);
+    if(palabras.every(w=>d.includes(w))) res.push({t, f, i});
+  }));
+  if(!res.length){ host.innerHTML = '<p class="hint">Ninguna tarifa tiene eso.</p>'; return; }
+  res.sort((a,b)=>(a.f.precio==null) - (b.f.precio==null) || (a.f.precio||0) - (b.f.precio||0));
+  host.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Proveedor</th><th>Producto</th><th>Formato</th><th>Precio</th><th></th></tr></thead><tbody>'
+    + res.slice(0, 150).map(({t,f,i})=>`<tr>
+        <td><b>${esc(pedNombreProv(t.clave, t.nombre))}</b></td>
+        <td>${f.codigo?'<span class="mono" style="color:var(--ink-soft);">'+esc(f.codigo)+'</span> ':''}${esc(f.descripcion)}</td>
+        <td>${esc(f.formato)||'—'}</td>
+        <td class="mono" style="white-space:nowrap;">${pedEuros(f.precio)}</td>
+        <td>${PROVEEDORES_PEDIDO.some(p=>p.clave===t.clave)?`<button class="btn secondary small" type="button" onclick="pedAnadirDeTarifa('${t.clave}', ${i})">+ Al pedido</button>`:''}</td>
+      </tr>`).join('') + '</tbody></table></div>'
+    + '<p class="hint">Ordenado de más barato a más caro. Ojo: cada proveedor pone el precio a su manera (por kilo, por caja…), mira el formato.</p>';
+}
+async function pedCambiarCantidad(clave, el){
+  PED_ABIERTOS.add(clave);
+  await setCantidadPedido(clave, el.dataset.p, el.value);
+  const n = Object.keys(pedidoDe(clave).lineas||{}).length;
+  const b = document.getElementById('pedCuenta'+clave);
+  if(b) b.innerHTML = n ? '🛒 ' + n + ' en el pedido' : '';
+}
+function pedRecordarAbierto(clave, abierto){ if(abierto) PED_ABIERTOS.add(clave); else PED_ABIERTOS.delete(clave); }
+function pedProximoMartes(){
+  const d = new Date(); const dia = d.getDay();
+  if(dia === 2) return {hoy:true, fecha:todayStr()};
+  d.setDate(d.getDate() + ((2 - dia + 7) % 7));
+  return {hoy:false, fecha:d.toISOString().slice(0,10)};
+}
+
 function viewPedidos(){
   const host = document.getElementById('view-pedidos');
   if(!host) return;
   const avisos = [];
   PROVEEDORES_PEDIDO.forEach(p=>{ const f = resetSiYaLlego(p.clave); if(f) avisos.push(p.nombre+' (entrega del '+fmtDate(f)+')'); });
 
-  const bloques = PROVEEDORES_PEDIDO.map(prov=>{
-    const info = pedProductosDeProveedor(prov.clave);
+  const datos = PROVEEDORES_PEDIDO.map(prov=>({prov, info:pedProductosDeProveedor(prov.clave)}))
+    .filter(x=>x.info.habituales.length || Object.keys(pedidoDe(x.prov.clave).lineas||{}).length)
+    .sort((a,b)=>b.info.entregas - a.info.entregas);
+
+  const bloques = datos.map(({prov, info})=>{
     const ped = pedidoDe(prov.clave);
     const lineas = Object.entries(ped.lineas||{});
     const c = contactoDe(prov.clave);
-    const opt = x=>`<option value="${esc(x.producto)}">${esc(x.producto)}</option>`;
-    const filas = lineas.map(([pr,ca])=>`
+    const tar = tarifaDe(prov.clave);
+    const habit = new Set(info.habituales.map(x=>x.producto));
+    const filasHab = info.habituales.map(x=>{
+      const im = materiaDelAlbaran(x.producto);
+      const m = im >= 0 ? CONFIG.materiasPrimas[im] : null;
+      const st = m ? Number(m.stockActual) : NaN;
+      const bajo = m && isFinite(st) && st <= Number(m.stockMinimo||0);
+      const pr = pedPrecioDe(prov.clave, x);
+      return `<tr>
+        <td><b>${esc(x.producto)}</b>${normTxt(x.canon)!==normTxt(x.producto)?'<br><span style="font-size:13px;color:var(--ink-soft);">'+esc(x.canon)+'</span>':''}</td>
+        <td style="font-size:14px;">${x.veces} veces${x.suele?' · suelen venir '+esc(String(x.suele)):''}<br><span style="color:var(--ink-soft);">último ${fmtDate(x.ultima)}</span></td>
+        <td class="mono" style="${bajo?'color:#B0402E;font-weight:700;':''}">${m && isFinite(st) ? esc(String(st)) : '—'}</td>
+        <td style="font-size:14px;">${pr ? '<span class="mono">'+pedEuros(pr.precio)+'</span><br><span style="color:var(--ink-soft);font-size:12.5px;">'+esc(pr.descripcion)+'</span>' : '<span style="color:var(--ink-soft);">—</span>'}</td>
+        <td><input type="number" min="0" step="0.5" value="${ped.lineas[x.producto]!==undefined?esc(String(ped.lineas[x.producto])):''}" placeholder="0"
+             style="width:84px;font-size:17px;" data-p="${esc(x.producto)}" onchange="pedCambiarCantidad('${prov.clave}', this)"></td>
+      </tr>`;
+    }).join('');
+    const extra = lineas.filter(([pr])=>!habit.has(pr));
+    const filasExtra = extra.map(([pr,ca])=>`
       <tr>
         <td>${esc(pr)}</td>
-        <td><input type="number" min="0" step="0.5" value="${esc(String(ca))}" style="width:90px;font-size:17px;"
-             onchange="setCantidadPedido('${prov.clave}', this.dataset.p, this.value)" data-p="${esc(pr)}"></td>
-        <td><button class="btn secondary small" type="button" onclick="setCantidadPedido('${prov.clave}','${esc(pr).replace(/'/g,"\\'")}','')">Quitar</button></td>
+        <td><input type="number" min="0" step="0.5" value="${esc(String(ca))}" style="width:84px;font-size:17px;"
+             data-p="${esc(pr)}" onchange="pedCambiarCantidad('${prov.clave}', this)"></td>
+        <td><button class="btn secondary small" type="button" data-p="${esc(pr)}" onclick="PED_ABIERTOS.add('${prov.clave}');setCantidadPedido('${prov.clave}', this.dataset.p, '').then(viewPedidos)">Quitar</button></td>
       </tr>`).join('');
+    const abierto = PED_ABIERTOS.has(prov.clave);
     return `
-    <div class="panel">
-      <h2>${icon('truck')} ${esc(prov.nombre)}</h2>
-      <p class="hint">Todo lo que le has comprado desde el <b>${fmtDate(info.desde)}</b>, sin repetir${info.ultimaFecha?(' · último albarán, el '+fmtDate(info.ultimaFecha)):''}.
-        Arriba los que pides casi siempre; debajo, el resto por orden alfabético.
-        Si falta algo, escríbelo a mano.</p>
-      <div class="filters">
-        <label class="field wide"><span>Añadir producto al pedido</span>
-          <select id="pedSel${prov.clave}" onchange="anadirAlPedido('${prov.clave}')">
-            <option value="">Elige un producto…</option>
-            ${info.habituales.length?`<optgroup label="Los que pides casi siempre">${info.habituales.map(opt).join('')}</optgroup>`:''}
-            ${info.otros.length?`<optgroup label="Otros de los últimos albaranes">${info.otros.map(opt).join('')}</optgroup>`:''}
-          </select></label>
-        <label class="field wide"><span>¿No está en la lista? Escríbelo</span>
+    <details class="panel" style="margin-bottom:12px;" ${abierto?'open':''} ontoggle="pedRecordarAbierto('${prov.clave}', this.open)">
+      <summary style="cursor:pointer;list-style:revert;">
+        <span style="font-family:'Bitter',serif;font-size:21px;font-weight:700;">${esc(prov.nombre)}</span>
+        <span style="font-size:14px;color:var(--ink-soft);"> · ${info.habituales.length} productos habituales · último albarán ${info.ultimaFecha?fmtDate(info.ultimaFecha):'—'}</span>
+        <span id="pedCuenta${prov.clave}" style="margin-left:8px;font-size:14px;font-weight:700;color:var(--wheat-dark);">${lineas.length?'🛒 '+lineas.length+' en el pedido':''}</span>
+      </summary>
+      <p class="hint" style="margin-top:12px;">Lo que le compras a menudo: ha venido en ${PED_MIN_VECES} entregas o más desde el ${fmtDate(info.desde)}
+        (${info.entregas} entregas en total). ${info.ocasionales ? 'Se dejan fuera ' + info.ocasionales + ' productos pedidos solo una o dos veces.' : ''}
+        Pon la cantidad y se apunta sola. La columna «Hay» es el stock que calcula la app; en rojo, si está en el mínimo o por debajo.</p>
+      ${info.habituales.length ? `<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cada cuánto</th><th>Hay</th><th>Tarifa</th><th>Pedir</th></tr></thead><tbody>${filasHab}</tbody></table></div>` : ''}
+      ${filasExtra ? `<h3 style="margin:16px 0 6px;font-size:16px;">Además en este pedido</h3>
+        <div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th></th></tr></thead><tbody>${filasExtra}</tbody></table></div>` : ''}
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;font-size:15px;font-weight:600;">📄 Buscar en la tarifa de ${esc(prov.nombre)}
+          <span style="font-weight:400;color:var(--ink-soft);font-size:13.5px;">${tar.filas.length ? '· ' + tar.filas.length + ' productos' + (tar.archivo ? ' · ' + esc(tar.archivo) : '') + (tar.fecha ? ' (' + fmtDate(tar.fecha) + ')' : '') : '· no hay tarifa cargada'}</span></summary>
+        ${tar.pdf ? `<p style="margin:8px 0;"><a href="${esc(tar.pdf.url)}" target="_blank" rel="noopener">Abrir la tarifa en PDF (${esc(tar.pdf.archivo)})</a></p>` : ''}
+        ${tar.filas.length ? `<input type="text" id="pedTarQ${prov.clave}" placeholder="Escribe parte del nombre…" oninput="pedBuscarEnTarifa('${prov.clave}')" style="width:100%;max-width:420px;margin:10px 0;font-size:16px;">
+        <div id="pedTar${prov.clave}">${pedFilasTarifa(prov.clave, '', true)}</div>` : ''}
+      </details>
+      <div class="filters" style="margin-top:12px;">
+        <label class="field wide"><span>¿No está en ninguna lista? Escríbelo</span>
           <span class="cierre-linea">
             <input type="text" id="pedManual${prov.clave}" placeholder="Nombre del producto…"
-                   onkeydown="if(event.key==='Enter'){event.preventDefault();anadirManualAlPedido('${prov.clave}','pedManual${prov.clave}');}">
-            <button class="btn small" type="button" onclick="anadirManualAlPedido('${prov.clave}','pedManual${prov.clave}')">Añadir</button>
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();PED_ABIERTOS.add('${prov.clave}');anadirManualAlPedido('${prov.clave}','pedManual${prov.clave}');}">
+            <button class="btn small" type="button" onclick="PED_ABIERTOS.add('${prov.clave}');anadirManualAlPedido('${prov.clave}','pedManual${prov.clave}')">Añadir</button>
           </span></label>
       </div>
-      ${filas
-        ? `<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>
-           <div style="margin-top:10px;"><button class="btn secondary small" type="button" onclick="vaciarPedido('${prov.clave}')">Vaciar este pedido</button></div>`
-        : '<p class="hint">Todavía no has puesto nada para este proveedor.</p>'}
+      ${lineas.length ? `<button class="btn secondary small" type="button" onclick="PED_ABIERTOS.add('${prov.clave}');vaciarPedido('${prov.clave}')">Vaciar este pedido</button>` : ''}
       <details style="margin-top:14px;">
-        <summary style="cursor:pointer;font-size:14px;color:var(--ink-soft);">Datos del comercial</summary>
+        <summary style="cursor:pointer;font-size:14px;color:var(--ink-soft);">Datos del comercial${c.nombre?' · '+esc(c.nombre):''}</summary>
         <div class="record-form" style="margin-top:10px;">
           <label class="field"><span>Nombre</span><input type="text" value="${esc(c.nombre)}" onchange="guardarContacto('${prov.clave}','nombre',this.value)"></label>
           <label class="field"><span>Móvil (WhatsApp)</span><input type="tel" value="${esc(c.movil)}" placeholder="6XX XXX XXX" onchange="guardarContacto('${prov.clave}','movil',this.value)"></label>
           <label class="field"><span>Correo</span><input type="email" value="${esc(c.email)}" onchange="guardarContacto('${prov.clave}','email',this.value)"></label>
         </div>
       </details>
-    </div>`;
+    </details>`;
   }).join('');
+
+  const tarifas = todasLasTarifas();
+  const filasTar = tarifas.map(t=>`<tr>
+      <td><b>${esc(pedNombreProv(t.clave, t.nombre))}</b></td>
+      <td>${t.filas.length || '—'}</td>
+      <td style="font-size:14px;">${esc(t.archivo)||'—'}${t.fecha?' <span class="mono">('+fmtDate(t.fecha)+')</span>':''}</td>
+      <td>${t.pdf?`<a href="${esc(t.pdf.url)}" target="_blank" rel="noopener">PDF</a>`:''}</td>
+      <td>${(CONFIG.tarifas||{})[t.clave]?`<button class="btn secondary small" type="button" onclick="pedQuitarTarifa('${t.clave}')">Quitar</button>`:''}</td>
+    </tr>`).join('');
+  const martes = pedProximoMartes();
 
   host.innerHTML = `
     ${avisos.length ? `<div style="background:var(--ok-tint);border:1px solid #C9DCC2;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:15px;line-height:1.5;">
        <b>Pedido servido, cantidades a cero.</b> Ha entrado mercancía de ${esc(avisos.join(' y '))}, así que su pedido se ha vaciado para la semana que viene.</div>` : ''}
     <div class="panel" style="margin-bottom:16px;">
-      <h2>${icon('truck')} Pedido de la semana</h2>
-      <p class="hint">Pon las cantidades que hacen falta esta semana. <b>Cuando llegue la mercancía al obrador y se registre el albarán, ese pedido se pone a cero solo</b> y empiezas de nuevo. Abajo del todo tienes el pedido listo para mandárselo a cada comercial.</p>
+      <h2>${icon('truck')} Pedidos a proveedores</h2>
+      <p style="font-size:17px;margin:4px 0 10px;">${martes.hoy ? '<b>Hoy es martes: toca hacer los pedidos.</b>' : 'Los pedidos se hacen los martes. El próximo, el <b>' + fmtDate(martes.fecha) + '</b>.'}</p>
+      <p class="hint">Abre cada proveedor, pon las cantidades y abajo del todo tienes el pedido listo para mandarlo por WhatsApp o correo.
+        Si necesitas algo que no suele pedirse, búscalo en su tarifa. <b>Cuando llega la mercancía y se registra el albarán, ese pedido se pone a cero solo.</b></p>
     </div>
     ${bloques}
     <div id="pedResumen"></div>
+    <div class="panel" style="margin-top:26px;">
+      <h2>${icon('book')} Buscar en todas las tarifas</h2>
+      <p class="hint">Para saber quién tiene un producto y a cuánto, sin tener que abrir los Excel.</p>
+      <input type="text" id="pedTarTodasQ" placeholder="Ej.: nueces, bandeja, cobertura…" oninput="pedBuscarTodas()" style="width:100%;max-width:420px;margin:6px 0 10px;font-size:16px;">
+      <div id="pedTarTodas"><p class="hint">Escribe al menos 3 letras.</p></div>
+    </div>
+    <div class="panel">
+      <h2>${icon('book')} Tarifas de proveedores</h2>
+      <p class="hint">Cuando un proveedor te mande una tarifa nueva, cárgala aquí (Excel .xlsx o PDF) y sustituye a la anterior. Se pueden elegir varios archivos a la vez.
+        Se guardan en tu Drive, no en la app.</p>
+      <label class="btn secondary" style="display:inline-block;cursor:pointer;margin:6px 0 12px;">📂 Cargar o actualizar tarifas
+        <input type="file" id="pedTarArchivos" accept=".xlsx,.pdf" multiple onchange="pedCargarTarifas(this)" style="display:none;"></label>
+      ${filasTar ? `<div class="table-wrap"><table><thead><tr><th>Proveedor</th><th>Productos</th><th>Archivo</th><th></th><th></th></tr></thead><tbody>${filasTar}</tbody></table></div>` : '<p class="hint">Todavía no hay ninguna tarifa.</p>'}
+    </div>
     <div id="pedHistorial" style="margin-top:26px;"></div>`;
   pintarResumenPedido();
   pintarHistorialPedidos();
 }
+
 
 function viewMateriasPrimas(){
   document.getElementById('view-materiasprimas').innerHTML = `
