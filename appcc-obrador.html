@@ -354,7 +354,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-10-a';
+const APP_VERSION = '2026-11-10-b';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -4133,11 +4133,13 @@ function pedNombreProv(clave, porDefecto){
   const p = PROVEEDORES_PEDIDO.find(x=>x.clave===clave);
   return p ? p.nombre : (porDefecto || clave);
 }
-const PED_VACIAS = /^(kg|kgs|uds|ud|unid|caja|saco|cubo|bote|bolsa|lata|del|con|para|las|los|una|sin|tipo|extra)$/;
+const PED_VACIAS = /^(kg|kgs|uds|ud|unid|caja|caj|saco|cubo|cub|bote|bolsa|lata|paq|pte|del|con|para|las|los|una|sin|tipo|extra)$/;
 function pedPalabras(t){
   return normTxt(t).split(' ').filter(w=>w.length>=3 && !PED_VACIAS.test(w) && !/^\d/.test(w));
 }
-function pedNumero(t){ const m = normTxt(t).match(/\bn\s?(\d+)\b/); return m ? m[1] : null; }
+function pedNumero(t){ const m = normTxt(t).match(/\bn\s?(\d+)\b/); return m ? String(parseInt(m[1],10)) : null; }   // «N.04» es la nº 4
+const pedCm = t=>{ const m = normTxt(t).match(/\b(\d+)\s?(cm|cms|c)\b/); return m ? m[1] : null; };
+const pedOro = t=>/\b(oro|dorad[oa]s?)\b/.test(normTxt(t));
 /* El precio de un producto habitual en la tarifa de su proveedor. Solo se da si
    casa claramente; se enseña la línea de la tarifa para que se vea de dónde sale. */
 function pedPrecioDe(clave, x){
@@ -4151,11 +4153,14 @@ function pedPrecioDe(clave, x){
     if(f.precio === null) return;
     const nf = pedNumero(f.descripcion);
     if(nf && nf !== num) return;                 // bandeja nº 2 no es la nº 4
+    if(pedOro(f.descripcion) !== pedOro(x.producto)) return;   // ni la dorada es la normal
+    const cf = pedCm(f.descripcion), cp = pedCm(x.producto);
+    if(cf && cp && cf !== cp) return;           // tiras de 52 cm no son las de 75
     const pf = pedPalabras(f.descripcion);
     if(!pf.length) return;
     const comunes = pf.filter(w=>pa.has(w)).length;
     const s = comunes / pf.length + comunes * 0.01;
-    if(comunes && s > ms){ ms = s; mejor = f; }
+    if(comunes && (comunes >= 2 || pf.length === 1) && s > ms){ ms = s; mejor = f; }   // con una sola palabra en común no basta
   });
   return ms >= 0.5 ? mejor : null;
 }
