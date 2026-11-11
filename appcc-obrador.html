@@ -354,7 +354,7 @@
 
 <script>
 /* ---------- CONFIG & STORAGE ---------- */
-const APP_VERSION = '2026-11-10-c';
+const APP_VERSION = '2026-11-11-a';
 const STORE_KEYS = {
   config:'config',
   temperaturas:'records:temperaturas',
@@ -3769,8 +3769,8 @@ const PROVEEDORES_PEDIDO = [
   {clave:'PURATOS',     nombre:'Puratos',                  re:/puratos/},
   {clave:'COHEPA',      nombre:'Distribuidora Cohepa',     re:/cohepa/},
   {clave:'SANLORENZO',  nombre:'Harinera San Lorenzo',     re:/lorenzo/},
-  {clave:'BMENDEZ',     nombre:'Bartolomé Méndez',         re:/mendez/},
-  {clave:'MOLINO',      nombre:'Harinera El Molino',       re:/molino/},
+  // Bartolomé Méndez es Harinera El Molino: el mismo proveedor (Berta, 11/11)
+  {clave:'MOLINO',      nombre:'Harinera El Molino (Bartolomé Méndez)', re:/molino|mendez/},
 ];
 const PED_ULTIMOS_ALBARANES = 10;
 
@@ -4077,6 +4077,27 @@ function pedDesde(){
   return s < '2026-01-01' ? '2026-01-01' : s;
 }
 /* Nombre del catálogo, para que «PROKORN 25KG» y «Prokorn saco» cuenten juntos. */
+/* Lo que Berta ha quitado de la lista de cada proveedor (se compra a otro, o ya no
+   se usa). Se guarda por proveedor: quitar el queso crema de Pariente no lo quita
+   de Novaservice. */
+function pedOcultosDe(clave){ return ((CONFIG.pedidoOcultos||{})[clave]) || []; }
+async function pedOcultar(clave, el){
+  const canon = el.dataset.c;
+  if(!confirm('¿Quitar «' + canon + '» de la lista de ' + pedNombreProv(clave) + '?\n\nSe puede volver a poner desde «Quitados de la lista».')) return;
+  CONFIG.pedidoOcultos = CONFIG.pedidoOcultos || {};
+  const l = new Set(CONFIG.pedidoOcultos[clave]||[]); l.add(normTxt(canon));
+  CONFIG.pedidoOcultos[clave] = [...l];
+  PED_ABIERTOS.add(clave);
+  await saveConfig();
+  viewPedidos();
+}
+async function pedMostrar(clave, el){
+  CONFIG.pedidoOcultos = CONFIG.pedidoOcultos || {};
+  CONFIG.pedidoOcultos[clave] = (CONFIG.pedidoOcultos[clave]||[]).filter(k=>k !== normTxt(el.dataset.c));
+  PED_ABIERTOS.add(clave);
+  await saveConfig();
+  viewPedidos();
+}
 function pedCanon(prod){
   try{ const im = materiaDelAlbaran(prod); if(im >= 0) return CONFIG.materiasPrimas[im].nombre; }catch(e){}
   try{ return resolverNombreProducto(prod) || prod; }catch(e){ return prod; }
@@ -4104,8 +4125,10 @@ function pedProductosDeProveedor(clave){
     return {producto:g.etiqueta, canon:g.canon, veces:g.alb.size, ultima:g.fecha, suele: qs.length ? qs[Math.floor(qs.length/2)] : null};
   });
   const ult = ultimosAlbaranesDe(clave);
+  const ocultos = new Set(pedOcultosDe(clave));
   return {
-    habituales: todos.filter(x=>x.veces >= PED_MIN_VECES).sort((a,b)=> b.veces-a.veces || a.producto.localeCompare(b.producto,'es')),
+    habituales: todos.filter(x=>x.veces >= PED_MIN_VECES && !ocultos.has(normTxt(x.canon))).sort((a,b)=> b.veces-a.veces || a.producto.localeCompare(b.producto,'es')),
+    quitados: todos.filter(x=>ocultos.has(normTxt(x.canon))).map(x=>x.canon).sort((a,b)=>a.localeCompare(b,'es')),
     otros: [],                     // lo ocasional ya no se ofrece (Berta, 10/11)
     ocasionales: todos.filter(x=>x.veces < PED_MIN_VECES).length,
     entregas: entregas.size,
@@ -4401,8 +4424,10 @@ function viewPedidos(){
         <td style="font-size:14px;">${x.veces} veces${x.suele?' · suelen venir '+esc(String(x.suele)):''}<br><span style="color:var(--ink-soft);">último ${fmtDate(x.ultima)}</span></td>
         <td class="mono" style="${bajo?'color:#B0402E;font-weight:700;':''}">${m && isFinite(st) ? esc(String(st)) : '—'}</td>
         <td style="font-size:14px;">${pr ? '<span class="mono">'+pedEuros(pr.precio)+'</span><br><span style="color:var(--ink-soft);font-size:12.5px;">'+esc(pr.descripcion)+'</span>' : '<span style="color:var(--ink-soft);">—</span>'}</td>
-        <td><input type="number" min="0" step="0.5" value="${ped.lineas[x.producto]!==undefined?esc(String(ped.lineas[x.producto])):''}" placeholder="0"
-             style="width:84px;font-size:17px;" data-p="${esc(x.producto)}" onchange="pedCambiarCantidad('${prov.clave}', this)"></td>
+        <td style="white-space:nowrap;"><input type="number" min="0" step="0.5" value="${ped.lineas[x.producto]!==undefined?esc(String(ped.lineas[x.producto])):''}" placeholder="0"
+             style="width:84px;font-size:17px;" data-p="${esc(x.producto)}" onchange="pedCambiarCantidad('${prov.clave}', this)">
+          <button type="button" title="Quitar de la lista de este proveedor" data-c="${esc(x.canon)}" onclick="pedOcultar('${prov.clave}', this)"
+             style="margin-left:6px;border:1px solid var(--line);background:transparent;border-radius:8px;padding:4px 9px;cursor:pointer;color:var(--ink-soft);">✕</button></td>
       </tr>`;
     }).join('');
     const extra = lineas.filter(([pr])=>!habit.has(pr));
@@ -4423,8 +4448,10 @@ function viewPedidos(){
       </summary>
       <p class="hint" style="margin-top:12px;">Lo que le compras a menudo: ha venido en ${PED_MIN_VECES} entregas o más desde el ${fmtDate(info.desde)}
         (${info.entregas} entregas en total). ${info.ocasionales ? 'Se dejan fuera ' + info.ocasionales + ' productos pedidos solo una o dos veces.' : ''}
-        Pon la cantidad y se apunta sola. La columna «Hay» es el stock que calcula la app; en rojo, si está en el mínimo o por debajo.</p>
+        Pon la cantidad y se apunta sola. Con la ✕ quitas de la lista lo que ya no le pides. La columna «Hay» es el stock que calcula la app; en rojo, si está en el mínimo o por debajo.</p>
       ${info.habituales.length ? `<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cada cuánto</th><th>Hay</th><th>Tarifa</th><th>Pedir</th></tr></thead><tbody>${filasHab}</tbody></table></div>` : ''}
+      ${info.quitados.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:14px;color:var(--ink-soft);">Quitados de la lista (${info.quitados.length})</summary>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">${info.quitados.map(c=>`<button type="button" class="btn secondary small" data-c="${esc(c)}" onclick="pedMostrar('${prov.clave}', this)" title="Volver a ponerlo en la lista">↩ ${esc(c)}</button>`).join('')}</div></details>` : ''}
       ${filasExtra ? `<h3 style="margin:16px 0 6px;font-size:16px;">Además en este pedido</h3>
         <div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th></th></tr></thead><tbody>${filasExtra}</tbody></table></div>` : ''}
       <details style="margin-top:14px;">
